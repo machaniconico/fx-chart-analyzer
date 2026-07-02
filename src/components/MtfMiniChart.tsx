@@ -111,14 +111,12 @@ export function MtfMiniChart({
     const sma20 = chart.addLineSeries({
       color: lineColors.sma20,
       lineWidth: overlayLineWidth,
-      title: 'SMA20',
       ...hiddenOverlayPriceAxisOptions,
     });
     sma20.setData(toLineData(bars, computed.sma20));
     const sma50 = chart.addLineSeries({
       color: lineColors.sma50,
       lineWidth: overlayLineWidth,
-      title: 'SMA50',
       ...hiddenOverlayPriceAxisOptions,
     });
     sma50.setData(toLineData(bars, computed.sma50));
@@ -127,14 +125,12 @@ export function MtfMiniChart({
     const conversion = chart.addLineSeries({
       color: lineColors.tenkan,
       lineWidth: overlayLineWidth,
-      title: '転換線',
       ...hiddenOverlayPriceAxisOptions,
     });
     conversion.setData(toLineData(bars, computed.ichimoku.conversion));
     const base = chart.addLineSeries({
       color: lineColors.kijun,
       lineWidth: overlayLineWidth,
-      title: '基準線',
       ...hiddenOverlayPriceAxisOptions,
     });
     base.setData(toLineData(bars, computed.ichimoku.base));
@@ -143,7 +139,6 @@ export function MtfMiniChart({
       bottomColor: 'rgba(57, 210, 143, 0.01)',
       lineColor: 'rgba(91, 177, 139, 0.42)',
       lineWidth: overlayLineWidth,
-      title: '先行スパンA',
       ...hiddenOverlayPriceAxisOptions,
     });
     spanA.setData(toFutureLineData(bars, computed.ichimoku.leadingSpanA, stepSeconds) as AreaData[]);
@@ -152,7 +147,6 @@ export function MtfMiniChart({
       bottomColor: 'rgba(255, 91, 120, 0.01)',
       lineColor: 'rgba(211, 105, 122, 0.40)',
       lineWidth: overlayLineWidth,
-      title: '先行スパンB',
       ...hiddenOverlayPriceAxisOptions,
     });
     spanB.setData(toFutureLineData(bars, computed.ichimoku.leadingSpanB, stepSeconds) as AreaData[]);

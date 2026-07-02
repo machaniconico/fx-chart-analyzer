@@ -22,6 +22,8 @@ const defaultToggles: IndicatorToggles = {
   bb: false,
   ichimoku: false,
   supportResistance: false,
+  newsMarkers: true,
+  patternMarkers: true,
 };
 
 const indicatorTogglesStorageKey = 'fx-chart-analyzer.indicator-toggles.v1';
@@ -35,6 +37,8 @@ const indicatorLabels: Array<[keyof IndicatorToggles, string]> = [
   ['bb', 'BB'],
   ['ichimoku', '一目雲'],
   ['supportResistance', 'サポレジ'],
+  ['newsMarkers', 'ニュース'],
+  ['patternMarkers', 'パターン'],
 ];
 
 const emptyCalendarEvents: CalendarEvent[] = [];
