@@ -166,6 +166,22 @@ input:disabled {
   accent-color: #20c997;
 }
 
+.mtf-toggle {
+  margin-bottom: 12px;
+}
+
+.mtf-select-label {
+  margin-top: 12px;
+}
+
+.control-hint {
+  display: block;
+  margin-top: 7px;
+  color: #8e9bb3;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .market-card {
   display: grid;
   gap: 7px;
@@ -570,6 +586,16 @@ input:disabled {
   overflow: hidden;
 }
 
+.primary-chart-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.primary-chart-layout-mtf {
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.72fr);
+  align-items: start;
+}
+
 .chart-heading {
   display: flex;
   align-items: center;
@@ -774,6 +800,96 @@ input:disabled {
 
 .chart-area-sub {
   min-height: 170px;
+}
+
+.chart-area-mtf {
+  min-height: 312px;
+}
+
+.mtf-card {
+  min-width: 0;
+}
+
+.mtf-signal-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(142, 155, 179, 0.14);
+}
+
+.mtf-signal-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.mtf-signal-topline strong {
+  display: block;
+  color: #ecf2ff;
+  font-size: 17px;
+}
+
+.signal-meter.signal-meter-compact {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 0;
+}
+
+.signal-meter-compact .meter-step {
+  gap: 5px;
+  font-size: 10px;
+}
+
+.signal-meter-compact .meter-step span {
+  height: 7px;
+}
+
+.mtf-alignment,
+.mtf-latest-price {
+  margin: 0;
+  color: #b9c2d0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mtf-alignment {
+  border-left: 3px solid rgba(142, 155, 179, 0.38);
+  padding-left: 9px;
+}
+
+.mtf-alignment-aligned {
+  border-color: rgba(32, 201, 151, 0.72);
+}
+
+.mtf-alignment-diverged {
+  border-color: rgba(255, 91, 120, 0.72);
+}
+
+.mtf-alignment-neutral {
+  border-color: rgba(245, 206, 98, 0.72);
+}
+
+.mtf-latest-price {
+  color: #8e9bb3;
+}
+
+.mtf-placeholder {
+  min-height: 312px;
+}
+
+.mtf-state-message {
+  min-height: 258px;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  color: #b9c2d0;
+  text-align: center;
+}
+
+.mtf-state-error {
+  color: #ff8b9e;
 }
 
 .ea-builder-stack,
@@ -1095,6 +1211,10 @@ footer {
     grid-template-columns: 1fr;
   }
 
+  .primary-chart-layout-mtf {
+    grid-template-columns: 1fr;
+  }
+
   .learning-card-wide {
     grid-row: auto;
   }
@@ -1149,5 +1269,18 @@ footer {
 
   .cot-toolbar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chart-area-main {
+    min-height: 430px;
+  }
+
+  .chart-area-mtf {
+    min-height: 300px;
+  }
+
+  .mtf-signal-topline {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

@@ -8,6 +8,7 @@ import { SignalPanel } from './components/SignalPanel';
 import { loadCalendar, type CalendarEvent, type CalendarFile } from './lib/calendar';
 import { loadCot, type CotFile } from './lib/cot';
 import { formatPrice, lastBar, loadAdaptiveStats, loadBars, type AdaptiveStatsFile } from './lib/chart-data';
+import { getDefaultMtfTimeframe, getSelectableMtfTimeframes } from './lib/mtf';
 import { analyzeSignals } from './lib/signals';
 import type { DataFile, Pair, Timeframe } from './types';
 import { PAIRS, TIMEFRAMES, timeframeLabels } from './types';
@@ -43,14 +44,24 @@ function App() {
   const [timeframe, setTimeframe] = useState<Timeframe>('h1');
   const [activeTab, setActiveTab] = useState<ActiveTab>('chart');
   const [toggles, setToggles] = useState<IndicatorToggles>(defaultToggles);
+  const [mtfEnabled, setMtfEnabled] = useState(false);
+  const [mtfTimeframe, setMtfTimeframe] = useState<Timeframe>(() => getDefaultMtfTimeframe('h1'));
   const [data, setData] = useState<DataFile | null>(null);
+  const [mtfData, setMtfData] = useState<DataFile | null>(null);
   const [calendar, setCalendar] = useState<CalendarFile | null>(null);
   const [cot, setCot] = useState<CotFile | null>(null);
   const [cotError, setCotError] = useState<string | null>(null);
   const [adaptiveStats, setAdaptiveStats] = useState<AdaptiveStatsFile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mtfError, setMtfError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mtfLoading, setMtfLoading] = useState(false);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  const safeMtfTimeframe = mtfTimeframe === timeframe ? getDefaultMtfTimeframe(timeframe) : mtfTimeframe;
+  const selectableMtfTimeframes = useMemo(
+    () => getSelectableMtfTimeframes(timeframe),
+    [timeframe],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -83,6 +94,47 @@ function App() {
       disposed = true;
     };
   }, [pair, timeframe]);
+
+  useEffect(() => {
+    setMtfTimeframe((currentTimeframe) =>
+      currentTimeframe === timeframe ? getDefaultMtfTimeframe(timeframe) : currentTimeframe,
+    );
+  }, [timeframe]);
+
+  useEffect(() => {
+    if (!mtfEnabled) {
+      setMtfData(null);
+      setMtfError(null);
+      setMtfLoading(false);
+      return;
+    }
+
+    let disposed = false;
+    setMtfLoading(true);
+    setMtfError(null);
+    setMtfData(null);
+    loadBars(pair, safeMtfTimeframe)
+      .then((payload) => {
+        if (!disposed) {
+          setMtfData(payload);
+        }
+      })
+      .catch((reason: unknown) => {
+        if (!disposed) {
+          setMtfError(reason instanceof Error ? reason.message : 'MTFデータ読み込みに失敗しました');
+          setMtfData(null);
+        }
+      })
+      .finally(() => {
+        if (!disposed) {
+          setMtfLoading(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [mtfEnabled, pair, safeMtfTimeframe]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -136,6 +188,10 @@ function App() {
   const signalAnalysis = useMemo(
     () => (data ? analyzeSignals(data.bars) : null),
     [data],
+  );
+  const mtfSignalAnalysis = useMemo(
+    () => (mtfData ? analyzeSignals(mtfData.bars) : null),
+    [mtfData],
   );
   const calendarEvents = calendar?.events ?? emptyCalendarEvents;
 
@@ -213,26 +269,54 @@ function App() {
           </div>
 
           {activeTab === 'chart' && (
-            <div className="panel-section">
-              <span className="field-label">指標</span>
-              <div className="toggle-grid">
-                {indicatorLabels.map(([key, label]) => (
-                  <label key={key} className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={toggles[key]}
-                      onChange={(event) =>
-                        setToggles((currentToggles) => ({
-                          ...currentToggles,
-                          [key]: event.target.checked,
-                        }))
-                      }
-                    />
-                    <span>{label}</span>
-                  </label>
-                ))}
+            <>
+              <div className="panel-section">
+                <span className="field-label">指標</span>
+                <div className="toggle-grid">
+                  {indicatorLabels.map(([key, label]) => (
+                    <label key={key} className="toggle">
+                      <input
+                        type="checkbox"
+                        checked={toggles[key]}
+                        onChange={(event) =>
+                          setToggles((currentToggles) => ({
+                            ...currentToggles,
+                            [key]: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
-            </div>
+
+              <div className="panel-section">
+                <span className="field-label">マルチタイムフレーム</span>
+                <label className="toggle mtf-toggle">
+                  <input
+                    type="checkbox"
+                    checked={mtfEnabled}
+                    onChange={(event) => setMtfEnabled(event.target.checked)}
+                  />
+                  <span>MTF表示</span>
+                </label>
+                <label className="field-label mtf-select-label" htmlFor="mtf-timeframe">
+                  セカンダリ時間足
+                </label>
+                <select
+                  id="mtf-timeframe"
+                  value={safeMtfTimeframe}
+                  disabled={!mtfEnabled}
+                  onChange={(event) => setMtfTimeframe(event.target.value as Timeframe)}
+                >
+                  {selectableMtfTimeframes.map((item) => (
+                    <option key={item} value={item}>{timeframeLabels[item]}</option>
+                  ))}
+                </select>
+                <small className="control-hint">メインと同じ時間足は選択できません。</small>
+              </div>
+            </>
           )}
 
           <div className="panel-section market-card">
@@ -258,6 +342,15 @@ function App() {
                   timeframe={timeframe}
                   toggles={toggles}
                   calendarEvents={calendarEvents}
+                  mainSignalAnalysis={signalAnalysis}
+                  mtf={{
+                    enabled: mtfEnabled,
+                    timeframe: safeMtfTimeframe,
+                    bars: mtfData?.bars ?? null,
+                    analysis: mtfSignalAnalysis,
+                    loading: mtfLoading,
+                    error: mtfError,
+                  }}
                   now={now}
                 />
                 {signalAnalysis && <SignalPanel analysis={signalAnalysis} />}
