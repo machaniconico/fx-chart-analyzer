@@ -7,25 +7,33 @@ import {
   LineWidth,
   Time,
 } from 'lightweight-charts';
-import { formatPrice } from './chart-data';
 import type { SupportResistanceLevel } from './levels';
-import type { Bar, Pair, Timeframe } from '../types';
+import type { Bar, Timeframe } from '../types';
 
 export const chartLineColors = {
-  sma20: '#f8d66d',
-  sma50: '#59d6ff',
-  sma200: '#ff6b8a',
-  ema12: '#a4ff7a',
-  ema26: '#d88bff',
-  bb: '#8e9bb3',
-  tenkan: '#ff8a3d',
-  kijun: '#6bdcff',
-  spanA: 'rgba(57, 210, 143, 0.22)',
-  spanB: 'rgba(255, 91, 120, 0.20)',
+  sma20: '#d8bd69',
+  sma50: '#67b9d5',
+  sma200: '#d96b81',
+  ema12: '#8ac76e',
+  ema26: '#b982d0',
+  bb: '#8a96ad',
+  tenkan: '#d68555',
+  kijun: '#73b8ce',
+  spanA: 'rgba(57, 210, 143, 0.10)',
+  spanB: 'rgba(255, 91, 120, 0.09)',
   rsi: '#f5ce62',
   macd: '#61dafb',
   signal: '#ff9f43',
 };
+
+export const overlayLineWidth: LineWidth = 1;
+
+export const hiddenOverlayPriceAxisOptions = {
+  lastValueVisible: false,
+  priceLineVisible: false,
+} as const;
+
+const supportResistanceDisplayLimit = 5;
 
 export const timeframeSeconds: Record<Timeframe, number> = {
   h1: 60 * 60,
@@ -77,34 +85,28 @@ export const createBaseChart = (container: HTMLDivElement, height: number): ICha
   });
 
 const priceLineColor = (level: SupportResistanceLevel): string => {
-  const alpha = Math.min(0.9, 0.32 + level.strength * 0.11);
+  const alpha = Math.min(0.72, 0.28 + level.strength * 0.08);
   return level.direction === 'support'
     ? `rgba(32, 201, 151, ${alpha.toFixed(2)})`
     : `rgba(255, 91, 120, ${alpha.toFixed(2)})`;
 };
 
-const priceLineWidth = (level: SupportResistanceLevel): LineWidth => {
-  if (level.strength >= 5) {
-    return 3;
-  }
-  if (level.strength >= 2.5) {
-    return 2;
-  }
-  return 1;
-};
-
 const priceLineStyle = (level: SupportResistanceLevel): LineStyle =>
   level.touches >= 3 ? LineStyle.Solid : LineStyle.Dashed;
 
-export const createSupportResistancePriceLineOptions = (
-  pair: Pair,
-  level: SupportResistanceLevel,
-) => ({
+export const visibleSupportResistanceLevels = (
+  levels: readonly SupportResistanceLevel[],
+): SupportResistanceLevel[] =>
+  [...levels]
+    .sort((a, b) => b.strength - a.strength || a.distancePct - b.distancePct)
+    .slice(0, supportResistanceDisplayLimit);
+
+export const createSupportResistancePriceLineOptions = (level: SupportResistanceLevel) => ({
   price: level.price,
   color: priceLineColor(level),
-  lineWidth: priceLineWidth(level),
+  lineWidth: overlayLineWidth,
   lineStyle: priceLineStyle(level),
-  axisLabelVisible: true,
+  axisLabelVisible: false,
   lineVisible: true,
-  title: `${formatPrice(pair, level.price)} ${level.direction === 'support' ? 'S' : 'R'} ${level.touches}回`,
+  title: `${level.direction === 'support' ? 'S' : 'R'}×${level.touches}`,
 });

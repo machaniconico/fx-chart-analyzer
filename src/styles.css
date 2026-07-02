@@ -612,6 +612,35 @@ input:disabled {
   font-weight: 700;
 }
 
+.overlay-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 14px 0;
+}
+
+.overlay-legend-chip {
+  min-height: 23px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(142, 155, 179, 0.18);
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: rgba(17, 24, 36, 0.72);
+  color: #b9c2d0;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.overlay-legend-chip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
 .news-banner,
 .warning-banner {
   display: grid;
@@ -735,6 +764,12 @@ input:disabled {
 
 .drawing-status small {
   color: #8e9bb3;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  opacity: 0.58;
 }
 
 .impact-dot {
@@ -1338,6 +1373,21 @@ footer {
   .drawing-status {
     align-items: start;
     flex-direction: column;
+    gap: 4px;
+  }
+
+  .drawing-status small {
+    width: 100%;
+  }
+
+  .overlay-legend {
+    gap: 5px;
+    padding-inline: 10px;
+  }
+
+  .overlay-legend-chip {
+    min-height: 22px;
+    padding-inline: 6px;
   }
 
   .probability-card {

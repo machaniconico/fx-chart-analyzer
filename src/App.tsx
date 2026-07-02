@@ -19,10 +19,12 @@ const defaultToggles: IndicatorToggles = {
   sma200: false,
   ema12: false,
   ema26: false,
-  bb: true,
-  ichimoku: true,
-  supportResistance: true,
+  bb: false,
+  ichimoku: false,
+  supportResistance: false,
 };
+
+const indicatorTogglesStorageKey = 'fx-chart-analyzer.indicator-toggles.v1';
 
 const indicatorLabels: Array<[keyof IndicatorToggles, string]> = [
   ['sma20', 'SMA20'],
@@ -45,11 +47,41 @@ const dataLoadErrorMessage = (reason: unknown, fallback: string): string => {
 
 type ActiveTab = 'chart' | 'prediction' | 'cot' | 'calendar' | 'ea';
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const loadStoredIndicatorToggles = (): IndicatorToggles => {
+  if (typeof window === 'undefined') {
+    return defaultToggles;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(indicatorTogglesStorageKey);
+    if (!raw) {
+      return defaultToggles;
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) {
+      return defaultToggles;
+    }
+
+    const restored = { ...defaultToggles };
+    (Object.keys(defaultToggles) as Array<keyof IndicatorToggles>).forEach((key) => {
+      if (typeof parsed[key] === 'boolean') {
+        restored[key] = parsed[key];
+      }
+    });
+    return restored;
+  } catch {
+    return defaultToggles;
+  }
+};
+
 function App() {
   const [pair, setPair] = useState<Pair>('USDJPY');
   const [timeframe, setTimeframe] = useState<Timeframe>('h1');
   const [activeTab, setActiveTab] = useState<ActiveTab>('chart');
-  const [toggles, setToggles] = useState<IndicatorToggles>(defaultToggles);
+  const [toggles, setToggles] = useState<IndicatorToggles>(() => loadStoredIndicatorToggles());
   const [mtfEnabled, setMtfEnabled] = useState(false);
   const [mtfTimeframe, setMtfTimeframe] = useState<Timeframe>(() => getDefaultMtfTimeframe('h1'));
   const [data, setData] = useState<DataFile | null>(null);
@@ -107,6 +139,14 @@ function App() {
       currentTimeframe === timeframe ? getDefaultMtfTimeframe(timeframe) : currentTimeframe,
     );
   }, [timeframe]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(indicatorTogglesStorageKey, JSON.stringify(toggles));
+    } catch {
+      // localStorage can be unavailable in private or restricted browser modes.
+    }
+  }, [toggles]);
 
   useEffect(() => {
     if (!mtfEnabled) {
