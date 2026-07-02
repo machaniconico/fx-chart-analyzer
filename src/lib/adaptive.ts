@@ -1,0 +1,33 @@
+export {
+  adaptiveModelIds,
+  adaptiveWeights,
+  applyCalibration,
+  buildAdaptiveStats,
+  buildCalibration,
+  calibrationForHorizon,
+  collectCalibrationSamples,
+  computeModelPerformance,
+  defaultModelWeights,
+  defaultPredictionHorizons,
+  modelProbabilitiesForBars,
+  modelStatsForBars,
+  scoreSignalsForBars,
+  weightedProbability,
+  weightsForHorizon,
+} from './adaptive-core.js';
+
+export type {
+  AdaptiveModelId,
+  AdaptiveOptions,
+  AdaptiveStats,
+  AdaptiveWeightsResult,
+  CalibrationBin,
+  CalibrationTable,
+  HorizonAdaptiveWeights,
+  HorizonCalibration,
+  HorizonModelPerformance,
+  ModelPerformance,
+  ModelPerformanceMetric,
+  ModelStats,
+  ModelWeights,
+} from './adaptive-core.js';

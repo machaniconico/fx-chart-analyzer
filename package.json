@@ -7,20 +7,21 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
-    "fetch:data": "node scripts/fetch-data.mjs"
+    "fetch:data": "node scripts/fetch-data.mjs",
+    "build:stats": "node scripts/build-model-stats.mjs"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "dukascopy-node": "latest",
     "lightweight-charts": "^4.2.3",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "vite": "latest"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "typescript": "^5.7.3",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "vite": "^8.1.2",
+    "@vitejs/plugin-react": "^6.0.3",
+    "dukascopy-node": "^1.46.4"
   }
 }

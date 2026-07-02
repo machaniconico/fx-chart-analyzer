@@ -5,6 +5,7 @@ import {
   walkForwardAccuracy,
   walkForwardAccuracyAsync,
 } from './predict';
+import { modelProbabilitiesForBars, type AdaptiveStats, type ModelWeights } from './adaptive';
 import type { Bar } from '../types';
 
 const trendBars = (length: number, start: number, step: number): Bar[] =>
@@ -21,6 +22,30 @@ const trendBars = (length: number, start: number, step: number): Bar[] =>
       v: 1000 + index,
     };
   });
+
+const adaptiveStatsWithWeights = (weights: ModelWeights): AdaptiveStats => ({
+  version: 1,
+  generatedAt: new Date(0).toISOString(),
+  sampleCount: 120,
+  horizons: [...predictionHorizons],
+  performance: {
+    halfLifeSamples: 100,
+    horizons: [],
+  },
+  weights: {
+    temperature: 0.18,
+    minSamples: 30,
+    horizons: predictionHorizons.map((horizon) => ({
+      horizon,
+      sampleCount: 120,
+      fallback: false,
+      weights,
+    })),
+  },
+  calibration: {
+    horizons: [],
+  },
+});
 
 describe('predict', () => {
   it('returns probabilities inside the 0-1 range for all horizons', () => {
@@ -52,6 +77,41 @@ describe('predict', () => {
 
     expect(uptrend.horizons[0].probabilityUp).toBeGreaterThan(0.5);
     expect(downtrend.horizons[0].probabilityUp).toBeLessThan(0.5);
+  });
+
+  it('uses adaptive-core model probabilities for the latest bar at every horizon', () => {
+    const bars = trendBars(240, 100, 0.06);
+    const result = predict(bars, { includeWalkForward: false });
+
+    for (const prediction of result.horizons) {
+      const expected = modelProbabilitiesForBars(bars, prediction.horizon);
+
+      expect(prediction.modelProbabilities.signal).toBeCloseTo(expected.signal, 12);
+      expect(prediction.modelProbabilities.drift).toBeCloseTo(expected.drift, 12);
+      expect(prediction.modelProbabilities.regime).toBeCloseTo(expected.regime, 12);
+    }
+  });
+
+  it('does not reuse directional adaptive weights for expected price magnitude', () => {
+    const bars = trendBars(240, 100, 0.06);
+    const fixedWeights = predict(bars, { includeWalkForward: false });
+    const directionalWeights = predict(bars, {
+      includeWalkForward: false,
+      adaptiveStats: adaptiveStatsWithWeights({ signal: 1, drift: 0, regime: 0 }),
+    });
+
+    expect(
+      directionalWeights.horizons.some(
+        (prediction, index) =>
+          Math.abs(prediction.rawProbabilityUp - fixedWeights.horizons[index].rawProbabilityUp) > 0.000001,
+      ),
+    ).toBe(true);
+    for (let index = 0; index < fixedWeights.horizons.length; index += 1) {
+      expect(directionalWeights.horizons[index].expectedPrice).toBeCloseTo(
+        fixedWeights.horizons[index].expectedPrice,
+        12,
+      );
+    }
   });
 
   it('does not calculate walk-forward accuracy by default', () => {
