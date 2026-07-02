@@ -4,6 +4,7 @@ import { CotReportPanel } from './components/CotReportPanel';
 import { EaBuilderPanel } from './components/EaBuilderPanel';
 import { EconomicCalendarPanel } from './components/EconomicCalendarPanel';
 import { PredictionPanel } from './components/PredictionPanel';
+import { RecommendationPanel } from './components/RecommendationPanel';
 import { SignalPanel } from './components/SignalPanel';
 import { loadCalendar, type CalendarEvent, type CalendarFile } from './lib/calendar';
 import { loadCot, type CotFile } from './lib/cot';
@@ -49,7 +50,7 @@ const dataLoadErrorMessage = (reason: unknown, fallback: string): string => {
   return message.includes(offlineDataHint) ? message : `${message}。${offlineDataHint}`;
 };
 
-type ActiveTab = 'chart' | 'prediction' | 'cot' | 'calendar' | 'ea';
+type ActiveTab = 'recommend' | 'chart' | 'prediction' | 'cot' | 'calendar' | 'ea';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -84,7 +85,7 @@ const loadStoredIndicatorToggles = (): IndicatorToggles => {
 function App() {
   const [pair, setPair] = useState<Pair>('USDJPY');
   const [timeframe, setTimeframe] = useState<Timeframe>('h1');
-  const [activeTab, setActiveTab] = useState<ActiveTab>('chart');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('recommend');
   const [toggles, setToggles] = useState<IndicatorToggles>(() => loadStoredIndicatorToggles());
   const [mtfEnabled, setMtfEnabled] = useState(false);
   const [mtfTimeframe, setMtfTimeframe] = useState<Timeframe>(() => getDefaultMtfTimeframe('h1'));
@@ -280,6 +281,13 @@ function App() {
         </div>
         <nav className="tabs" aria-label="機能タブ">
           <button
+            className={activeTab === 'recommend' ? 'tab tab-active' : 'tab'}
+            type="button"
+            onClick={() => setActiveTab('recommend')}
+          >
+            おすすめ
+          </button>
+          <button
             className={activeTab === 'chart' ? 'tab tab-active' : 'tab'}
             type="button"
             onClick={() => setActiveTab('chart')}
@@ -407,56 +415,62 @@ function App() {
         </aside>
 
         <section className="chart-workarea" aria-live="polite">
-          {loading && <div className="state-message">データを読み込んでいます...</div>}
-          {error && <div className="state-message state-error">{error}</div>}
-          {!loading && !error && data && (
-            activeTab === 'chart' ? (
-              <div className="chart-stack">
-                <ChartPanel
-                  bars={data.bars}
-                  pair={pair}
-                  timeframe={timeframe}
-                  toggles={toggles}
-                  calendarEvents={calendarEvents}
-                  mainSignalAnalysis={signalAnalysis}
-                  mtf={{
-                    enabled: mtfEnabled,
-                    timeframe: safeMtfTimeframe,
-                    bars: mtfData?.bars ?? null,
-                    analysis: mtfSignalAnalysis,
-                    loading: mtfLoading,
-                    error: mtfError,
-                  }}
-                  now={now}
-                />
-                {signalAnalysis && <SignalPanel analysis={signalAnalysis} />}
-              </div>
-            ) : activeTab === 'prediction' ? (
-              <PredictionPanel
-                bars={data.bars}
-                pair={pair}
-                timeframe={timeframe}
-                adaptiveStats={adaptiveStats}
-                calendarEvents={calendarEvents}
-                now={now}
-              />
-            ) : activeTab === 'cot' ? (
-              <CotReportPanel cot={cot} error={cotError} pair={pair} />
-            ) : activeTab === 'calendar' ? (
-              <EconomicCalendarPanel
-                events={calendarEvents}
-                pair={pair}
-                updatedAt={calendar?.updatedAt}
-                now={now}
-              />
-            ) : (
-              <EaBuilderPanel
-                bars={data.bars}
-                pair={pair}
-                timeframe={timeframe}
-                usdJpyBars={pair === 'USDJPY' ? data.bars : usdJpyData?.bars}
-              />
-            )
+          {activeTab === 'recommend' ? (
+            <RecommendationPanel />
+          ) : (
+            <>
+              {loading && <div className="state-message">データを読み込んでいます...</div>}
+              {error && <div className="state-message state-error">{error}</div>}
+              {!loading && !error && data && (
+                activeTab === 'chart' ? (
+                  <div className="chart-stack">
+                    <ChartPanel
+                      bars={data.bars}
+                      pair={pair}
+                      timeframe={timeframe}
+                      toggles={toggles}
+                      calendarEvents={calendarEvents}
+                      mainSignalAnalysis={signalAnalysis}
+                      mtf={{
+                        enabled: mtfEnabled,
+                        timeframe: safeMtfTimeframe,
+                        bars: mtfData?.bars ?? null,
+                        analysis: mtfSignalAnalysis,
+                        loading: mtfLoading,
+                        error: mtfError,
+                      }}
+                      now={now}
+                    />
+                    {signalAnalysis && <SignalPanel analysis={signalAnalysis} />}
+                  </div>
+                ) : activeTab === 'prediction' ? (
+                  <PredictionPanel
+                    bars={data.bars}
+                    pair={pair}
+                    timeframe={timeframe}
+                    adaptiveStats={adaptiveStats}
+                    calendarEvents={calendarEvents}
+                    now={now}
+                  />
+                ) : activeTab === 'cot' ? (
+                  <CotReportPanel cot={cot} error={cotError} pair={pair} />
+                ) : activeTab === 'calendar' ? (
+                  <EconomicCalendarPanel
+                    events={calendarEvents}
+                    pair={pair}
+                    updatedAt={calendar?.updatedAt}
+                    now={now}
+                  />
+                ) : (
+                  <EaBuilderPanel
+                    bars={data.bars}
+                    pair={pair}
+                    timeframe={timeframe}
+                    usdJpyBars={pair === 'USDJPY' ? data.bars : usdJpyData?.bars}
+                  />
+                )
+              )}
+            </>
           )}
         </section>
       </section>
