@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChartPanel, type IndicatorToggles } from './components/ChartPanel';
+import { PredictionPanel } from './components/PredictionPanel';
+import { SignalPanel } from './components/SignalPanel';
 import { formatPrice, lastBar, loadBars } from './lib/chart-data';
+import { analyzeSignals } from './lib/signals';
 import type { DataFile, Pair, Timeframe } from './types';
 import { PAIRS, TIMEFRAMES, timeframeLabels } from './types';
 
@@ -24,9 +27,12 @@ const indicatorLabels: Array<[keyof IndicatorToggles, string]> = [
   ['ichimoku', '一目雲'],
 ];
 
+type ActiveTab = 'chart' | 'prediction' | 'ea';
+
 function App() {
   const [pair, setPair] = useState<Pair>('USDJPY');
   const [timeframe, setTimeframe] = useState<Timeframe>('h1');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('chart');
   const [toggles, setToggles] = useState<IndicatorToggles>(defaultToggles);
   const [data, setData] = useState<DataFile | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +68,10 @@ function App() {
   const previous = data && data.bars.length > 1 ? data.bars[data.bars.length - 2] : null;
   const change = current && previous ? current.c - previous.c : 0;
   const changePercent = current && previous ? (change / previous.c) * 100 : 0;
+  const signalAnalysis = useMemo(
+    () => (data ? analyzeSignals(data.bars) : null),
+    [data],
+  );
 
   return (
     <main className="app-shell">
@@ -71,8 +81,20 @@ function App() {
           <h1>FX Chart Analyzer</h1>
         </div>
         <nav className="tabs" aria-label="機能タブ">
-          <button className="tab tab-active" type="button">チャート分析</button>
-          <button className="tab" type="button" disabled>予測</button>
+          <button
+            className={activeTab === 'chart' ? 'tab tab-active' : 'tab'}
+            type="button"
+            onClick={() => setActiveTab('chart')}
+          >
+            チャート分析
+          </button>
+          <button
+            className={activeTab === 'prediction' ? 'tab tab-active' : 'tab'}
+            type="button"
+            onClick={() => setActiveTab('prediction')}
+          >
+            予測
+          </button>
           <button className="tab" type="button" disabled>EAビルダー</button>
         </nav>
       </header>
@@ -104,26 +126,28 @@ function App() {
             </div>
           </div>
 
-          <div className="panel-section">
-            <span className="field-label">指標</span>
-            <div className="toggle-grid">
-              {indicatorLabels.map(([key, label]) => (
-                <label key={key} className="toggle">
-                  <input
-                    type="checkbox"
-                    checked={toggles[key]}
-                    onChange={(event) =>
-                      setToggles((currentToggles) => ({
-                        ...currentToggles,
-                        [key]: event.target.checked,
-                      }))
-                    }
-                  />
-                  <span>{label}</span>
-                </label>
-              ))}
+          {activeTab === 'chart' && (
+            <div className="panel-section">
+              <span className="field-label">指標</span>
+              <div className="toggle-grid">
+                {indicatorLabels.map(([key, label]) => (
+                  <label key={key} className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={toggles[key]}
+                      onChange={(event) =>
+                        setToggles((currentToggles) => ({
+                          ...currentToggles,
+                          [key]: event.target.checked,
+                        }))
+                      }
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="panel-section market-card">
             <span className="field-label">現在値</span>
@@ -140,7 +164,14 @@ function App() {
           {loading && <div className="state-message">データを読み込んでいます...</div>}
           {error && <div className="state-message state-error">{error}</div>}
           {!loading && !error && data && (
-            <ChartPanel bars={data.bars} pair={pair} timeframe={timeframe} toggles={toggles} />
+            activeTab === 'chart' ? (
+              <div className="chart-stack">
+                <ChartPanel bars={data.bars} pair={pair} timeframe={timeframe} toggles={toggles} />
+                {signalAnalysis && <SignalPanel analysis={signalAnalysis} />}
+              </div>
+            ) : (
+              <PredictionPanel bars={data.bars} pair={pair} timeframe={timeframe} />
+            )
           )}
         </section>
       </section>
