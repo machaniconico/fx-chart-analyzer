@@ -353,4 +353,30 @@ describe('backtest', () => {
     expect(result.maxConsecutiveLosses).toBe(3);
     expect(result.netProfitYen).toBe(-30_000);
   });
+
+  it('can evaluate long and short entries from one strategy definition', () => {
+    const result = runBacktest(
+      [
+        bar(0, 100.0, 100.02, 99.98, 100.0),
+        bar(1, 100.0, 100.02, 99.88, 99.9),
+        bar(2, 99.9, 99.92, 99.78, 99.8),
+        bar(3, 99.8, 99.92, 99.78, 99.9),
+        bar(4, 99.9, 100.22, 99.88, 100.2),
+        bar(5, 100.2, 100.45, 100.15, 100.3),
+        bar(6, 100.3, 100.32, 100.18, 100.2),
+        bar(7, 100.2, 100.22, 100.08, 100.1),
+        bar(8, 100.1, 100.12, 99.88, 99.9),
+        bar(9, 99.9, 99.95, 99.55, 99.7),
+      ],
+      {
+        ...baseStrategy(),
+        entryDirections: ['long', 'short'],
+      },
+      'USDJPY',
+    );
+
+    expect(result.tradeCount).toBe(2);
+    expect(result.trades.map((trade) => trade.direction)).toEqual(['long', 'short']);
+    expect(result.trades.map((trade) => trade.exitReason)).toEqual(['take_profit', 'take_profit']);
+  });
 });

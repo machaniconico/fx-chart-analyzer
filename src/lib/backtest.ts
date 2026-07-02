@@ -103,6 +103,17 @@ const DEFAULT_USDJPY_RATE = 150;
 const oppositeDirection = (direction: StrategyDirection): StrategyDirection =>
   direction === 'long' ? 'short' : 'long';
 
+const entryDirectionsForStrategy = (strategy: StrategyDefinition): StrategyDirection[] => {
+  const directions = strategy.entryDirections?.length ? strategy.entryDirections : [strategy.direction];
+  const uniqueDirections: StrategyDirection[] = [];
+  for (const direction of directions) {
+    if ((direction === 'long' || direction === 'short') && !uniqueDirections.includes(direction)) {
+      uniqueDirections.push(direction);
+    }
+  }
+  return uniqueDirections.length > 0 ? uniqueDirections : [strategy.direction];
+};
+
 const roundPips = (value: number): number => Math.round(value * 10) / 10;
 
 const roundYen = (value: number): number => Math.round(value);
@@ -285,9 +296,9 @@ const makePosition = (
   bar: Bar,
   lotSize: number,
   pipValuePerLot: number,
+  direction: StrategyDirection = strategy.direction,
 ): OpenPosition => {
   const pip = pipSize(pair);
-  const direction = strategy.direction;
   const slDistance = strategy.exit.stopLossPips * pip;
   const tpDistance = strategy.exit.takeProfitPips * pip;
   return {
@@ -372,10 +383,11 @@ export const runBacktest = (
   const moneyManagement = resolveMoneyManagement(strategy, options.moneyManagement);
   const fallbackUsdJpyRate = sanitizePositive(options.fallbackUsdJpyRate, DEFAULT_USDJPY_RATE);
   const evaluator = createStrategyEvaluator(bars);
+  const entryDirections = entryDirectionsForStrategy(strategy);
   const trades: BacktestTrade[] = [];
   const equityCurve: EquityPoint[] = [];
   let position: OpenPosition | null = null;
-  let pendingEntry = false;
+  let pendingEntryDirection: StrategyDirection | null = null;
   let pendingOppositeClose = false;
   let realizedPips = 0;
   let realizedYen = 0;
@@ -438,7 +450,7 @@ export const runBacktest = (
       pendingOppositeClose = false;
     }
 
-    if (!position && pendingEntry) {
+    if (!position && pendingEntryDirection) {
       if (isWithinTradingSession(bar.t, strategy.sessionFilter)) {
         const pipValue = pipValueYenPerLot(pair, bar.t, options.usdJpyBars, fallbackUsdJpyRate);
         usedFallbackUsdJpyRate ||= pipValue.usedFallback;
@@ -449,9 +461,9 @@ export const runBacktest = (
           pipValue.value,
           spreadPips,
         );
-        position = makePosition(strategy, pair, bar, lotSize, pipValue.value);
+        position = makePosition(strategy, pair, bar, lotSize, pipValue.value, pendingEntryDirection);
       }
-      pendingEntry = false;
+      pendingEntryDirection = null;
     }
 
     if (position) {
@@ -482,14 +494,15 @@ export const runBacktest = (
       position &&
       strategy.exit.closeOnOppositeSignal &&
       index < bars.length - 1 &&
-      evaluator.isEntrySignal(strategy, index, oppositeDirection(strategy.direction))
+      evaluator.isEntrySignal(strategy, index, oppositeDirection(position.direction))
     ) {
       pendingOppositeClose = true;
       continue;
     }
 
-    if (!position && index < bars.length - 1 && evaluator.isEntrySignal(strategy, index)) {
-      pendingEntry = true;
+    if (!position && index < bars.length - 1) {
+      pendingEntryDirection =
+        entryDirections.find((direction) => evaluator.isEntrySignal(strategy, index, direction)) ?? null;
     }
   }
 

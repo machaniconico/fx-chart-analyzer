@@ -86,6 +86,7 @@ export interface StrategyDefinition {
   name: string;
   description?: string;
   direction: StrategyDirection;
+  entryDirections?: StrategyDirection[];
   entryConditions: EntryCondition[];
   exit: ExitRules;
   sessionFilter: SessionFilter;

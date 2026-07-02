@@ -3,6 +3,7 @@ import { ChartPanel, type IndicatorToggles } from './components/ChartPanel';
 import { CotReportPanel } from './components/CotReportPanel';
 import { EaBuilderPanel } from './components/EaBuilderPanel';
 import { EconomicCalendarPanel } from './components/EconomicCalendarPanel';
+import { ForwardTestPanel } from './components/ForwardTestPanel';
 import { PredictionPanel } from './components/PredictionPanel';
 import { RecommendationPanel } from './components/RecommendationPanel';
 import { SignalPanel } from './components/SignalPanel';
@@ -50,7 +51,7 @@ const dataLoadErrorMessage = (reason: unknown, fallback: string): string => {
   return message.includes(offlineDataHint) ? message : `${message}。${offlineDataHint}`;
 };
 
-type ActiveTab = 'recommend' | 'chart' | 'prediction' | 'cot' | 'calendar' | 'ea';
+type ActiveTab = 'recommend' | 'chart' | 'prediction' | 'cot' | 'calendar' | 'ea' | 'forward';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -322,6 +323,13 @@ function App() {
           >
             EAビルダー
           </button>
+          <button
+            className={activeTab === 'forward' ? 'tab tab-active' : 'tab'}
+            type="button"
+            onClick={() => setActiveTab('forward')}
+          >
+            フォワードテスト
+          </button>
         </nav>
       </header>
 
@@ -417,6 +425,8 @@ function App() {
         <section className="chart-workarea" aria-live="polite">
           {activeTab === 'recommend' ? (
             <RecommendationPanel />
+          ) : activeTab === 'forward' ? (
+            <ForwardTestPanel now={now} />
           ) : (
             <>
               {loading && <div className="state-message">データを読み込んでいます...</div>}

@@ -35,6 +35,10 @@ jobs:
       - name: Build adaptive model stats
         run: node scripts/build-model-stats.mjs
 
+      - name: Run EA forward tests
+        continue-on-error: true
+        run: node scripts/run-forward-test.mjs
+
       - name: Commit updated data
         id: commit
         run: |
