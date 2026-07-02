@@ -6,9 +6,14 @@ import {
   LineData,
   Time,
 } from 'lightweight-charts';
-import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { formatPrice } from '../lib/chart-data';
-import { predict, type HorizonPrediction } from '../lib/predict';
+import {
+  predict,
+  walkForwardAccuracyAsync,
+  type HorizonPrediction,
+  type WalkForwardAccuracy,
+} from '../lib/predict';
 import type { Bar, Pair, Timeframe } from '../types';
 import { timeframeLabels } from '../types';
 
@@ -74,8 +79,35 @@ const fanLine = (
 
 export function PredictionPanel({ bars, pair, timeframe }: PredictionPanelProps) {
   const chartRef = useRef<HTMLDivElement | null>(null);
-  const result = useMemo(() => predict(bars), [bars]);
+  const result = useMemo(() => predict(bars, { includeWalkForward: false }), [bars]);
   const displayBars = useMemo(() => bars.slice(-260), [bars]);
+  const [walkForward, setWalkForward] = useState<WalkForwardAccuracy | null>(null);
+  const [walkForwardStatus, setWalkForwardStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setWalkForward(null);
+    setWalkForwardStatus('loading');
+
+    walkForwardAccuracyAsync(bars, {}, controller.signal)
+      .then((accuracy) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setWalkForward(accuracy);
+        setWalkForwardStatus('ready');
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+          return;
+        }
+        setWalkForwardStatus('unavailable');
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [bars, pair, timeframe]);
 
   useEffect(() => {
     if (!chartRef.current || bars.length === 0) {
@@ -205,13 +237,27 @@ export function PredictionPanel({ bars, pair, timeframe }: PredictionPanelProps)
         <div className="detail-card">
           <h3>ウォークフォワード的中率</h3>
           <div className="accuracy-table">
-            {result.walkForward?.horizons.map((item) => (
+            {walkForwardStatus === 'loading' ? (
+              <div className="accuracy-row">
+                <span>方向一致率</span>
+                <strong>計算中…</strong>
+                <small>履歴サンプルを分割して集計しています</small>
+              </div>
+            ) : null}
+            {walkForwardStatus !== 'loading' && walkForward?.horizons.map((item) => (
               <div key={item.horizon} className="accuracy-row">
                 <span>{item.horizon}本先</span>
                 <strong>{item.accuracy === null ? '算出不可' : probabilityLabel(item.accuracy)}</strong>
                 <small>{item.total}件中 {item.hits}件一致</small>
               </div>
             ))}
+            {walkForwardStatus === 'unavailable' ? (
+              <div className="accuracy-row">
+                <span>方向一致率</span>
+                <strong>算出不可</strong>
+                <small>計算を完了できませんでした</small>
+              </div>
+            ) : null}
           </div>
           <p className="disclaimer-copy">
             過去データ上の方向一致率です。将来の収益や値動きを保証するものではありません。

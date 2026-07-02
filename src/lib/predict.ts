@@ -53,6 +53,7 @@ export interface PredictionOptions {
   volatilityLookback?: number;
   includeWalkForward?: boolean;
   walkForwardLookback?: number;
+  walkForwardChunkSize?: number;
 }
 
 interface CorePredictionInputs {
@@ -67,8 +68,39 @@ interface CorePredictionInputs {
   regimeReturnPerBar: number;
 }
 
+interface IdleDeadlineLike {
+  didTimeout: boolean;
+  timeRemaining: () => number;
+}
+
+interface IdleSchedulerWindow {
+  requestIdleCallback?: (callback: (deadline: IdleDeadlineLike) => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+}
+
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
+
+const createAbortError = (): Error => {
+  const error = new Error('Walk-forward calculation was cancelled');
+  error.name = 'AbortError';
+  return error;
+};
+
+const scheduleChunk = (callback: (deadline?: IdleDeadlineLike) => void): (() => void) => {
+  if (typeof window !== 'undefined') {
+    const schedulerWindow = window as unknown as IdleSchedulerWindow;
+    if (typeof schedulerWindow.requestIdleCallback === 'function') {
+      const handle = schedulerWindow.requestIdleCallback(callback, { timeout: 80 });
+      return () => schedulerWindow.cancelIdleCallback?.(handle);
+    }
+    const handle = window.setTimeout(() => callback(), 0);
+    return () => window.clearTimeout(handle);
+  }
+
+  const handle = setTimeout(() => callback(), 0);
+  return () => clearTimeout(handle);
+};
 
 const mean = (values: readonly number[]): number =>
   values.length === 0 ? 0 : values.reduce((total, value) => total + value, 0) / values.length;
@@ -334,9 +366,121 @@ export const walkForwardAccuracy = (
   };
 };
 
+export const walkForwardAccuracyAsync = (
+  bars: readonly Bar[],
+  options: PredictionOptions = {},
+  signal?: AbortSignal,
+): Promise<WalkForwardAccuracy> => {
+  const lookbackBars = options.walkForwardLookback ?? 300;
+  const minTrainingBars = Math.max(options.regressionLookback ?? 80, options.volatilityLookback ?? 80, 80);
+  const totals = predictionHorizons.map<WalkForwardHorizonAccuracy>((horizon) => ({
+    horizon,
+    hits: 0,
+    total: 0,
+    accuracy: null,
+  }));
+
+  if (bars.length <= minTrainingBars + 1) {
+    return Promise.resolve({
+      lookbackBars,
+      sampleStartIndex: null,
+      sampleEndIndex: null,
+      horizons: totals,
+    });
+  }
+
+  const lastCutoff = bars.length - 2;
+  const firstCutoff = Math.max(minTrainingBars, bars.length - 1 - lookbackBars);
+  const chunkSize = Math.max(1, Math.round(options.walkForwardChunkSize ?? 8));
+  let cutoff = firstCutoff;
+  let cancelScheduled: (() => void) | null = null;
+
+  return new Promise<WalkForwardAccuracy>((resolve, reject) => {
+    const cleanup = (): void => {
+      signal?.removeEventListener('abort', abort);
+      cancelScheduled = null;
+    };
+
+    const finish = (): void => {
+      cleanup();
+      resolve({
+        lookbackBars,
+        sampleStartIndex: firstCutoff,
+        sampleEndIndex: lastCutoff,
+        horizons: totals.map((total) => ({
+          ...total,
+          accuracy: total.total > 0 ? total.hits / total.total : null,
+        })),
+      });
+    };
+
+    const abort = (): void => {
+      cancelScheduled?.();
+      cleanup();
+      reject(createAbortError());
+    };
+
+    const processChunk = (deadline?: IdleDeadlineLike): void => {
+      cancelScheduled = null;
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+
+      let processed = 0;
+      while (cutoff <= lastCutoff) {
+        const prediction = buildCorePrediction(bars.slice(0, cutoff + 1), options);
+        for (const total of totals) {
+          const futureIndex = cutoff + total.horizon;
+          if (futureIndex >= bars.length) {
+            continue;
+          }
+          const forecast = prediction.horizons.find((item) => item.horizon === total.horizon);
+          if (!forecast) {
+            continue;
+          }
+          const predictedUp = forecast.probabilityUp >= 0.5;
+          const actualUp = bars[futureIndex].c > bars[cutoff].c;
+          if (predictedUp === actualUp) {
+            total.hits += 1;
+          }
+          total.total += 1;
+        }
+
+        cutoff += 1;
+        processed += 1;
+        if (processed >= chunkSize) {
+          break;
+        }
+        if (deadline && !deadline.didTimeout && deadline.timeRemaining() < 4) {
+          break;
+        }
+      }
+
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+      if (cutoff > lastCutoff) {
+        finish();
+        return;
+      }
+      cancelScheduled = scheduleChunk(processChunk);
+    };
+
+    if (signal?.aborted) {
+      reject(createAbortError());
+      return;
+    }
+
+    signal?.addEventListener('abort', abort, { once: true });
+    cancelScheduled = scheduleChunk(processChunk);
+  });
+};
+
 export const predict = (bars: readonly Bar[], options: PredictionOptions = {}): PredictionResult => {
   const core = buildCorePrediction(bars, options);
-  const includeWalkForward = options.includeWalkForward ?? true;
+  const includeWalkForward = options.includeWalkForward ?? false;
   return {
     ...core,
     walkForward: includeWalkForward ? walkForwardAccuracy(bars, options) : null,

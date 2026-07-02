@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { predict, predictionHorizons, walkForwardAccuracy } from './predict';
+import {
+  predict,
+  predictionHorizons,
+  walkForwardAccuracy,
+  walkForwardAccuracyAsync,
+} from './predict';
 import type { Bar } from '../types';
 
 const trendBars = (length: number, start: number, step: number): Bar[] =>
@@ -49,6 +54,12 @@ describe('predict', () => {
     expect(downtrend.horizons[0].probabilityUp).toBeLessThan(0.5);
   });
 
+  it('does not calculate walk-forward accuracy by default', () => {
+    const result = predict(trendBars(220, 100, 0.08));
+
+    expect(result.walkForward).toBeNull();
+  });
+
   it('self-calculates walk-forward directional accuracy over the recent sample', () => {
     const result = walkForwardAccuracy(trendBars(420, 100, 0.04), { walkForwardLookback: 300 });
     const oneBar = result.horizons.find((item) => item.horizon === 1);
@@ -60,5 +71,17 @@ describe('predict', () => {
     expect(oneBar?.accuracy as number).toBeGreaterThanOrEqual(0);
     expect(oneBar?.accuracy as number).toBeLessThanOrEqual(1);
     expect(oneBar?.accuracy as number).toBeGreaterThan(0.6);
+  });
+
+  it('calculates walk-forward accuracy asynchronously in chunks', async () => {
+    const result = await walkForwardAccuracyAsync(trendBars(420, 100, 0.04), {
+      walkForwardLookback: 300,
+      walkForwardChunkSize: 25,
+    });
+    const oneBar = result.horizons.find((item) => item.horizon === 1);
+
+    expect(oneBar).toBeDefined();
+    expect(oneBar?.total).toBeGreaterThan(0);
+    expect(oneBar?.accuracy).not.toBeNull();
   });
 });

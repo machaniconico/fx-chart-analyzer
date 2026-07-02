@@ -13,8 +13,19 @@ import type {
 
 const boolLiteral = (value: boolean): string => (value ? 'true' : 'false');
 
-const numberLiteral = (value: number): string =>
-  Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)));
+const numberLiteral = (value: number): string => {
+  if (!Number.isFinite(value)) {
+    throw new Error(`Cannot generate MQL number literal for non-finite value: ${value}`);
+  }
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)));
+};
+
+const integerLiteral = (value: number): string => {
+  if (!Number.isFinite(value)) {
+    throw new Error(`Cannot generate MQL integer literal for non-finite value: ${value}`);
+  }
+  return String(Math.round(value));
+};
 
 const mqlString = (value: string): string =>
   value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ');
@@ -65,8 +76,8 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
   switch (condition.type) {
     case 'maCross':
       return [
-        `input int InpMA${index}FastPeriod = ${condition.fastPeriod};`,
-        `input int InpMA${index}SlowPeriod = ${condition.slowPeriod};`,
+        `input int InpMA${index}FastPeriod = ${integerLiteral(condition.fastPeriod)};`,
+        `input int InpMA${index}SlowPeriod = ${integerLiteral(condition.slowPeriod)};`,
         mql5
           ? `input ENUM_MA_METHOD InpMA${index}FastMethod = ${maMethod(condition.fastType)};`
           : `input int InpMA${index}FastMethod = ${maMethod(condition.fastType)};`,
@@ -76,19 +87,19 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
       ];
     case 'rsi':
       return [
-        `input int InpRSI${index}Period = ${condition.period};`,
+        `input int InpRSI${index}Period = ${integerLiteral(condition.period)};`,
         `input double InpRSI${index}Threshold = ${numberLiteral(condition.threshold)};`,
       ];
     case 'bollinger':
       return [
-        `input int InpBB${index}Period = ${condition.period};`,
+        `input int InpBB${index}Period = ${integerLiteral(condition.period)};`,
         `input double InpBB${index}Deviation = ${numberLiteral(condition.multiplier)};`,
       ];
     case 'macdCross':
       return [
-        `input int InpMACD${index}FastPeriod = ${condition.fastPeriod};`,
-        `input int InpMACD${index}SlowPeriod = ${condition.slowPeriod};`,
-        `input int InpMACD${index}SignalPeriod = ${condition.signalPeriod};`,
+        `input int InpMACD${index}FastPeriod = ${integerLiteral(condition.fastPeriod)};`,
+        `input int InpMACD${index}SlowPeriod = ${integerLiteral(condition.slowPeriod)};`,
+        `input int InpMACD${index}SignalPeriod = ${integerLiteral(condition.signalPeriod)};`,
       ];
   }
 };
@@ -122,10 +133,10 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
 const mql5MaCondition = (_condition: MaCrossCondition, index: number): string => `
 bool Condition${index}(bool longSide)
 {
-  double previousFast = MAValue(InpMA${index}FastPeriod, InpMA${index}FastMethod, 2);
-  double previousSlow = MAValue(InpMA${index}SlowPeriod, InpMA${index}SlowMethod, 2);
-  double currentFast = MAValue(InpMA${index}FastPeriod, InpMA${index}FastMethod, 1);
-  double currentSlow = MAValue(InpMA${index}SlowPeriod, InpMA${index}SlowMethod, 1);
+  double previousFast = BufferValue(ma${index}FastHandle, 0, 2);
+  double previousSlow = BufferValue(ma${index}SlowHandle, 0, 2);
+  double currentFast = BufferValue(ma${index}FastHandle, 0, 1);
+  double currentSlow = BufferValue(ma${index}SlowHandle, 0, 1);
   if(!ValueReady(previousFast) || !ValueReady(previousSlow) || !ValueReady(currentFast) || !ValueReady(currentSlow))
   {
     return false;
@@ -162,8 +173,8 @@ const mql5RsiCondition = (condition: RsiCondition, index: number): string => {
   return `
 bool Condition${index}(bool longSide)
 {
-  double previous = RSIValue(InpRSI${index}Period, 2);
-  double current = RSIValue(InpRSI${index}Period, 1);
+  double previous = BufferValue(rsi${index}Handle, 0, 2);
+  double current = BufferValue(rsi${index}Handle, 0, 1);
   if(!ValueReady(current))
   {
     return false;
@@ -202,8 +213,8 @@ const mql5BollingerCondition = (condition: BollingerCondition, index: number): s
   return `
 bool Condition${index}(bool longSide)
 {
-  double upper = BandUpper(InpBB${index}Period, InpBB${index}Deviation, 1);
-  double lower = BandLower(InpBB${index}Period, InpBB${index}Deviation, 1);
+  double upper = BufferValue(bb${index}Handle, 1, 1);
+  double lower = BufferValue(bb${index}Handle, 2, 1);
   double close1 = iClose(_Symbol, _Period, 1);
   double high1 = iHigh(_Symbol, _Period, 1);
   double low1 = iLow(_Symbol, _Period, 1);
@@ -246,10 +257,10 @@ bool Condition${index}(bool longSide)
 const mql5MacdCondition = (_condition: MacdCrossCondition, index: number): string => `
 bool Condition${index}(bool longSide)
 {
-  double previousMain = MACDMain(InpMACD${index}FastPeriod, InpMACD${index}SlowPeriod, InpMACD${index}SignalPeriod, 2);
-  double previousSignal = MACDSignal(InpMACD${index}FastPeriod, InpMACD${index}SlowPeriod, InpMACD${index}SignalPeriod, 2);
-  double currentMain = MACDMain(InpMACD${index}FastPeriod, InpMACD${index}SlowPeriod, InpMACD${index}SignalPeriod, 1);
-  double currentSignal = MACDSignal(InpMACD${index}FastPeriod, InpMACD${index}SlowPeriod, InpMACD${index}SignalPeriod, 1);
+  double previousMain = BufferValue(macd${index}Handle, 0, 2);
+  double previousSignal = BufferValue(macd${index}Handle, 1, 2);
+  double currentMain = BufferValue(macd${index}Handle, 0, 1);
+  double currentSignal = BufferValue(macd${index}Handle, 1, 1);
   if(!ValueReady(previousMain) || !ValueReady(previousSignal) || !ValueReady(currentMain) || !ValueReady(currentSignal))
   {
     return false;
@@ -303,18 +314,97 @@ bool EntrySignal(bool longSide)
 
 const commonInputs = (strategy: StrategyDefinition, mql5: boolean): string[] => [
   `input double InpLots = ${numberLiteral(strategy.lotSize)};`,
-  `input int InpMagicNumber = ${strategy.magicNumber};`,
+  `input int InpMagicNumber = ${integerLiteral(strategy.magicNumber)};`,
   `input bool InpTradeLong = ${boolLiteral(strategy.direction === 'long')};`,
-  `input int InpStopLossPips = ${strategy.exit.stopLossPips};`,
-  `input int InpTakeProfitPips = ${strategy.exit.takeProfitPips};`,
+  `input int InpStopLossPips = ${integerLiteral(strategy.exit.stopLossPips)};`,
+  `input int InpTakeProfitPips = ${integerLiteral(strategy.exit.takeProfitPips)};`,
   `input bool InpUseTrailingStop = ${boolLiteral(Boolean(strategy.exit.trailingStopPips && strategy.exit.trailingStopPips > 0))};`,
-  `input int InpTrailingStopPips = ${strategy.exit.trailingStopPips ?? 0};`,
+  `input int InpTrailingStopPips = ${integerLiteral(strategy.exit.trailingStopPips ?? 0)};`,
   `input bool InpCloseOnOppositeSignal = ${boolLiteral(strategy.exit.closeOnOppositeSignal)};`,
   ...strategy.entryConditions.flatMap((condition, index) => conditionInputLines(condition, index + 1, mql5)),
 ];
 
+const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[] =>
+  conditions.flatMap((condition, index) => {
+    const conditionIndex = index + 1;
+    switch (condition.type) {
+      case 'maCross':
+        return [
+          `int ma${conditionIndex}FastHandle = INVALID_HANDLE;`,
+          `int ma${conditionIndex}SlowHandle = INVALID_HANDLE;`,
+        ];
+      case 'rsi':
+        return [`int rsi${conditionIndex}Handle = INVALID_HANDLE;`];
+      case 'bollinger':
+        return [`int bb${conditionIndex}Handle = INVALID_HANDLE;`];
+      case 'macdCross':
+        return [`int macd${conditionIndex}Handle = INVALID_HANDLE;`];
+    }
+  });
+
+const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
+  conditions.flatMap((condition, index) => {
+    const conditionIndex = index + 1;
+    switch (condition.type) {
+      case 'maCross':
+        return [
+          `  ma${conditionIndex}FastHandle = iMA(_Symbol, _Period, InpMA${conditionIndex}FastPeriod, 0, InpMA${conditionIndex}FastMethod, PRICE_CLOSE);`,
+          `  ma${conditionIndex}SlowHandle = iMA(_Symbol, _Period, InpMA${conditionIndex}SlowPeriod, 0, InpMA${conditionIndex}SlowMethod, PRICE_CLOSE);`,
+          `  if(!EnsureIndicator(ma${conditionIndex}FastHandle, "MA${conditionIndex} fast") || !EnsureIndicator(ma${conditionIndex}SlowHandle, "MA${conditionIndex} slow"))`,
+          '  {',
+          '    return INIT_FAILED;',
+          '  }',
+        ];
+      case 'rsi':
+        return [
+          `  rsi${conditionIndex}Handle = iRSI(_Symbol, _Period, InpRSI${conditionIndex}Period, PRICE_CLOSE);`,
+          `  if(!EnsureIndicator(rsi${conditionIndex}Handle, "RSI${conditionIndex}"))`,
+          '  {',
+          '    return INIT_FAILED;',
+          '  }',
+        ];
+      case 'bollinger':
+        return [
+          `  bb${conditionIndex}Handle = iBands(_Symbol, _Period, InpBB${conditionIndex}Period, 0, InpBB${conditionIndex}Deviation, PRICE_CLOSE);`,
+          `  if(!EnsureIndicator(bb${conditionIndex}Handle, "BB${conditionIndex}"))`,
+          '  {',
+          '    return INIT_FAILED;',
+          '  }',
+        ];
+      case 'macdCross':
+        return [
+          `  macd${conditionIndex}Handle = iMACD(_Symbol, _Period, InpMACD${conditionIndex}FastPeriod, InpMACD${conditionIndex}SlowPeriod, InpMACD${conditionIndex}SignalPeriod, PRICE_CLOSE);`,
+          `  if(!EnsureIndicator(macd${conditionIndex}Handle, "MACD${conditionIndex}"))`,
+          '  {',
+          '    return INIT_FAILED;',
+          '  }',
+        ];
+    }
+  });
+
+const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[] =>
+  conditions.flatMap((condition, index) => {
+    const conditionIndex = index + 1;
+    switch (condition.type) {
+      case 'maCross':
+        return [
+          `  ReleaseIndicator(ma${conditionIndex}FastHandle);`,
+          `  ReleaseIndicator(ma${conditionIndex}SlowHandle);`,
+        ];
+      case 'rsi':
+        return [`  ReleaseIndicator(rsi${conditionIndex}Handle);`];
+      case 'bollinger':
+        return [`  ReleaseIndicator(bb${conditionIndex}Handle);`];
+      case 'macdCross':
+        return [`  ReleaseIndicator(macd${conditionIndex}Handle);`];
+    }
+  });
+
 export const generateMql5 = (strategy: StrategyDefinition): string => {
   const inputs = commonInputs(strategy, true).join('\n');
+  const handleDeclarations = mql5HandleDeclarations(strategy.entryConditions).join('\n');
+  const handleInitLines = mql5HandleInitLines(strategy.entryConditions).join('\n');
+  const handleReleaseLines = mql5HandleReleaseLines(strategy.entryConditions).join('\n');
   const conditionFunctions = strategy.entryConditions
     .map((condition, index) => mql5ConditionFunction(condition, index + 1))
     .join('\n');
@@ -329,6 +419,7 @@ CTrade trade;
 ${inputs}
 
 datetime lastBarTime = 0;
+${handleDeclarations}
 
 double PipPoint()
 {
@@ -354,6 +445,26 @@ bool CrossedBelow(double previousFast, double previousSlow, double currentFast, 
   return previousFast >= previousSlow && currentFast < currentSlow;
 }
 
+bool EnsureIndicator(int handle, string label)
+{
+  if(handle != INVALID_HANDLE)
+  {
+    return true;
+  }
+  Print(label, " handle creation failed: ", GetLastError());
+  return false;
+}
+
+void ReleaseIndicator(int &handle)
+{
+  if(handle == INVALID_HANDLE)
+  {
+    return;
+  }
+  IndicatorRelease(handle);
+  handle = INVALID_HANDLE;
+}
+
 double BufferValue(int handle, int bufferIndex, int shift)
 {
   if(handle == INVALID_HANDLE)
@@ -362,50 +473,23 @@ double BufferValue(int handle, int bufferIndex, int shift)
   }
   double values[];
   ArraySetAsSeries(values, true);
-  if(CopyBuffer(handle, bufferIndex, shift, 1, values) <= 0)
+  int copied = CopyBuffer(handle, bufferIndex, shift, 1, values);
+  if(copied <= 0)
   {
-    IndicatorRelease(handle);
     return EMPTY_VALUE;
   }
-  double result = values[0];
-  IndicatorRelease(handle);
-  return result;
+  return values[0];
 }
 
-double MAValue(int period, ENUM_MA_METHOD method, int shift)
+int OnInit()
 {
-  int handle = iMA(_Symbol, _Period, period, 0, method, PRICE_CLOSE);
-  return BufferValue(handle, 0, shift);
+${handleInitLines}
+  return INIT_SUCCEEDED;
 }
 
-double RSIValue(int period, int shift)
+void OnDeinit(const int reason)
 {
-  int handle = iRSI(_Symbol, _Period, period, PRICE_CLOSE);
-  return BufferValue(handle, 0, shift);
-}
-
-double BandUpper(int period, double deviation, int shift)
-{
-  int handle = iBands(_Symbol, _Period, period, 0, deviation, PRICE_CLOSE);
-  return BufferValue(handle, 1, shift);
-}
-
-double BandLower(int period, double deviation, int shift)
-{
-  int handle = iBands(_Symbol, _Period, period, 0, deviation, PRICE_CLOSE);
-  return BufferValue(handle, 2, shift);
-}
-
-double MACDMain(int fastPeriod, int slowPeriod, int signalPeriod, int shift)
-{
-  int handle = iMACD(_Symbol, _Period, fastPeriod, slowPeriod, signalPeriod, PRICE_CLOSE);
-  return BufferValue(handle, 0, shift);
-}
-
-double MACDSignal(int fastPeriod, int slowPeriod, int signalPeriod, int shift)
-{
-  int handle = iMACD(_Symbol, _Period, fastPeriod, slowPeriod, signalPeriod, PRICE_CLOSE);
-  return BufferValue(handle, 1, shift);
+${handleReleaseLines}
 }
 
 ${conditionFunctions}

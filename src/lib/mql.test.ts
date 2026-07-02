@@ -84,6 +84,27 @@ describe('mql generation', () => {
     expect(source).toContain('input double InpRSI2Threshold = 30;');
     expect(source).toContain('input double InpBB3Deviation = 2;');
     expect(source).toContain('input int InpMACD4SignalPeriod = 9;');
+    expect(source).toContain('int ma1FastHandle = INVALID_HANDLE;');
+    expect(source).toContain('int ma1SlowHandle = INVALID_HANDLE;');
+    expect(source).toContain('int rsi2Handle = INVALID_HANDLE;');
+    expect(source).toContain('int bb3Handle = INVALID_HANDLE;');
+    expect(source).toContain('int macd4Handle = INVALID_HANDLE;');
+    expect(source).toContain('int OnInit()');
+    expect(source).toContain('void OnDeinit(const int reason)');
+    expect(source).toContain('ma1FastHandle = iMA(_Symbol, _Period, InpMA1FastPeriod');
+    expect(source).toContain('rsi2Handle = iRSI(_Symbol, _Period, InpRSI2Period');
+    expect(source).toContain('bb3Handle = iBands(_Symbol, _Period, InpBB3Period');
+    expect(source).toContain('macd4Handle = iMACD(_Symbol, _Period, InpMACD4FastPeriod');
+    expect(source).toContain('double previousFast = BufferValue(ma1FastHandle, 0, 2);');
+    expect(source).toContain('double current = BufferValue(rsi2Handle, 0, 1);');
+    expect(source).toContain('double upper = BufferValue(bb3Handle, 1, 1);');
+    expect(source).toContain('double currentSignal = BufferValue(macd4Handle, 1, 1);');
+    expect(source).toContain('if(copied <= 0)');
+    expect(source).toContain('ReleaseIndicator(ma1FastHandle);');
+    expect(source).not.toContain('double MAValue(');
+    expect(source).not.toContain('double RSIValue(');
+    expect(source).not.toContain('double BandUpper(');
+    expect(source).not.toContain('double MACDMain(');
     expect(source).toContain('iMA(_Symbol, _Period');
     expect(source).toContain('iRSI(_Symbol, _Period');
     expect(source).toContain('iBands(_Symbol, _Period');
@@ -114,5 +135,25 @@ describe('mql generation', () => {
     expect(source).toContain('iBands(_Symbol, _Period');
     expect(source).toContain('iMACD(_Symbol, _Period');
     expectBalanced(source);
+  });
+
+  it('rejects non-finite generated numeric values before emitting MQL', () => {
+    expect(() => generateMql5({ ...fullStrategy, lotSize: Number.NaN })).toThrow(
+      /non-finite value/,
+    );
+    expect(() =>
+      generateMql4({
+        ...fullStrategy,
+        entryConditions: [
+          {
+            type: 'bollinger',
+            period: 20,
+            multiplier: Number.POSITIVE_INFINITY,
+            mode: 'touch',
+            band: 'upper',
+          },
+        ],
+      }),
+    ).toThrow(/non-finite value/);
   });
 });

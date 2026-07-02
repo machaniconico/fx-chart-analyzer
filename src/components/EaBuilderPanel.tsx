@@ -100,6 +100,49 @@ const downloadText = (filename: string, content: string): void => {
   URL.revokeObjectURL(url);
 };
 
+const clampNumber = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, value));
+
+const finiteFallback = (value: number, fallback: number): number =>
+  Number.isFinite(value) ? value : fallback;
+
+const numericInput = (
+  rawValue: string,
+  previousValue: number,
+  defaultValue: number,
+  min = Number.NEGATIVE_INFINITY,
+  max = Number.POSITIVE_INFINITY,
+): number => {
+  const fallback = finiteFallback(previousValue, defaultValue);
+  const parsed = rawValue.trim() === '' ? fallback : Number(rawValue);
+  const nextValue = Number.isFinite(parsed) ? parsed : fallback;
+  return clampNumber(nextValue, min, max);
+};
+
+const integerInput = (
+  rawValue: string,
+  previousValue: number,
+  defaultValue: number,
+  min = Number.NEGATIVE_INFINITY,
+  max = Number.POSITIVE_INFINITY,
+): number => Math.round(numericInput(rawValue, previousValue, defaultValue, min, max));
+
+const pipsInput = (rawValue: string, previousValue: number, defaultValue: number): number =>
+  integerInput(rawValue, previousValue, defaultValue, 1);
+
+const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
+  const messages: string[] = [];
+  for (const condition of strategy.entryConditions) {
+    if (condition.type === 'maCross' && condition.fastPeriod >= condition.slowPeriod) {
+      messages.push('MAクロスは短期期間を長期期間より小さくしてください。');
+    }
+    if (condition.type === 'macdCross' && condition.fastPeriod >= condition.slowPeriod) {
+      messages.push('MACDは短期期間を長期期間より小さくしてください。');
+    }
+  }
+  return messages;
+};
+
 const createEquityChart = (container: HTMLDivElement): IChartApi =>
   createChart(container, {
     height: 260,
@@ -164,6 +207,8 @@ function EquityCurve({ result }: { result: BacktestResult }) {
 export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
   const [strategy, setStrategy] = useState<StrategyDefinition>(() => cloneStrategy(defaultStrategies[0]));
   const [result, setResult] = useState<BacktestResult | null>(null);
+  const validationMessages = useMemo(() => strategyValidationMessages(strategy), [strategy]);
+  const hasValidationErrors = validationMessages.length > 0;
   const mql5Source = useMemo(() => generateMql5(strategy), [strategy]);
   const mql4Source = useMemo(() => generateMql4(strategy), [strategy]);
 
@@ -223,6 +268,9 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
   const macdCondition = getCondition('macdCross');
 
   const run = (): void => {
+    if (hasValidationErrors) {
+      return;
+    }
     setResult(runBacktest(bars, strategy, pair));
   };
 
@@ -236,7 +284,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
             <p className="eyebrow">EAビルダー</p>
             <h2>{pair} / {timeframeLabels[timeframe]}</h2>
           </div>
-          <button className="primary-action" type="button" onClick={run}>
+          <button className="primary-action" type="button" onClick={run} disabled={hasValidationErrors}>
             バックテスト実行
           </button>
         </div>
@@ -296,7 +344,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
               onChange={(event) =>
                 updateStrategy((current) => ({
                   ...current,
-                  lotSize: Number(event.target.value),
+                  lotSize: numericInput(event.target.value, current.lotSize, 0.1, 0.01),
                 }))
               }
             />
@@ -312,7 +360,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
               onChange={(event) =>
                 updateStrategy((current) => ({
                   ...current,
-                  magicNumber: Math.round(Number(event.target.value)),
+                  magicNumber: integerInput(event.target.value, current.magicNumber, 20260701, 1),
                 }))
               }
             />
@@ -355,7 +403,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                     onChange={(event) =>
                       updateCondition('maCross', defaultMaCondition, (condition) => ({
                         ...condition,
-                        fastPeriod: Math.round(Number(event.target.value)),
+                        fastPeriod: integerInput(event.target.value, condition.fastPeriod, 20, 1),
                       }))
                     }
                   />
@@ -384,7 +432,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                     onChange={(event) =>
                       updateCondition('maCross', defaultMaCondition, (condition) => ({
                         ...condition,
-                        slowPeriod: Math.round(Number(event.target.value)),
+                        slowPeriod: integerInput(event.target.value, condition.slowPeriod, 50, 2),
                       }))
                     }
                   />
@@ -413,7 +461,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                     onChange={(event) =>
                       updateCondition('rsi', defaultRsiCondition, (condition) => ({
                         ...condition,
-                        period: Math.round(Number(event.target.value)),
+                        period: integerInput(event.target.value, condition.period, 14, 1),
                       }))
                     }
                   />
@@ -445,7 +493,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                     onChange={(event) =>
                       updateCondition('rsi', defaultRsiCondition, (condition) => ({
                         ...condition,
-                        threshold: Number(event.target.value),
+                        threshold: numericInput(event.target.value, condition.threshold, 30, 1, 99),
                       }))
                     }
                   />
@@ -474,7 +522,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                     onChange={(event) =>
                       updateCondition('bollinger', defaultBollingerCondition, (condition) => ({
                         ...condition,
-                        period: Math.round(Number(event.target.value)),
+                        period: integerInput(event.target.value, condition.period, 20, 1),
                       }))
                     }
                   />
@@ -489,7 +537,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                     onChange={(event) =>
                       updateCondition('bollinger', defaultBollingerCondition, (condition) => ({
                         ...condition,
-                        multiplier: Number(event.target.value),
+                        multiplier: numericInput(event.target.value, condition.multiplier, 2, 0.1),
                       }))
                     }
                   />
@@ -548,7 +596,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                     onChange={(event) =>
                       updateCondition('macdCross', defaultMacdCondition, (condition) => ({
                         ...condition,
-                        fastPeriod: Math.round(Number(event.target.value)),
+                        fastPeriod: integerInput(event.target.value, condition.fastPeriod, 12, 1),
                       }))
                     }
                   />
@@ -562,7 +610,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                     onChange={(event) =>
                       updateCondition('macdCross', defaultMacdCondition, (condition) => ({
                         ...condition,
-                        slowPeriod: Math.round(Number(event.target.value)),
+                        slowPeriod: integerInput(event.target.value, condition.slowPeriod, 26, 2),
                       }))
                     }
                   />
@@ -576,7 +624,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                     onChange={(event) =>
                       updateCondition('macdCross', defaultMacdCondition, (condition) => ({
                         ...condition,
-                        signalPeriod: Math.round(Number(event.target.value)),
+                        signalPeriod: integerInput(event.target.value, condition.signalPeriod, 9, 1),
                       }))
                     }
                   />
@@ -585,6 +633,14 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
             )}
           </section>
         </div>
+
+        {validationMessages.length > 0 && (
+          <div className="validation-list" role="alert">
+            {validationMessages.map((message) => (
+              <p key={message}>{message}</p>
+            ))}
+          </div>
+        )}
 
         <section className="exit-card">
           <h3>決済</h3>
@@ -598,7 +654,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                 onChange={(event) =>
                   updateStrategy((current) => ({
                     ...current,
-                    exit: { ...current.exit, stopLossPips: Math.round(Number(event.target.value)) },
+                    exit: { ...current.exit, stopLossPips: pipsInput(event.target.value, current.exit.stopLossPips, 30) },
                   }))
                 }
               />
@@ -612,7 +668,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                 onChange={(event) =>
                   updateStrategy((current) => ({
                     ...current,
-                    exit: { ...current.exit, takeProfitPips: Math.round(Number(event.target.value)) },
+                    exit: { ...current.exit, takeProfitPips: pipsInput(event.target.value, current.exit.takeProfitPips, 60) },
                   }))
                 }
               />
@@ -643,7 +699,10 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                 onChange={(event) =>
                   updateStrategy((current) => ({
                     ...current,
-                    exit: { ...current.exit, trailingStopPips: Math.round(Number(event.target.value)) },
+                    exit: {
+                      ...current.exit,
+                      trailingStopPips: pipsInput(event.target.value, current.exit.trailingStopPips ?? 20, 20),
+                    },
                   }))
                 }
               />
@@ -668,6 +727,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
           <button
             className="secondary-action"
             type="button"
+            disabled={hasValidationErrors}
             onClick={() => downloadText(`${filenameBase}.mq5`, mql5Source)}
           >
             MQL5をダウンロード
@@ -675,6 +735,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
           <button
             className="secondary-action"
             type="button"
+            disabled={hasValidationErrors}
             onClick={() => downloadText(`${filenameBase}.mq4`, mql4Source)}
           >
             MQL4をダウンロード
