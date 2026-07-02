@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChartPanel, type IndicatorToggles } from './components/ChartPanel';
+import { CotReportPanel } from './components/CotReportPanel';
 import { EaBuilderPanel } from './components/EaBuilderPanel';
 import { EconomicCalendarPanel } from './components/EconomicCalendarPanel';
 import { PredictionPanel } from './components/PredictionPanel';
 import { SignalPanel } from './components/SignalPanel';
 import { loadCalendar, type CalendarEvent, type CalendarFile } from './lib/calendar';
+import { loadCot, type CotFile } from './lib/cot';
 import { formatPrice, lastBar, loadAdaptiveStats, loadBars, type AdaptiveStatsFile } from './lib/chart-data';
 import { analyzeSignals } from './lib/signals';
 import type { DataFile, Pair, Timeframe } from './types';
@@ -32,7 +34,7 @@ const indicatorLabels: Array<[keyof IndicatorToggles, string]> = [
 
 const emptyCalendarEvents: CalendarEvent[] = [];
 
-type ActiveTab = 'chart' | 'prediction' | 'calendar' | 'ea';
+type ActiveTab = 'chart' | 'prediction' | 'cot' | 'calendar' | 'ea';
 
 function App() {
   const [pair, setPair] = useState<Pair>('USDJPY');
@@ -41,6 +43,8 @@ function App() {
   const [toggles, setToggles] = useState<IndicatorToggles>(defaultToggles);
   const [data, setData] = useState<DataFile | null>(null);
   const [calendar, setCalendar] = useState<CalendarFile | null>(null);
+  const [cot, setCot] = useState<CotFile | null>(null);
+  const [cotError, setCotError] = useState<string | null>(null);
   const [adaptiveStats, setAdaptiveStats] = useState<AdaptiveStatsFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,6 +107,26 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let disposed = false;
+    setCotError(null);
+    loadCot()
+      .then((payload) => {
+        if (!disposed) {
+          setCot(payload);
+        }
+      })
+      .catch((reason: unknown) => {
+        if (!disposed) {
+          setCot(null);
+          setCotError(reason instanceof Error ? reason.message : 'COTデータを読み込めませんでした');
+        }
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
   const current = data ? lastBar(data.bars) : null;
   const previous = data && data.bars.length > 1 ? data.bars[data.bars.length - 2] : null;
   const change = current && previous ? current.c - previous.c : 0;
@@ -134,6 +158,13 @@ function App() {
             onClick={() => setActiveTab('prediction')}
           >
             予測
+          </button>
+          <button
+            className={activeTab === 'cot' ? 'tab tab-active' : 'tab'}
+            type="button"
+            onClick={() => setActiveTab('cot')}
+          >
+            COT
           </button>
           <button
             className={activeTab === 'calendar' ? 'tab tab-active' : 'tab'}
@@ -238,6 +269,8 @@ function App() {
                 calendarEvents={calendarEvents}
                 now={now}
               />
+            ) : activeTab === 'cot' ? (
+              <CotReportPanel cot={cot} error={cotError} pair={pair} />
             ) : activeTab === 'calendar' ? (
               <EconomicCalendarPanel
                 events={calendarEvents}
