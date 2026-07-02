@@ -7,9 +7,17 @@ import {
   IChartApi,
   ISeriesApi,
   LineData,
+  SeriesMarker,
   Time,
 } from 'lightweight-charts';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  calendarImpactLabels,
+  formatCalendarTimeJst,
+  relevantChartEvents,
+  upcomingEventsWithin,
+  type CalendarEvent,
+} from '../lib/calendar';
 import { bollingerBands, ema, ichimoku, macd, rsi, sma } from '../lib/indicators';
 import type { Bar, Pair, Timeframe } from '../types';
 
@@ -28,6 +36,8 @@ interface ChartPanelProps {
   pair: Pair;
   timeframe: Timeframe;
   toggles: IndicatorToggles;
+  calendarEvents?: CalendarEvent[];
+  now?: number;
 }
 
 const lineColors = {
@@ -51,6 +61,13 @@ const timeframeSeconds: Record<Timeframe, number> = {
   h4: 60 * 60 * 4,
   d1: 60 * 60 * 24,
 };
+
+const impactMarkerColors: Record<'high' | 'medium', string> = {
+  high: '#ff5b78',
+  medium: '#ff9f43',
+};
+
+const emptyCalendarEvents: CalendarEvent[] = [];
 
 const toLineData = (bars: readonly Bar[], values: readonly (number | null)[]): LineData[] =>
   values.flatMap((value, index) =>
@@ -95,10 +112,39 @@ const createBaseChart = (container: HTMLDivElement, height: number): IChartApi =
     },
   });
 
-export function ChartPanel({ bars, pair, timeframe, toggles }: ChartPanelProps) {
+const markerBarTime = (bars: readonly Bar[], eventTime: number): number | null => {
+  if (bars.length === 0 || eventTime < bars[0].t || eventTime > bars[bars.length - 1].t) {
+    return null;
+  }
+  let low = 0;
+  let high = bars.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (bars[middle].t <= eventTime) {
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return bars[Math.max(0, high)].t;
+};
+
+const shortenMarkerTitle = (title: string): string =>
+  title.length > 28 ? `${title.slice(0, 28)}...` : title;
+
+export function ChartPanel({
+  bars,
+  pair,
+  timeframe,
+  toggles,
+  calendarEvents = emptyCalendarEvents,
+  now = Math.floor(Date.now() / 1000),
+}: ChartPanelProps) {
   const mainRef = useRef<HTMLDivElement | null>(null);
   const rsiRef = useRef<HTMLDivElement | null>(null);
   const macdRef = useRef<HTMLDivElement | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const [markerTargetVersion, setMarkerTargetVersion] = useState(0);
 
   const computed = useMemo(() => {
     const closes = bars.map((bar) => bar.c);
@@ -116,6 +162,42 @@ export function ChartPanel({ bars, pair, timeframe, toggles }: ChartPanelProps) 
       macd: macd(closes, 12, 26, 9),
     };
   }, [bars]);
+  const lastBarTime = bars.length > 0 ? bars[bars.length - 1].t : null;
+  const chartEvents = useMemo(
+    () => relevantChartEvents(calendarEvents, pair),
+    [calendarEvents, pair],
+  );
+  const upcomingNews = useMemo(
+    () => upcomingEventsWithin(chartEvents, pair, 24 * 60 * 60, now),
+    [chartEvents, now, pair],
+  );
+  const markerEvents = useMemo(() => {
+    if (lastBarTime === null) {
+      return emptyCalendarEvents;
+    }
+    return chartEvents.filter((event) => event.time <= lastBarTime);
+  }, [chartEvents, lastBarTime]);
+  const newsMarkers = useMemo(
+    () =>
+      markerEvents.flatMap<SeriesMarker<Time>>((event) => {
+        const time = markerBarTime(bars, event.time);
+        if (time === null || (event.impact !== 'high' && event.impact !== 'medium')) {
+          return [];
+        }
+        return [
+          {
+            id: `${event.currency}-${event.time}-${event.title}`,
+            time: time as Time,
+            position: 'aboveBar',
+            shape: 'circle',
+            color: impactMarkerColors[event.impact],
+            text: `⚠ ${event.currency} ${shortenMarkerTitle(event.title)}`,
+            size: event.impact === 'high' ? 1.6 : 1.25,
+          },
+        ];
+      }),
+    [bars, markerEvents],
+  );
 
   useEffect(() => {
     if (!mainRef.current || !rsiRef.current || !macdRef.current || bars.length === 0) {
@@ -156,6 +238,8 @@ export function ChartPanel({ bars, pair, timeframe, toggles }: ChartPanelProps) 
         close: bar.c,
       })),
     );
+    candleSeriesRef.current = candleSeries;
+    setMarkerTargetVersion((currentVersion) => currentVersion + 1);
 
     const addLine = (
       visible: boolean,
@@ -255,10 +339,15 @@ export function ChartPanel({ bars, pair, timeframe, toggles }: ChartPanelProps) 
     charts.forEach((chart) => chart.timeScale().fitContent());
 
     return () => {
+      candleSeriesRef.current = null;
       resizeObserver.disconnect();
       charts.forEach((chart) => chart.remove());
     };
   }, [bars, computed, pair, timeframe, toggles]);
+
+  useEffect(() => {
+    candleSeriesRef.current?.setMarkers(newsMarkers);
+  }, [markerTargetVersion, newsMarkers]);
 
   return (
     <div className="chart-stack">
@@ -267,6 +356,20 @@ export function ChartPanel({ bars, pair, timeframe, toggles }: ChartPanelProps) 
           <span>ローソク足</span>
           <span>{pair} / {timeframe.toUpperCase()}</span>
         </div>
+        {upcomingNews.length > 0 && (
+          <div className="news-banner">
+            <strong>今後24時間の指標</strong>
+            <div className="news-banner-list">
+              {upcomingNews.slice(0, 4).map((event) => (
+                <span key={`${event.currency}-${event.time}-${event.title}`}>
+                  <i className={`impact-dot impact-${event.impact}`} />
+                  {formatCalendarTimeJst(event.time)} {event.currency} {calendarImpactLabels[event.impact]} {event.title}
+                </span>
+              ))}
+              {upcomingNews.length > 4 && <span>他 {upcomingNews.length - 4} 件</span>}
+            </div>
+          </div>
+        )}
         <div ref={mainRef} className="chart-area chart-area-main" />
       </div>
       <div className="subcharts">

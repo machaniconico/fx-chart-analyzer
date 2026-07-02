@@ -130,6 +130,8 @@ const integerInput = (
 const pipsInput = (rawValue: string, previousValue: number, defaultValue: number): number =>
   integerInput(rawValue, previousValue, defaultValue, 1);
 
+const timeTextPattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
 const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
   const messages: string[] = [];
   for (const condition of strategy.entryConditions) {
@@ -139,6 +141,15 @@ const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
     if (condition.type === 'macdCross' && condition.fastPeriod >= condition.slowPeriod) {
       messages.push('MACDは短期期間を長期期間より小さくしてください。');
     }
+  }
+  if (
+    strategy.sessionFilter.enabled &&
+    (!timeTextPattern.test(strategy.sessionFilter.start) || !timeTextPattern.test(strategy.sessionFilter.end))
+  ) {
+    messages.push('取引許可時間帯は HH:MM 形式で入力してください。');
+  }
+  if (strategy.newsFilter.enabled && strategy.newsFilter.blockMinutes < 1) {
+    messages.push('ニュース停止時間は1分以上にしてください。');
   }
   return messages;
 };
@@ -633,6 +644,110 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
             )}
           </section>
         </div>
+
+        <section className="exit-card">
+          <h3>取引フィルター</h3>
+          <div className="ea-form-grid ea-filter-grid">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={strategy.sessionFilter.enabled}
+                onChange={(event) =>
+                  updateStrategy((current) => ({
+                    ...current,
+                    sessionFilter: { ...current.sessionFilter, enabled: event.target.checked },
+                  }))
+                }
+              />
+              <span>時間帯フィルター</span>
+            </label>
+            <label className="form-field">
+              <span className="field-label">開始(サーバー時刻)</span>
+              <input
+                type="time"
+                value={strategy.sessionFilter.start}
+                onChange={(event) =>
+                  updateStrategy((current) => ({
+                    ...current,
+                    sessionFilter: { ...current.sessionFilter, start: event.target.value || '00:00' },
+                  }))
+                }
+              />
+            </label>
+            <label className="form-field">
+              <span className="field-label">終了(サーバー時刻)</span>
+              <input
+                type="time"
+                value={strategy.sessionFilter.end}
+                onChange={(event) =>
+                  updateStrategy((current) => ({
+                    ...current,
+                    sessionFilter: { ...current.sessionFilter, end: event.target.value || '23:59' },
+                  }))
+                }
+              />
+            </label>
+            <label className="form-field">
+              <span className="field-label">サーバーUTC差(分)</span>
+              <input
+                max="840"
+                min="-720"
+                step="15"
+                type="number"
+                value={strategy.sessionFilter.serverUtcOffsetMinutes}
+                onChange={(event) =>
+                  updateStrategy((current) => ({
+                    ...current,
+                    sessionFilter: {
+                      ...current.sessionFilter,
+                      serverUtcOffsetMinutes: integerInput(
+                        event.target.value,
+                        current.sessionFilter.serverUtcOffsetMinutes,
+                        0,
+                        -720,
+                        840,
+                      ),
+                    },
+                  }))
+                }
+              />
+            </label>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={strategy.newsFilter.enabled}
+                onChange={(event) =>
+                  updateStrategy((current) => ({
+                    ...current,
+                    newsFilter: { ...current.newsFilter, enabled: event.target.checked },
+                  }))
+                }
+              />
+              <span>ニュース停止(MQL5)</span>
+            </label>
+            <label className="form-field">
+              <span className="field-label">前後停止(分)</span>
+              <input
+                min="1"
+                type="number"
+                value={strategy.newsFilter.blockMinutes}
+                onChange={(event) =>
+                  updateStrategy((current) => ({
+                    ...current,
+                    newsFilter: {
+                      ...current.newsFilter,
+                      blockMinutes: integerInput(event.target.value, current.newsFilter.blockMinutes, 30, 1),
+                    },
+                  }))
+                }
+              />
+            </label>
+          </div>
+          <p className="disclaimer-copy">
+            時間帯はサーバー時刻で新規エントリーだけを制限します。バックテストではUTC差を使ってサーバー時刻へ換算します。
+            ニュース停止はMQL5内蔵カレンダーAPIを使う生成コード専用です。
+          </p>
+        </section>
 
         {validationMessages.length > 0 && (
           <div className="validation-list" role="alert">

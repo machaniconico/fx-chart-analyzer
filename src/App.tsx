@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChartPanel, type IndicatorToggles } from './components/ChartPanel';
 import { EaBuilderPanel } from './components/EaBuilderPanel';
+import { EconomicCalendarPanel } from './components/EconomicCalendarPanel';
 import { PredictionPanel } from './components/PredictionPanel';
 import { SignalPanel } from './components/SignalPanel';
+import { loadCalendar, type CalendarEvent, type CalendarFile } from './lib/calendar';
 import { formatPrice, lastBar, loadAdaptiveStats, loadBars, type AdaptiveStatsFile } from './lib/chart-data';
 import { analyzeSignals } from './lib/signals';
 import type { DataFile, Pair, Timeframe } from './types';
@@ -28,7 +30,9 @@ const indicatorLabels: Array<[keyof IndicatorToggles, string]> = [
   ['ichimoku', '一目雲'],
 ];
 
-type ActiveTab = 'chart' | 'prediction' | 'ea';
+const emptyCalendarEvents: CalendarEvent[] = [];
+
+type ActiveTab = 'chart' | 'prediction' | 'calendar' | 'ea';
 
 function App() {
   const [pair, setPair] = useState<Pair>('USDJPY');
@@ -36,9 +40,11 @@ function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('chart');
   const [toggles, setToggles] = useState<IndicatorToggles>(defaultToggles);
   const [data, setData] = useState<DataFile | null>(null);
+  const [calendar, setCalendar] = useState<CalendarFile | null>(null);
   const [adaptiveStats, setAdaptiveStats] = useState<AdaptiveStatsFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
 
   useEffect(() => {
     let disposed = false;
@@ -72,6 +78,31 @@ function App() {
     };
   }, [pair, timeframe]);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNow(Math.floor(Date.now() / 1000));
+    }, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    loadCalendar()
+      .then((payload) => {
+        if (!disposed) {
+          setCalendar(payload);
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setCalendar({ updatedAt: '', events: [] });
+        }
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
   const current = data ? lastBar(data.bars) : null;
   const previous = data && data.bars.length > 1 ? data.bars[data.bars.length - 2] : null;
   const change = current && previous ? current.c - previous.c : 0;
@@ -80,6 +111,7 @@ function App() {
     () => (data ? analyzeSignals(data.bars) : null),
     [data],
   );
+  const calendarEvents = calendar?.events ?? emptyCalendarEvents;
 
   return (
     <main className="app-shell">
@@ -102,6 +134,13 @@ function App() {
             onClick={() => setActiveTab('prediction')}
           >
             予測
+          </button>
+          <button
+            className={activeTab === 'calendar' ? 'tab tab-active' : 'tab'}
+            type="button"
+            onClick={() => setActiveTab('calendar')}
+          >
+            経済指標
           </button>
           <button
             className={activeTab === 'ea' ? 'tab tab-active' : 'tab'}
@@ -180,11 +219,32 @@ function App() {
           {!loading && !error && data && (
             activeTab === 'chart' ? (
               <div className="chart-stack">
-                <ChartPanel bars={data.bars} pair={pair} timeframe={timeframe} toggles={toggles} />
+                <ChartPanel
+                  bars={data.bars}
+                  pair={pair}
+                  timeframe={timeframe}
+                  toggles={toggles}
+                  calendarEvents={calendarEvents}
+                  now={now}
+                />
                 {signalAnalysis && <SignalPanel analysis={signalAnalysis} />}
               </div>
             ) : activeTab === 'prediction' ? (
-              <PredictionPanel bars={data.bars} pair={pair} timeframe={timeframe} adaptiveStats={adaptiveStats} />
+              <PredictionPanel
+                bars={data.bars}
+                pair={pair}
+                timeframe={timeframe}
+                adaptiveStats={adaptiveStats}
+                calendarEvents={calendarEvents}
+                now={now}
+              />
+            ) : activeTab === 'calendar' ? (
+              <EconomicCalendarPanel
+                events={calendarEvents}
+                pair={pair}
+                updatedAt={calendar?.updatedAt}
+                now={now}
+              />
             ) : (
               <EaBuilderPanel bars={data.bars} pair={pair} timeframe={timeframe} />
             )

@@ -316,6 +316,15 @@ const commonInputs = (strategy: StrategyDefinition, mql5: boolean): string[] => 
   `input double InpLots = ${numberLiteral(strategy.lotSize)};`,
   `input int InpMagicNumber = ${integerLiteral(strategy.magicNumber)};`,
   `input bool InpTradeLong = ${boolLiteral(strategy.direction === 'long')};`,
+  `input bool InpSessionFilterEnable = ${boolLiteral(strategy.sessionFilter.enabled)};`,
+  `input string InpSessionStart = "${mqlString(strategy.sessionFilter.start)}";`,
+  `input string InpSessionEnd = "${mqlString(strategy.sessionFilter.end)}";`,
+  ...(mql5
+    ? [
+        `input bool NewsFilterEnable = ${boolLiteral(strategy.newsFilter.enabled)};`,
+        `input int NewsBlockMinutes = ${integerLiteral(strategy.newsFilter.blockMinutes)};`,
+      ]
+    : []),
   `input int InpStopLossPips = ${integerLiteral(strategy.exit.stopLossPips)};`,
   `input int InpTakeProfitPips = ${integerLiteral(strategy.exit.takeProfitPips)};`,
   `input bool InpUseTrailingStop = ${boolLiteral(Boolean(strategy.exit.trailingStopPips && strategy.exit.trailingStopPips > 0))};`,
@@ -413,6 +422,10 @@ export const generateMql5 = (strategy: StrategyDefinition): string => {
   return `#property strict
 #property description "${expertName}"
 
+// Session filter uses broker server time via TimeCurrent(); it is independent of this app's backtest UTC offset.
+// In Strategy Tester, economic calendar data can be unavailable. If CalendarValueHistory fails,
+// the MQL5 news filter blocks entries while NewsFilterEnable is true.
+
 #include <Trade/Trade.mqh>
 CTrade trade;
 
@@ -443,6 +456,120 @@ bool CrossedAbove(double previousFast, double previousSlow, double currentFast, 
 bool CrossedBelow(double previousFast, double previousSlow, double currentFast, double currentSlow)
 {
   return previousFast >= previousSlow && currentFast < currentSlow;
+}
+
+int TimeTextToMinutes(string value)
+{
+  int separator = StringFind(value, ":");
+  if(separator < 0)
+  {
+    return 0;
+  }
+  int hour = (int)StringToInteger(StringSubstr(value, 0, separator));
+  int minute = (int)StringToInteger(StringSubstr(value, separator + 1));
+  if(hour < 0)
+  {
+    hour = 0;
+  }
+  if(hour > 23)
+  {
+    hour = 23;
+  }
+  if(minute < 0)
+  {
+    minute = 0;
+  }
+  if(minute > 59)
+  {
+    minute = 59;
+  }
+  return hour * 60 + minute;
+}
+
+bool IsInTradingSession()
+{
+  if(!InpSessionFilterEnable)
+  {
+    return true;
+  }
+  MqlDateTime current;
+  TimeToStruct(TimeCurrent(), current);
+  int nowMinutes = current.hour * 60 + current.min;
+  int startMinutes = TimeTextToMinutes(InpSessionStart);
+  int endMinutes = TimeTextToMinutes(InpSessionEnd);
+  if(startMinutes == endMinutes)
+  {
+    return true;
+  }
+  if(startMinutes < endMinutes)
+  {
+    return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+  }
+  return nowMinutes >= startMinutes || nowMinutes < endMinutes;
+}
+
+string BaseCurrency()
+{
+  if(StringLen(_Symbol) < 6)
+  {
+    return "";
+  }
+  return StringSubstr(_Symbol, 0, 3);
+}
+
+string QuoteCurrency()
+{
+  if(StringLen(_Symbol) < 6)
+  {
+    return "";
+  }
+  return StringSubstr(_Symbol, 3, 3);
+}
+
+bool CurrencyHasHighImpactNews(string currency, datetime fromTime, datetime toTime)
+{
+  if(currency == "")
+  {
+    return false;
+  }
+  MqlCalendarValue values[];
+  ResetLastError();
+  if(!CalendarValueHistory(values, fromTime, toTime, NULL, currency))
+  {
+    return true;
+  }
+  int count = ArraySize(values);
+  if(count <= 0)
+  {
+    return false;
+  }
+  for(int i = 0; i < count; i++)
+  {
+    MqlCalendarEvent eventInfo;
+    if(CalendarEventById(values[i].event_id, eventInfo) && eventInfo.importance == CALENDAR_IMPORTANCE_HIGH)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool IsHighImpactNewsWindow()
+{
+  if(!NewsFilterEnable || NewsBlockMinutes <= 0)
+  {
+    return false;
+  }
+  datetime nowTime = TimeCurrent();
+  datetime fromTime = nowTime - NewsBlockMinutes * 60;
+  datetime toTime = nowTime + NewsBlockMinutes * 60;
+  return CurrencyHasHighImpactNews(BaseCurrency(), fromTime, toTime) ||
+    CurrencyHasHighImpactNews(QuoteCurrency(), fromTime, toTime);
+}
+
+bool EntryFiltersAllow()
+{
+  return IsInTradingSession() && !IsHighImpactNewsWindow();
 }
 
 bool EnsureIndicator(int handle, string label)
@@ -608,7 +735,7 @@ void OnTick()
     }
     return;
   }
-  if(EntrySignal(InpTradeLong))
+  if(EntryFiltersAllow() && EntrySignal(InpTradeLong))
   {
     OpenPosition();
   }
@@ -625,6 +752,8 @@ export const generateMql4 = (strategy: StrategyDefinition): string => {
 
   return `#property strict
 #property description "${expertName}"
+
+// Session filter uses broker server time via TimeCurrent(); it is independent of this app's backtest UTC offset.
 
 ${inputs}
 
@@ -652,6 +781,62 @@ bool CrossedAbove(double previousFast, double previousSlow, double currentFast, 
 bool CrossedBelow(double previousFast, double previousSlow, double currentFast, double currentSlow)
 {
   return previousFast >= previousSlow && currentFast < currentSlow;
+}
+
+int TimeTextToMinutes(string value)
+{
+  int separator = StringFind(value, ":");
+  if(separator < 0)
+  {
+    return 0;
+  }
+  int hour = (int)StringToInteger(StringSubstr(value, 0, separator));
+  int minute = (int)StringToInteger(StringSubstr(value, separator + 1));
+  if(hour < 0)
+  {
+    hour = 0;
+  }
+  if(hour > 23)
+  {
+    hour = 23;
+  }
+  if(minute < 0)
+  {
+    minute = 0;
+  }
+  if(minute > 59)
+  {
+    minute = 59;
+  }
+  return hour * 60 + minute;
+}
+
+bool IsInTradingSession()
+{
+  if(!InpSessionFilterEnable)
+  {
+    return true;
+  }
+  MqlDateTime current;
+  TimeToStruct(TimeCurrent(), current);
+  int nowMinutes = current.hour * 60 + current.min;
+  int startMinutes = TimeTextToMinutes(InpSessionStart);
+  int endMinutes = TimeTextToMinutes(InpSessionEnd);
+  if(startMinutes == endMinutes)
+  {
+    return true;
+  }
+  if(startMinutes < endMinutes)
+  {
+    return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+  }
+  return nowMinutes >= startMinutes || nowMinutes < endMinutes;
+}
+
+bool EntryFiltersAllow()
+{
+  // MQL4 has no built-in economic calendar API, so NewsFilterEnable and NewsBlockMinutes are MQL5-only.
+  return IsInTradingSession();
 }
 
 ${conditionFunctions}
@@ -789,7 +974,7 @@ void OnTick()
     }
     return;
   }
-  if(EntrySignal(InpTradeLong))
+  if(EntryFiltersAllow() && EntrySignal(InpTradeLong))
   {
     OpenPosition();
   }

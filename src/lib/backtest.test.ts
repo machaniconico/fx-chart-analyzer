@@ -48,6 +48,16 @@ const baseStrategy = (overrides: Partial<StrategyDefinition['exit']> = {}): Stra
     closeOnOppositeSignal: false,
     ...overrides,
   },
+  sessionFilter: {
+    enabled: false,
+    start: '00:00',
+    end: '23:59',
+    serverUtcOffsetMinutes: 0,
+  },
+  newsFilter: {
+    enabled: false,
+    blockMinutes: 30,
+  },
   lotSize: 0.1,
   magicNumber: 12345,
 });
@@ -106,5 +116,42 @@ describe('backtest', () => {
     expect(result.trades[0].exitReason).toBe('trailing_stop');
     expect(result.trades[0].grossPips).toBe(5);
     expect(result.trades[0].exitPrice).toBeCloseTo(100.25);
+  });
+
+  it('blocks new entries outside the configured server-time session', () => {
+    const result = runBacktest(
+      crossSetupBars(bar(5, 100.2, 100.45, 100.15, 100.3)),
+      {
+        ...baseStrategy(),
+        sessionFilter: {
+          enabled: true,
+          start: '06:00',
+          end: '08:00',
+          serverUtcOffsetMinutes: 0,
+        },
+      },
+      'USDJPY',
+    );
+
+    expect(result.tradeCount).toBe(0);
+    expect(result.netPips).toBe(0);
+  });
+
+  it('applies the configured server UTC offset to session filtering', () => {
+    const result = runBacktest(
+      crossSetupBars(bar(5, 100.2, 100.45, 100.15, 100.3)),
+      {
+        ...baseStrategy(),
+        sessionFilter: {
+          enabled: true,
+          start: '07:00',
+          end: '08:00',
+          serverUtcOffsetMinutes: 120,
+        },
+      },
+      'USDJPY',
+    );
+
+    expect(result.tradeCount).toBe(1);
   });
 });

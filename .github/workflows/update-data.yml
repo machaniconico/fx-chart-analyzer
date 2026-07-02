@@ -26,6 +26,9 @@ jobs:
       - name: Fetch latest FX data from Dukascopy
         run: npm run fetch:data
 
+      - name: Fetch Forex Factory calendar
+        run: node scripts/fetch-calendar.mjs
+
       - name: Build adaptive model stats
         run: node scripts/build-model-stats.mjs
 

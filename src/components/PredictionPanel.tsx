@@ -7,6 +7,11 @@ import {
   Time,
 } from 'lightweight-charts';
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  formatCalendarTimeJst,
+  upcomingEventsWithin,
+  type CalendarEvent,
+} from '../lib/calendar';
 import { formatPrice, type AdaptiveStatsFile } from '../lib/chart-data';
 import { adaptiveModelIds, type AdaptiveModelId } from '../lib/adaptive';
 import {
@@ -27,6 +32,8 @@ interface PredictionPanelProps {
   pair: Pair;
   timeframe: Timeframe;
   adaptiveStats?: AdaptiveStatsFile | null;
+  calendarEvents?: CalendarEvent[];
+  now?: number;
 }
 
 const timeframeSeconds: Record<Timeframe, number> = {
@@ -106,7 +113,14 @@ const fanLine = (
   ];
 };
 
-export function PredictionPanel({ bars, pair, timeframe, adaptiveStats = null }: PredictionPanelProps) {
+export function PredictionPanel({
+  bars,
+  pair,
+  timeframe,
+  adaptiveStats = null,
+  calendarEvents = [],
+  now = Math.floor(Date.now() / 1000),
+}: PredictionPanelProps) {
   const chartRef = useRef<HTMLDivElement | null>(null);
   const result = useMemo(
     () => predict(bars, { includeWalkForward: false, adaptiveStats }),
@@ -116,6 +130,13 @@ export function PredictionPanel({ bars, pair, timeframe, adaptiveStats = null }:
   const [walkForward, setWalkForward] = useState<WalkForwardAccuracy | null>(null);
   const [walkForwardStatus, setWalkForwardStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [journalSummary, setJournalSummary] = useState<PredictionJournalSummary>(emptyJournalSummary);
+  const highImpactUpcoming = useMemo(
+    () =>
+      upcomingEventsWithin(calendarEvents, pair, 24 * 60 * 60, now).filter(
+        (event) => event.impact === 'high',
+      ),
+    [calendarEvents, now, pair],
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -234,6 +255,18 @@ export function PredictionPanel({ bars, pair, timeframe, adaptiveStats = null }:
 
   return (
     <div className="prediction-stack">
+      {highImpactUpcoming.length > 0 && (
+        <div className="warning-banner" role="alert">
+          <strong>⚠️ 高インパクト指標が近いため統計予測の信頼性が低下します</strong>
+          <span>
+            {highImpactUpcoming
+              .slice(0, 3)
+              .map((event) => `${formatCalendarTimeJst(event.time)} ${event.currency} ${event.title}`)
+              .join(' / ')}
+          </span>
+        </div>
+      )}
+
       <section className="prediction-summary">
         <div className="panel-heading">
           <div>

@@ -51,6 +51,18 @@ export interface ExitRules {
   closeOnOppositeSignal: boolean;
 }
 
+export interface SessionFilter {
+  enabled: boolean;
+  start: string;
+  end: string;
+  serverUtcOffsetMinutes: number;
+}
+
+export interface NewsFilter {
+  enabled: boolean;
+  blockMinutes: number;
+}
+
 export interface StrategyDefinition {
   id: string;
   name: string;
@@ -58,6 +70,8 @@ export interface StrategyDefinition {
   direction: StrategyDirection;
   entryConditions: EntryCondition[];
   exit: ExitRules;
+  sessionFilter: SessionFilter;
+  newsFilter: NewsFilter;
   lotSize: number;
   magicNumber: number;
 }
@@ -105,6 +119,35 @@ export const pipsToPrice = (pair: Pair, pips: number): number => pips * pipSize(
 
 export const priceToPips = (pair: Pair, priceDistance: number): number =>
   priceDistance / pipSize(pair);
+
+const hhmmPattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+const hhmmToMinutes = (value: string): number | null => {
+  const match = hhmmPattern.exec(value);
+  if (!match) {
+    return null;
+  }
+  return Number(match[1]) * 60 + Number(match[2]);
+};
+
+export const isWithinTradingSession = (
+  timestamp: number,
+  filter: SessionFilter,
+): boolean => {
+  if (!filter.enabled) {
+    return true;
+  }
+  const start = hhmmToMinutes(filter.start);
+  const end = hhmmToMinutes(filter.end);
+  if (start === null || end === null || start === end) {
+    return true;
+  }
+  const date = new Date((timestamp + filter.serverUtcOffsetMinutes * 60) * 1000);
+  const minutes = date.getUTCHours() * 60 + date.getUTCMinutes();
+  return start < end
+    ? minutes >= start && minutes < end
+    : minutes >= start || minutes < end;
+};
 
 const normalizePeriod = (value: number): number => Math.max(1, Math.round(value));
 
@@ -309,6 +352,16 @@ export const defaultStrategies: StrategyDefinition[] = [
       trailingStopPips: 25,
       closeOnOppositeSignal: true,
     },
+    sessionFilter: {
+      enabled: false,
+      start: '00:00',
+      end: '23:59',
+      serverUtcOffsetMinutes: 0,
+    },
+    newsFilter: {
+      enabled: false,
+      blockMinutes: 30,
+    },
     lotSize: 0.1,
     magicNumber: 20260701,
   },
@@ -338,6 +391,16 @@ export const defaultStrategies: StrategyDefinition[] = [
       trailingStopPips: null,
       closeOnOppositeSignal: false,
     },
+    sessionFilter: {
+      enabled: false,
+      start: '00:00',
+      end: '23:59',
+      serverUtcOffsetMinutes: 0,
+    },
+    newsFilter: {
+      enabled: false,
+      blockMinutes: 30,
+    },
     lotSize: 0.1,
     magicNumber: 20260702,
   },
@@ -366,6 +429,16 @@ export const defaultStrategies: StrategyDefinition[] = [
       takeProfitPips: 70,
       trailingStopPips: 30,
       closeOnOppositeSignal: true,
+    },
+    sessionFilter: {
+      enabled: false,
+      start: '00:00',
+      end: '23:59',
+      serverUtcOffsetMinutes: 0,
+    },
+    newsFilter: {
+      enabled: false,
+      blockMinutes: 30,
     },
     lotSize: 0.1,
     magicNumber: 20260703,
