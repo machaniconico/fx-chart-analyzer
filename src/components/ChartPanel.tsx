@@ -13,7 +13,8 @@ import {
   SeriesMarker,
   Time,
 } from 'lightweight-charts';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DrawingOverlay, type DrawingOverlayClick } from './DrawingOverlay';
 import {
   calendarImpactLabels,
   formatCalendarTimeJst,
@@ -25,6 +26,15 @@ import { formatPrice } from '../lib/chart-data';
 import { bollingerBands, ema, ichimoku, macd, rsi, sma } from '../lib/indicators';
 import { detectSupportResistanceLevels, type SupportResistanceLevel } from '../lib/levels';
 import { detectPatterns, type DetectedPattern, type PatternDirection } from '../lib/patterns';
+import {
+  createDrawingId,
+  drawingStorageKey,
+  loadStoredDrawings,
+  removeStoredDrawings,
+  saveStoredDrawings,
+  type Drawing,
+  type DrawingPoint,
+} from '../lib/drawings';
 import type { Bar, Pair, Timeframe } from '../types';
 
 export interface IndicatorToggles {
@@ -45,6 +55,19 @@ interface ChartPanelProps {
   toggles: IndicatorToggles;
   calendarEvents?: CalendarEvent[];
   now?: number;
+}
+
+type DrawingTool = 'select' | 'trendline' | 'horizontal' | 'fibonacci';
+
+interface MainChartContext {
+  chart: IChartApi;
+  series: ISeriesApi<'Candlestick'>;
+  version: number;
+}
+
+interface DrawingState {
+  key: string;
+  items: Drawing[];
 }
 
 const lineColors = {
@@ -87,6 +110,38 @@ const patternMarkerColors: Record<PatternDirection, string> = {
 };
 
 const emptyCalendarEvents: CalendarEvent[] = [];
+
+const drawingToolOptions: {
+  tool: DrawingTool;
+  label: string;
+  icon: string;
+  title: string;
+}[] = [
+  {
+    tool: 'select',
+    label: '選択',
+    icon: 'SEL',
+    title: '選択: 描画をクリックして選択します',
+  },
+  {
+    tool: 'trendline',
+    label: 'トレンド',
+    icon: '/',
+    title: 'トレンドライン: 2点をクリックして線を引きます',
+  },
+  {
+    tool: 'horizontal',
+    label: '水平線',
+    icon: '-',
+    title: '水平線: 価格位置をクリックして水平線を引きます',
+  },
+  {
+    tool: 'fibonacci',
+    label: 'フィボ',
+    icon: 'FIB',
+    title: 'フィボリトレースメント: 高値と安値の2点をクリックします',
+  },
+];
 
 const toLineData = (bars: readonly Bar[], values: readonly (number | null)[]): LineData[] =>
   values.flatMap((value, index) =>
@@ -204,7 +259,21 @@ export function ChartPanel({
   const macdRef = useRef<HTMLDivElement | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const priceLineRefs = useRef<IPriceLine[]>([]);
+  const chartContextVersionRef = useRef(0);
+  const drawingScopeKey = useMemo(
+    () => drawingStorageKey(pair, timeframe),
+    [pair, timeframe],
+  );
+  const [chartContext, setChartContext] = useState<MainChartContext | null>(null);
+  const [drawingState, setDrawingState] = useState<DrawingState>(() => ({
+    key: drawingScopeKey,
+    items: loadStoredDrawings(pair, timeframe),
+  }));
+  const [activeDrawingTool, setActiveDrawingTool] = useState<DrawingTool>('select');
+  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
+  const [pendingDrawingPoint, setPendingDrawingPoint] = useState<DrawingPoint | null>(null);
   const [markerTargetVersion, setMarkerTargetVersion] = useState(0);
+  const drawings = drawingState.key === drawingScopeKey ? drawingState.items : [];
 
   const computed = useMemo(() => {
     const closes = bars.map((bar) => bar.c);
@@ -281,6 +350,124 @@ export function ChartPanel({
       ),
     [newsMarkers, patternMarkers],
   );
+  const selectedDrawingExists = useMemo(
+    () => drawings.some((drawing) => drawing.id === selectedDrawingId),
+    [drawings, selectedDrawingId],
+  );
+  const drawingStatus = useMemo(() => {
+    if (activeDrawingTool === 'select') {
+      return selectedDrawingExists
+        ? '選択中の描画を削除できます'
+        : '描画をクリックして選択';
+    }
+    if (activeDrawingTool === 'horizontal') {
+      return '水平線を置く価格をクリック';
+    }
+    return pendingDrawingPoint ? '2点目をクリック' : '1点目をクリック';
+  }, [activeDrawingTool, pendingDrawingPoint, selectedDrawingExists]);
+
+  const updateCurrentDrawings = useCallback(
+    (updater: (items: Drawing[]) => Drawing[]) => {
+      setDrawingState((currentState) =>
+        currentState.key === drawingScopeKey
+          ? { ...currentState, items: updater(currentState.items) }
+          : currentState,
+      );
+    },
+    [drawingScopeKey],
+  );
+
+  const handleDrawingToolChange = useCallback((tool: DrawingTool) => {
+    setActiveDrawingTool(tool);
+    setPendingDrawingPoint(null);
+    if (tool !== 'select') {
+      setSelectedDrawingId(null);
+    }
+  }, []);
+
+  const handleDrawingOverlayClick = useCallback(
+    (event: DrawingOverlayClick) => {
+      if (activeDrawingTool === 'select') {
+        setSelectedDrawingId(event.hitDrawingId);
+        setPendingDrawingPoint(null);
+        return;
+      }
+
+      const clickedPoint: DrawingPoint = {
+        barTime: event.barTime,
+        price: event.price,
+      };
+
+      if (activeDrawingTool === 'horizontal') {
+        const id = createDrawingId('horizontal');
+        const drawing: Drawing = {
+          id,
+          pair,
+          tf: timeframe,
+          createdAt: Date.now(),
+          type: 'horizontal',
+          price: event.price,
+        };
+        updateCurrentDrawings((items) => [...items, drawing]);
+        setSelectedDrawingId(id);
+        setPendingDrawingPoint(null);
+        return;
+      }
+
+      if (!pendingDrawingPoint) {
+        setPendingDrawingPoint(clickedPoint);
+        setSelectedDrawingId(null);
+        return;
+      }
+
+      const id = createDrawingId(activeDrawingTool);
+      const drawing: Drawing = {
+        id,
+        pair,
+        tf: timeframe,
+        createdAt: Date.now(),
+        type: activeDrawingTool,
+        points: [pendingDrawingPoint, clickedPoint],
+      };
+      updateCurrentDrawings((items) => [...items, drawing]);
+      setSelectedDrawingId(id);
+      setPendingDrawingPoint(null);
+    },
+    [activeDrawingTool, pair, pendingDrawingPoint, timeframe, updateCurrentDrawings],
+  );
+
+  const handleDeleteSelectedDrawing = useCallback(() => {
+    if (!selectedDrawingId) {
+      return;
+    }
+    updateCurrentDrawings((items) => items.filter((drawing) => drawing.id !== selectedDrawingId));
+    setSelectedDrawingId(null);
+    setPendingDrawingPoint(null);
+  }, [selectedDrawingId, updateCurrentDrawings]);
+
+  const handleClearDrawings = useCallback(() => {
+    updateCurrentDrawings(() => []);
+    removeStoredDrawings(pair, timeframe);
+    setSelectedDrawingId(null);
+    setPendingDrawingPoint(null);
+  }, [pair, timeframe, updateCurrentDrawings]);
+
+  useEffect(() => {
+    setDrawingState({
+      key: drawingScopeKey,
+      items: loadStoredDrawings(pair, timeframe),
+    });
+    setSelectedDrawingId(null);
+    setPendingDrawingPoint(null);
+    setActiveDrawingTool('select');
+  }, [drawingScopeKey, pair, timeframe]);
+
+  useEffect(() => {
+    if (drawingState.key !== drawingScopeKey) {
+      return;
+    }
+    saveStoredDrawings(pair, timeframe, drawingState.items);
+  }, [drawingScopeKey, drawingState, pair, timeframe]);
 
   useEffect(() => {
     if (!mainRef.current || !rsiRef.current || !macdRef.current || bars.length === 0) {
@@ -322,6 +509,13 @@ export function ChartPanel({
       })),
     );
     candleSeriesRef.current = candleSeries;
+    chartContextVersionRef.current += 1;
+    const chartContextVersion = chartContextVersionRef.current;
+    setChartContext({
+      chart: mainChart,
+      series: candleSeries,
+      version: chartContextVersion,
+    });
     setMarkerTargetVersion((currentVersion) => currentVersion + 1);
 
     const addLine = (
@@ -423,6 +617,9 @@ export function ChartPanel({
 
     return () => {
       candleSeriesRef.current = null;
+      setChartContext((currentContext) =>
+        currentContext?.version === chartContextVersion ? null : currentContext,
+      );
       priceLineRefs.current = [];
       resizeObserver.disconnect();
       charts.forEach((chart) => chart.remove());
@@ -495,7 +692,64 @@ export function ChartPanel({
             </div>
           </div>
         )}
-        <div ref={mainRef} className="chart-area chart-area-main" />
+        <div className="drawing-panel">
+          <div className="drawing-toolbar" role="toolbar" aria-label="描画ツール">
+            {drawingToolOptions.map((option) => (
+              <button
+                key={option.tool}
+                type="button"
+                className={`drawing-tool ${activeDrawingTool === option.tool ? 'drawing-tool-active' : ''}`}
+                title={option.title}
+                aria-label={option.title}
+                aria-pressed={activeDrawingTool === option.tool}
+                onClick={() => handleDrawingToolChange(option.tool)}
+              >
+                <span className="drawing-tool-icon" aria-hidden="true">{option.icon}</span>
+                <span>{option.label}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              className="drawing-tool drawing-action"
+              title="選択削除: 選択中の描画を削除します"
+              aria-label="選択削除: 選択中の描画を削除します"
+              disabled={!selectedDrawingExists}
+              onClick={handleDeleteSelectedDrawing}
+            >
+              <span className="drawing-tool-icon" aria-hidden="true">DEL</span>
+              <span>選択削除</span>
+            </button>
+            <button
+              type="button"
+              className="drawing-tool drawing-action"
+              title="全削除: この通貨ペアと時間足の描画をすべて削除します"
+              aria-label="全削除: この通貨ペアと時間足の描画をすべて削除します"
+              disabled={drawings.length === 0}
+              onClick={handleClearDrawings}
+            >
+              <span className="drawing-tool-icon" aria-hidden="true">CLR</span>
+              <span>全削除</span>
+            </button>
+          </div>
+          <div className="drawing-status" aria-live="polite">
+            <span>{drawingStatus}</span>
+            <small>v1制約: 最終バーより未来へ引いた線は描画されません。クリック位置はバーにスナップされます。</small>
+          </div>
+        </div>
+        <div ref={mainRef} className="chart-area chart-area-main">
+          {chartContext && (
+            <DrawingOverlay
+              key={chartContext.version}
+              chart={chartContext.chart}
+              series={chartContext.series}
+              drawings={drawings}
+              selectedDrawingId={selectedDrawingId}
+              bars={bars}
+              pair={pair}
+              onChartClick={handleDrawingOverlayClick}
+            />
+          )}
+        </div>
       </div>
       <div className="subcharts">
         <div className="chart-card">

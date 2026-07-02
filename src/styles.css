@@ -625,6 +625,92 @@ input:disabled {
   min-width: 0;
 }
 
+.drawing-panel {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid rgba(142, 155, 179, 0.14);
+}
+
+.drawing-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.drawing-tool {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(142, 155, 179, 0.24);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: rgba(17, 24, 36, 0.88);
+  color: #d8e0ee;
+  font-size: 12px;
+  font-weight: 800;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease;
+}
+
+.drawing-tool:hover:not(:disabled),
+.drawing-tool:focus-visible {
+  border-color: rgba(32, 201, 151, 0.68);
+  color: #ffffff;
+}
+
+.drawing-tool:focus-visible {
+  outline: 2px solid rgba(89, 214, 255, 0.82);
+  outline-offset: 2px;
+}
+
+.drawing-tool-active {
+  border-color: rgba(32, 201, 151, 0.86);
+  background: rgba(32, 201, 151, 0.16);
+  color: #ffffff;
+}
+
+.drawing-action {
+  border-color: rgba(245, 206, 98, 0.34);
+}
+
+.drawing-tool-icon {
+  min-width: 28px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 5px;
+  background: rgba(142, 155, 179, 0.14);
+  color: #ecf2ff;
+  font-size: 11px;
+  line-height: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.drawing-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #b9c2d0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.drawing-status span {
+  color: #ecf2ff;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.drawing-status small {
+  color: #8e9bb3;
+}
+
 .impact-dot {
   display: inline-block;
   width: 9px;
@@ -666,6 +752,20 @@ input:disabled {
 
 .chart-area {
   width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.chart-area > *:not(.drawing-overlay-canvas) {
+  position: relative;
+  z-index: 1;
+}
+
+.drawing-overlay-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
 }
 
 .chart-area-main {
@@ -1019,6 +1119,16 @@ footer {
   .panel-heading,
   .signal-item {
     align-items: stretch;
+    flex-direction: column;
+  }
+
+  .drawing-tool {
+    flex: 1 1 calc(50% - 8px);
+    padding-inline: 8px;
+  }
+
+  .drawing-status {
+    align-items: start;
     flex-direction: column;
   }
 
