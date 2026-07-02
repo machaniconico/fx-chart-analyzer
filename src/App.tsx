@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChartPanel, type IndicatorToggles } from './components/ChartPanel';
+import { EaBuilderPanel } from './components/EaBuilderPanel';
 import { PredictionPanel } from './components/PredictionPanel';
 import { SignalPanel } from './components/SignalPanel';
 import { formatPrice, lastBar, loadBars } from './lib/chart-data';
@@ -95,7 +96,13 @@ function App() {
           >
             予測
           </button>
-          <button className="tab" type="button" disabled>EAビルダー</button>
+          <button
+            className={activeTab === 'ea' ? 'tab tab-active' : 'tab'}
+            type="button"
+            onClick={() => setActiveTab('ea')}
+          >
+            EAビルダー
+          </button>
         </nav>
       </header>
 
@@ -169,8 +176,10 @@ function App() {
                 <ChartPanel bars={data.bars} pair={pair} timeframe={timeframe} toggles={toggles} />
                 {signalAnalysis && <SignalPanel analysis={signalAnalysis} />}
               </div>
-            ) : (
+            ) : activeTab === 'prediction' ? (
               <PredictionPanel bars={data.bars} pair={pair} timeframe={timeframe} />
+            ) : (
+              <EaBuilderPanel bars={data.bars} pair={pair} timeframe={timeframe} />
             )
           )}
         </section>
