@@ -5,8 +5,11 @@ import {
   createChart,
   HistogramData,
   IChartApi,
+  IPriceLine,
   ISeriesApi,
   LineData,
+  LineStyle,
+  LineWidth,
   SeriesMarker,
   Time,
 } from 'lightweight-charts';
@@ -18,7 +21,10 @@ import {
   upcomingEventsWithin,
   type CalendarEvent,
 } from '../lib/calendar';
+import { formatPrice } from '../lib/chart-data';
 import { bollingerBands, ema, ichimoku, macd, rsi, sma } from '../lib/indicators';
+import { detectSupportResistanceLevels, type SupportResistanceLevel } from '../lib/levels';
+import { detectPatterns, type DetectedPattern, type PatternDirection } from '../lib/patterns';
 import type { Bar, Pair, Timeframe } from '../types';
 
 export interface IndicatorToggles {
@@ -29,6 +35,7 @@ export interface IndicatorToggles {
   ema26: boolean;
   bb: boolean;
   ichimoku: boolean;
+  supportResistance: boolean;
 }
 
 interface ChartPanelProps {
@@ -65,6 +72,18 @@ const timeframeSeconds: Record<Timeframe, number> = {
 const impactMarkerColors: Record<'high' | 'medium', string> = {
   high: '#ff5b78',
   medium: '#ff9f43',
+};
+
+const patternDirectionLabels: Record<PatternDirection, string> = {
+  bullish: '買い',
+  bearish: '売り',
+  neutral: '中立',
+};
+
+const patternMarkerColors: Record<PatternDirection, string> = {
+  bullish: '#20c997',
+  bearish: '#ff5b78',
+  neutral: '#b9c2d0',
 };
 
 const emptyCalendarEvents: CalendarEvent[] = [];
@@ -132,6 +151,46 @@ const markerBarTime = (bars: readonly Bar[], eventTime: number): number | null =
 const shortenMarkerTitle = (title: string): string =>
   title.length > 28 ? `${title.slice(0, 28)}...` : title;
 
+const priceLineColor = (level: SupportResistanceLevel): string => {
+  const alpha = Math.min(0.9, 0.32 + level.strength * 0.11);
+  return level.direction === 'support'
+    ? `rgba(32, 201, 151, ${alpha.toFixed(2)})`
+    : `rgba(255, 91, 120, ${alpha.toFixed(2)})`;
+};
+
+const priceLineWidth = (level: SupportResistanceLevel): LineWidth => {
+  if (level.strength >= 5) {
+    return 3;
+  }
+  if (level.strength >= 2.5) {
+    return 2;
+  }
+  return 1;
+};
+
+const priceLineStyle = (level: SupportResistanceLevel): LineStyle =>
+  level.touches >= 3 ? LineStyle.Solid : LineStyle.Dashed;
+
+const patternMarker = (pattern: DetectedPattern): SeriesMarker<Time> => ({
+  id: pattern.id,
+  time: pattern.barTimeRange.to as Time,
+  position:
+    pattern.direction === 'bullish'
+      ? 'belowBar'
+      : pattern.direction === 'bearish'
+        ? 'aboveBar'
+        : 'inBar',
+  shape:
+    pattern.direction === 'bullish'
+      ? 'arrowUp'
+      : pattern.direction === 'bearish'
+        ? 'arrowDown'
+        : 'circle',
+  color: patternMarkerColors[pattern.direction],
+  text: shortenMarkerTitle(pattern.label),
+  size: pattern.strength === 3 ? 1.6 : 1.25,
+});
+
 export function ChartPanel({
   bars,
   pair,
@@ -144,6 +203,7 @@ export function ChartPanel({
   const rsiRef = useRef<HTMLDivElement | null>(null);
   const macdRef = useRef<HTMLDivElement | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const priceLineRefs = useRef<IPriceLine[]>([]);
   const [markerTargetVersion, setMarkerTargetVersion] = useState(0);
 
   const computed = useMemo(() => {
@@ -171,6 +231,18 @@ export function ChartPanel({
     () => upcomingEventsWithin(chartEvents, pair, 24 * 60 * 60, now),
     [chartEvents, now, pair],
   );
+  const levels = useMemo(
+    () => detectSupportResistanceLevels(bars, { lookback: 240, maxLevels: 8 }),
+    [bars],
+  );
+  const patterns = useMemo(
+    () => detectPatterns(bars, { lookback: 120 }),
+    [bars],
+  );
+  const visiblePatterns = useMemo(
+    () => patterns.slice(0, 10),
+    [patterns],
+  );
   const markerEvents = useMemo(() => {
     if (lastBarTime === null) {
       return emptyCalendarEvents;
@@ -197,6 +269,17 @@ export function ChartPanel({
         ];
       }),
     [bars, markerEvents],
+  );
+  const patternMarkers = useMemo(
+    () => visiblePatterns.map(patternMarker),
+    [visiblePatterns],
+  );
+  const allMarkers = useMemo(
+    () =>
+      [...newsMarkers, ...patternMarkers].sort(
+        (a, b) => Number(a.time) - Number(b.time),
+      ),
+    [newsMarkers, patternMarkers],
   );
 
   useEffect(() => {
@@ -340,14 +423,56 @@ export function ChartPanel({
 
     return () => {
       candleSeriesRef.current = null;
+      priceLineRefs.current = [];
       resizeObserver.disconnect();
       charts.forEach((chart) => chart.remove());
     };
-  }, [bars, computed, pair, timeframe, toggles]);
+  }, [
+    bars,
+    computed,
+    pair,
+    timeframe,
+    toggles.bb,
+    toggles.ema12,
+    toggles.ema26,
+    toggles.ichimoku,
+    toggles.sma20,
+    toggles.sma200,
+    toggles.sma50,
+  ]);
 
   useEffect(() => {
-    candleSeriesRef.current?.setMarkers(newsMarkers);
-  }, [markerTargetVersion, newsMarkers]);
+    candleSeriesRef.current?.setMarkers(allMarkers);
+  }, [allMarkers, markerTargetVersion]);
+
+  useEffect(() => {
+    const candleSeries = candleSeriesRef.current;
+    if (!candleSeries) {
+      return;
+    }
+
+    priceLineRefs.current.forEach((line) => candleSeries.removePriceLine(line));
+    priceLineRefs.current = [];
+
+    if (toggles.supportResistance) {
+      priceLineRefs.current = levels.map((level) =>
+        candleSeries.createPriceLine({
+          price: level.price,
+          color: priceLineColor(level),
+          lineWidth: priceLineWidth(level),
+          lineStyle: priceLineStyle(level),
+          axisLabelVisible: true,
+          lineVisible: true,
+          title: `${formatPrice(pair, level.price)} ${level.direction === 'support' ? 'S' : 'R'} ${level.touches}回`,
+        }),
+      );
+    }
+
+    return () => {
+      priceLineRefs.current.forEach((line) => candleSeries.removePriceLine(line));
+      priceLineRefs.current = [];
+    };
+  }, [levels, markerTargetVersion, pair, toggles.supportResistance]);
 
   return (
     <div className="chart-stack">
@@ -388,6 +513,33 @@ export function ChartPanel({
           <div ref={macdRef} className="chart-area chart-area-sub" />
         </div>
       </div>
+      <section className="analysis-panel" aria-label="検出パターン">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">直近120本</p>
+            <h2>検出パターン</h2>
+          </div>
+          <div className="rating-badge">{visiblePatterns.length}件</div>
+        </div>
+
+        {visiblePatterns.length === 0 ? (
+          <p className="empty-copy">直近のローソク足・チャートパターンは検出されていません。</p>
+        ) : (
+          <ul className="signal-list">
+            {visiblePatterns.map((pattern) => (
+              <li key={pattern.id} className={`signal-item signal-${pattern.direction}`}>
+                <div>
+                  <strong>{pattern.label}</strong>
+                  <p>{pattern.detail}</p>
+                </div>
+                <span>
+                  {patternDirectionLabels[pattern.direction]} / 強度{pattern.strength}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

@@ -20,6 +20,7 @@ const defaultToggles: IndicatorToggles = {
   ema26: false,
   bb: true,
   ichimoku: true,
+  supportResistance: true,
 };
 
 const indicatorLabels: Array<[keyof IndicatorToggles, string]> = [
@@ -30,6 +31,7 @@ const indicatorLabels: Array<[keyof IndicatorToggles, string]> = [
   ['ema26', 'EMA26'],
   ['bb', 'BB'],
   ['ichimoku', '一目雲'],
+  ['supportResistance', 'サポレジ'],
 ];
 
 const emptyCalendarEvents: CalendarEvent[] = [];

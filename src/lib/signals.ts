@@ -1,4 +1,5 @@
 import { bollingerBands, ichimoku, macd, rsi, sma } from './indicators';
+import { findFractalSwings } from './levels';
 import type { Bar } from '../types';
 
 export type SignalDirection = 'bullish' | 'bearish' | 'neutral';
@@ -120,31 +121,9 @@ const findSwingLevels = (
   const latest = bars[bars.length - 1];
   const currentClose = latest.c;
   const start = Math.max(0, bars.length - lookback);
-  const end = bars.length - pivotStrength - 1;
-  const pivotHighs: number[] = [];
-  const pivotLows: number[] = [];
-
-  for (let i = Math.max(start + pivotStrength, pivotStrength); i <= end; i += 1) {
-    let highPivot = true;
-    let lowPivot = true;
-    for (let offset = i - pivotStrength; offset <= i + pivotStrength; offset += 1) {
-      if (offset === i) {
-        continue;
-      }
-      if (bars[offset].h >= bars[i].h) {
-        highPivot = false;
-      }
-      if (bars[offset].l <= bars[i].l) {
-        lowPivot = false;
-      }
-    }
-    if (highPivot) {
-      pivotHighs.push(bars[i].h);
-    }
-    if (lowPivot) {
-      pivotLows.push(bars[i].l);
-    }
-  }
+  const swings = findFractalSwings(bars, { lookback, pivotStrength });
+  const pivotHighs = swings.filter((point) => point.kind === 'high').map((point) => point.price);
+  const pivotLows = swings.filter((point) => point.kind === 'low').map((point) => point.price);
 
   const fallback = bars.slice(start, Math.max(start + 1, bars.length - 1));
   if (pivotHighs.length === 0 && fallback.length > 0) {
