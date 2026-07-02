@@ -4,9 +4,12 @@ import {
   chartLineColors as lineColors,
   createBaseChart,
   createSupportResistancePriceLineOptions,
+  hiddenOverlayPriceAxisOptions,
+  overlayLineWidth,
   timeframeSeconds,
   toFutureLineData,
   toLineData,
+  visibleSupportResistanceLevels,
 } from '../lib/chart-rendering';
 import { formatPrice } from '../lib/chart-data';
 import { ichimoku, sma } from '../lib/indicators';
@@ -51,6 +54,10 @@ export function MtfMiniChart({
   const levels = useMemo(
     () => detectSupportResistanceLevels(bars, { lookback: 240, maxLevels: 8 }),
     [bars],
+  );
+  const displayedLevels = useMemo(
+    () => visibleSupportResistanceLevels(levels),
+    [levels],
   );
   const alignment = useMemo(
     () =>
@@ -101,35 +108,57 @@ export function MtfMiniChart({
       })),
     );
 
-    const sma20 = chart.addLineSeries({ color: lineColors.sma20, lineWidth: 2, title: 'SMA20' });
+    const sma20 = chart.addLineSeries({
+      color: lineColors.sma20,
+      lineWidth: overlayLineWidth,
+      title: 'SMA20',
+      ...hiddenOverlayPriceAxisOptions,
+    });
     sma20.setData(toLineData(bars, computed.sma20));
-    const sma50 = chart.addLineSeries({ color: lineColors.sma50, lineWidth: 2, title: 'SMA50' });
+    const sma50 = chart.addLineSeries({
+      color: lineColors.sma50,
+      lineWidth: overlayLineWidth,
+      title: 'SMA50',
+      ...hiddenOverlayPriceAxisOptions,
+    });
     sma50.setData(toLineData(bars, computed.sma50));
 
     const stepSeconds = timeframeSeconds[timeframe];
-    const conversion = chart.addLineSeries({ color: lineColors.tenkan, lineWidth: 1, title: '転換線' });
+    const conversion = chart.addLineSeries({
+      color: lineColors.tenkan,
+      lineWidth: overlayLineWidth,
+      title: '転換線',
+      ...hiddenOverlayPriceAxisOptions,
+    });
     conversion.setData(toLineData(bars, computed.ichimoku.conversion));
-    const base = chart.addLineSeries({ color: lineColors.kijun, lineWidth: 1, title: '基準線' });
+    const base = chart.addLineSeries({
+      color: lineColors.kijun,
+      lineWidth: overlayLineWidth,
+      title: '基準線',
+      ...hiddenOverlayPriceAxisOptions,
+    });
     base.setData(toLineData(bars, computed.ichimoku.base));
     const spanA = chart.addAreaSeries({
       topColor: lineColors.spanA,
-      bottomColor: 'rgba(57, 210, 143, 0.02)',
-      lineColor: 'rgba(57, 210, 143, 0.68)',
-      lineWidth: 1,
+      bottomColor: 'rgba(57, 210, 143, 0.01)',
+      lineColor: 'rgba(91, 177, 139, 0.42)',
+      lineWidth: overlayLineWidth,
       title: '先行スパンA',
+      ...hiddenOverlayPriceAxisOptions,
     });
     spanA.setData(toFutureLineData(bars, computed.ichimoku.leadingSpanA, stepSeconds) as AreaData[]);
     const spanB = chart.addAreaSeries({
       topColor: lineColors.spanB,
-      bottomColor: 'rgba(255, 91, 120, 0.02)',
-      lineColor: 'rgba(255, 91, 120, 0.68)',
-      lineWidth: 1,
+      bottomColor: 'rgba(255, 91, 120, 0.01)',
+      lineColor: 'rgba(211, 105, 122, 0.40)',
+      lineWidth: overlayLineWidth,
       title: '先行スパンB',
+      ...hiddenOverlayPriceAxisOptions,
     });
     spanB.setData(toFutureLineData(bars, computed.ichimoku.leadingSpanB, stepSeconds) as AreaData[]);
 
-    levels.forEach((level) => {
-      candleSeries.createPriceLine(createSupportResistancePriceLineOptions(pair, level));
+    displayedLevels.forEach((level) => {
+      candleSeries.createPriceLine(createSupportResistancePriceLineOptions(level));
     });
     chart.timeScale().fitContent();
 
@@ -137,7 +166,7 @@ export function MtfMiniChart({
       resizeObserver.disconnect();
       chart.remove();
     };
-  }, [bars, computed, levels, pair, timeframe]);
+  }, [bars, computed, displayedLevels, pair, timeframe]);
 
   return (
     <div className="chart-card mtf-card">
@@ -169,7 +198,7 @@ export function MtfMiniChart({
         <p className={`mtf-alignment mtf-alignment-${alignment.status}`}>{alignment.summary}</p>
         {latestBar && (
           <p className="mtf-latest-price">
-            終値 {formatPrice(pair, latestBar.c)} / サポレジ {levels.length}本
+            終値 {formatPrice(pair, latestBar.c)} / サポレジ 表示{displayedLevels.length}/{levels.length}本
           </p>
         )}
       </div>

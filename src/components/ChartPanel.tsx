@@ -23,9 +23,12 @@ import {
   chartLineColors as lineColors,
   createBaseChart,
   createSupportResistancePriceLineOptions,
+  hiddenOverlayPriceAxisOptions,
+  overlayLineWidth,
   timeframeSeconds,
   toFutureLineData,
   toLineData,
+  visibleSupportResistanceLevels,
 } from '../lib/chart-rendering';
 import { bollingerBands, ema, ichimoku, macd, rsi, sma } from '../lib/indicators';
 import { detectSupportResistanceLevels } from '../lib/levels';
@@ -86,6 +89,12 @@ interface DrawingState {
   items: Drawing[];
 }
 
+interface OverlayLegendItem {
+  key: string;
+  label: string;
+  color: string;
+}
+
 const impactMarkerColors: Record<'high' | 'medium', string> = {
   high: '#ff5b78',
   medium: '#ff9f43',
@@ -104,6 +113,7 @@ const patternMarkerColors: Record<PatternDirection, string> = {
 };
 
 const emptyCalendarEvents: CalendarEvent[] = [];
+const bbMiddleLineColor = 'rgba(142,155,179,0.48)';
 
 const drawingToolOptions: {
   tool: DrawingTool;
@@ -237,6 +247,57 @@ export function ChartPanel({
     () => detectSupportResistanceLevels(bars, { lookback: 240, maxLevels: 8 }),
     [bars],
   );
+  const displayedLevels = useMemo(
+    () => visibleSupportResistanceLevels(levels),
+    [levels],
+  );
+  const activeOverlayLegendItems = useMemo(() => {
+    const items: OverlayLegendItem[] = [];
+    if (toggles.sma20) {
+      items.push({ key: 'sma20', label: 'SMA20', color: lineColors.sma20 });
+    }
+    if (toggles.sma50) {
+      items.push({ key: 'sma50', label: 'SMA50', color: lineColors.sma50 });
+    }
+    if (toggles.sma200) {
+      items.push({ key: 'sma200', label: 'SMA200', color: lineColors.sma200 });
+    }
+    if (toggles.ema12) {
+      items.push({ key: 'ema12', label: 'EMA12', color: lineColors.ema12 });
+    }
+    if (toggles.ema26) {
+      items.push({ key: 'ema26', label: 'EMA26', color: lineColors.ema26 });
+    }
+    if (toggles.bb) {
+      items.push(
+        { key: 'bb-upper', label: 'BB上', color: lineColors.bb },
+        { key: 'bb-middle', label: 'BB中', color: bbMiddleLineColor },
+        { key: 'bb-lower', label: 'BB下', color: lineColors.bb },
+      );
+    }
+    if (toggles.ichimoku) {
+      items.push(
+        { key: 'tenkan', label: '転換', color: lineColors.tenkan },
+        { key: 'kijun', label: '基準', color: lineColors.kijun },
+        { key: 'span-a', label: '雲A', color: lineColors.spanA },
+        { key: 'span-b', label: '雲B', color: lineColors.spanB },
+      );
+    }
+    if (toggles.supportResistance && displayedLevels.length > 0) {
+      items.push({ key: 'support-resistance', label: 'サポレジ', color: 'rgba(142,155,179,0.72)' });
+    }
+    return items;
+  }, [
+    displayedLevels.length,
+    toggles.bb,
+    toggles.ema12,
+    toggles.ema26,
+    toggles.ichimoku,
+    toggles.sma20,
+    toggles.sma200,
+    toggles.sma50,
+    toggles.supportResistance,
+  ]);
   const patterns = useMemo(
     () => detectPatterns(bars, { lookback: 120 }),
     [bars],
@@ -461,7 +522,12 @@ export function ChartPanel({
       if (!visible) {
         return null;
       }
-      const series = chart.addLineSeries({ color, lineWidth: 2, title });
+      const series = chart.addLineSeries({
+        color,
+        lineWidth: overlayLineWidth,
+        title,
+        ...hiddenOverlayPriceAxisOptions,
+      });
       series.setData(toLineData(bars, values));
       return series;
     };
@@ -474,7 +540,7 @@ export function ChartPanel({
 
     if (toggles.bb) {
       addLine(true, computed.bb.upper, lineColors.bb, 'BB上限');
-      addLine(true, computed.bb.middle, 'rgba(142,155,179,0.55)', 'BB中央');
+      addLine(true, computed.bb.middle, bbMiddleLineColor, 'BB中央');
       addLine(true, computed.bb.lower, lineColors.bb, 'BB下限');
     }
 
@@ -484,18 +550,20 @@ export function ChartPanel({
       addLine(true, computed.ichimoku.base, lineColors.kijun, '基準線');
       const spanA = mainChart.addAreaSeries({
         topColor: lineColors.spanA,
-        bottomColor: 'rgba(57, 210, 143, 0.02)',
-        lineColor: 'rgba(57, 210, 143, 0.68)',
-        lineWidth: 1,
+        bottomColor: 'rgba(57, 210, 143, 0.01)',
+        lineColor: 'rgba(91, 177, 139, 0.42)',
+        lineWidth: overlayLineWidth,
         title: '先行スパンA',
+        ...hiddenOverlayPriceAxisOptions,
       });
       spanA.setData(toFutureLineData(bars, computed.ichimoku.leadingSpanA, stepSeconds) as AreaData[]);
       const spanB = mainChart.addAreaSeries({
         topColor: lineColors.spanB,
-        bottomColor: 'rgba(255, 91, 120, 0.02)',
-        lineColor: 'rgba(255, 91, 120, 0.68)',
-        lineWidth: 1,
+        bottomColor: 'rgba(255, 91, 120, 0.01)',
+        lineColor: 'rgba(211, 105, 122, 0.40)',
+        lineWidth: overlayLineWidth,
         title: '先行スパンB',
+        ...hiddenOverlayPriceAxisOptions,
       });
       spanB.setData(toFutureLineData(bars, computed.ichimoku.leadingSpanB, stepSeconds) as AreaData[]);
     }
@@ -585,8 +653,8 @@ export function ChartPanel({
     priceLineRefs.current = [];
 
     if (toggles.supportResistance) {
-      priceLineRefs.current = levels.map((level) =>
-        candleSeries.createPriceLine(createSupportResistancePriceLineOptions(pair, level)),
+      priceLineRefs.current = displayedLevels.map((level) =>
+        candleSeries.createPriceLine(createSupportResistancePriceLineOptions(level)),
       );
     }
 
@@ -594,7 +662,7 @@ export function ChartPanel({
       priceLineRefs.current.forEach((line) => candleSeries.removePriceLine(line));
       priceLineRefs.current = [];
     };
-  }, [levels, markerTargetVersion, pair, toggles.supportResistance]);
+  }, [displayedLevels, markerTargetVersion, toggles.supportResistance]);
 
   return (
     <div className="chart-stack">
@@ -604,6 +672,16 @@ export function ChartPanel({
             <span>ローソク足</span>
             <span>{pair} / {timeframe.toUpperCase()}</span>
           </div>
+          {activeOverlayLegendItems.length > 0 && (
+            <div className="overlay-legend" aria-label="表示中の指標">
+              {activeOverlayLegendItems.map((item) => (
+                <span key={item.key} className="overlay-legend-chip">
+                  <i style={{ background: item.color }} aria-hidden="true" />
+                  {item.label}
+                </span>
+              ))}
+            </div>
+          )}
           {upcomingNews.length > 0 && (
             <div className="news-banner">
               <strong>今後24時間の指標</strong>
@@ -659,7 +737,7 @@ export function ChartPanel({
             </div>
             <div className="drawing-status" aria-live="polite">
               <span>{drawingStatus}</span>
-              <small>v1制約: 最終バーより未来へ引いた線は描画されません。クリック位置はバーにスナップされます。</small>
+              <small>v1制約: 未来バー未対応・クリック位置はバーにスナップ</small>
             </div>
           </div>
           <div ref={mainRef} className="chart-area chart-area-main">
