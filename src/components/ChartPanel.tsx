@@ -54,6 +54,8 @@ export interface IndicatorToggles {
   bb: boolean;
   ichimoku: boolean;
   supportResistance: boolean;
+  newsMarkers: boolean;
+  patternMarkers: boolean;
 }
 
 interface ChartPanelProps {
@@ -164,9 +166,6 @@ const markerBarTime = (bars: readonly Bar[], eventTime: number): number | null =
   return bars[Math.max(0, high)].t;
 };
 
-const shortenMarkerTitle = (title: string): string =>
-  title.length > 28 ? `${title.slice(0, 28)}...` : title;
-
 const patternMarker = (pattern: DetectedPattern): SeriesMarker<Time> => ({
   id: pattern.id,
   time: pattern.barTimeRange.to as Time,
@@ -183,7 +182,7 @@ const patternMarker = (pattern: DetectedPattern): SeriesMarker<Time> => ({
         ? 'arrowDown'
         : 'circle',
   color: patternMarkerColors[pattern.direction],
-  text: shortenMarkerTitle(pattern.label),
+  text: '',
   size: pattern.strength === 3 ? 1.6 : 1.25,
 });
 
@@ -307,11 +306,11 @@ export function ChartPanel({
     [patterns],
   );
   const markerEvents = useMemo(() => {
-    if (lastBarTime === null) {
+    if (!toggles.newsMarkers || lastBarTime === null) {
       return emptyCalendarEvents;
     }
     return chartEvents.filter((event) => event.time <= lastBarTime);
-  }, [chartEvents, lastBarTime]);
+  }, [chartEvents, lastBarTime, toggles.newsMarkers]);
   const newsMarkers = useMemo(
     () =>
       markerEvents.flatMap<SeriesMarker<Time>>((event) => {
@@ -326,7 +325,7 @@ export function ChartPanel({
             position: 'aboveBar',
             shape: 'circle',
             color: impactMarkerColors[event.impact],
-            text: `⚠ ${event.currency} ${shortenMarkerTitle(event.title)}`,
+            text: '',
             size: event.impact === 'high' ? 1.6 : 1.25,
           },
         ];
@@ -334,8 +333,8 @@ export function ChartPanel({
     [bars, markerEvents],
   );
   const patternMarkers = useMemo(
-    () => visiblePatterns.map(patternMarker),
-    [visiblePatterns],
+    () => (toggles.patternMarkers ? visiblePatterns.map(patternMarker) : []),
+    [toggles.patternMarkers, visiblePatterns],
   );
   const allMarkers = useMemo(
     () =>
@@ -516,7 +515,6 @@ export function ChartPanel({
       visible: boolean,
       values: readonly (number | null)[],
       color: string,
-      title: string,
       chart: IChartApi = mainChart,
     ): ISeriesApi<'Line'> | null => {
       if (!visible) {
@@ -525,35 +523,33 @@ export function ChartPanel({
       const series = chart.addLineSeries({
         color,
         lineWidth: overlayLineWidth,
-        title,
         ...hiddenOverlayPriceAxisOptions,
       });
       series.setData(toLineData(bars, values));
       return series;
     };
 
-    addLine(toggles.sma20, computed.sma20, lineColors.sma20, 'SMA20');
-    addLine(toggles.sma50, computed.sma50, lineColors.sma50, 'SMA50');
-    addLine(toggles.sma200, computed.sma200, lineColors.sma200, 'SMA200');
-    addLine(toggles.ema12, computed.ema12, lineColors.ema12, 'EMA12');
-    addLine(toggles.ema26, computed.ema26, lineColors.ema26, 'EMA26');
+    addLine(toggles.sma20, computed.sma20, lineColors.sma20);
+    addLine(toggles.sma50, computed.sma50, lineColors.sma50);
+    addLine(toggles.sma200, computed.sma200, lineColors.sma200);
+    addLine(toggles.ema12, computed.ema12, lineColors.ema12);
+    addLine(toggles.ema26, computed.ema26, lineColors.ema26);
 
     if (toggles.bb) {
-      addLine(true, computed.bb.upper, lineColors.bb, 'BB上限');
-      addLine(true, computed.bb.middle, bbMiddleLineColor, 'BB中央');
-      addLine(true, computed.bb.lower, lineColors.bb, 'BB下限');
+      addLine(true, computed.bb.upper, lineColors.bb);
+      addLine(true, computed.bb.middle, bbMiddleLineColor);
+      addLine(true, computed.bb.lower, lineColors.bb);
     }
 
     if (toggles.ichimoku) {
       const stepSeconds = timeframeSeconds[timeframe];
-      addLine(true, computed.ichimoku.conversion, lineColors.tenkan, '転換線');
-      addLine(true, computed.ichimoku.base, lineColors.kijun, '基準線');
+      addLine(true, computed.ichimoku.conversion, lineColors.tenkan);
+      addLine(true, computed.ichimoku.base, lineColors.kijun);
       const spanA = mainChart.addAreaSeries({
         topColor: lineColors.spanA,
         bottomColor: 'rgba(57, 210, 143, 0.01)',
         lineColor: 'rgba(91, 177, 139, 0.42)',
         lineWidth: overlayLineWidth,
-        title: '先行スパンA',
         ...hiddenOverlayPriceAxisOptions,
       });
       spanA.setData(toFutureLineData(bars, computed.ichimoku.leadingSpanA, stepSeconds) as AreaData[]);
@@ -562,7 +558,6 @@ export function ChartPanel({
         bottomColor: 'rgba(255, 91, 120, 0.01)',
         lineColor: 'rgba(211, 105, 122, 0.40)',
         lineWidth: overlayLineWidth,
-        title: '先行スパンB',
         ...hiddenOverlayPriceAxisOptions,
       });
       spanB.setData(toFutureLineData(bars, computed.ichimoku.leadingSpanB, stepSeconds) as AreaData[]);
