@@ -3,7 +3,7 @@ import { ChartPanel, type IndicatorToggles } from './components/ChartPanel';
 import { EaBuilderPanel } from './components/EaBuilderPanel';
 import { PredictionPanel } from './components/PredictionPanel';
 import { SignalPanel } from './components/SignalPanel';
-import { formatPrice, lastBar, loadBars } from './lib/chart-data';
+import { formatPrice, lastBar, loadAdaptiveStats, loadBars, type AdaptiveStatsFile } from './lib/chart-data';
 import { analyzeSignals } from './lib/signals';
 import type { DataFile, Pair, Timeframe } from './types';
 import { PAIRS, TIMEFRAMES, timeframeLabels } from './types';
@@ -36,6 +36,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('chart');
   const [toggles, setToggles] = useState<IndicatorToggles>(defaultToggles);
   const [data, setData] = useState<DataFile | null>(null);
+  const [adaptiveStats, setAdaptiveStats] = useState<AdaptiveStatsFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -43,16 +44,22 @@ function App() {
     let disposed = false;
     setLoading(true);
     setError(null);
-    loadBars(pair, timeframe)
-      .then((payload) => {
+    setAdaptiveStats(null);
+    Promise.all([
+      loadBars(pair, timeframe),
+      loadAdaptiveStats(pair, timeframe).catch(() => null),
+    ])
+      .then(([payload, stats]) => {
         if (!disposed) {
           setData(payload);
+          setAdaptiveStats(stats);
         }
       })
       .catch((reason: unknown) => {
         if (!disposed) {
           setError(reason instanceof Error ? reason.message : 'データ読み込みに失敗しました');
           setData(null);
+          setAdaptiveStats(null);
         }
       })
       .finally(() => {
@@ -177,7 +184,7 @@ function App() {
                 {signalAnalysis && <SignalPanel analysis={signalAnalysis} />}
               </div>
             ) : activeTab === 'prediction' ? (
-              <PredictionPanel bars={data.bars} pair={pair} timeframe={timeframe} />
+              <PredictionPanel bars={data.bars} pair={pair} timeframe={timeframe} adaptiveStats={adaptiveStats} />
             ) : (
               <EaBuilderPanel bars={data.bars} pair={pair} timeframe={timeframe} />
             )

@@ -1,4 +1,15 @@
 import { analyzeSignals, type SignalAnalysis } from './signals';
+import {
+  applyCalibration,
+  calibrationForHorizon,
+  defaultModelWeights,
+  modelProbabilitiesForBars,
+  modelStatsForBars,
+  weightedProbability,
+  weightsForHorizon,
+  type AdaptiveStats,
+  type ModelWeights,
+} from './adaptive';
 import type { Bar } from '../types';
 
 export const predictionHorizons = [1, 5, 20] as const;
@@ -12,9 +23,13 @@ export interface PredictionRange {
 export interface HorizonPrediction {
   horizon: PredictionHorizon;
   probabilityUp: number;
+  rawProbabilityUp: number;
+  calibratedProbabilityUp: number;
   expectedPrice: number;
   range68: PredictionRange;
   range95: PredictionRange;
+  modelWeights: ModelWeights;
+  calibrationApplied: boolean;
   modelProbabilities: {
     signal: number;
     drift: number;
@@ -54,11 +69,10 @@ export interface PredictionOptions {
   includeWalkForward?: boolean;
   walkForwardLookback?: number;
   walkForwardChunkSize?: number;
+  adaptiveStats?: AdaptiveStats | null;
 }
 
 interface CorePredictionInputs {
-  closes: number[];
-  returns: number[];
   lastClose: number;
   atr: number;
   signalAnalysis: SignalAnalysis;
@@ -77,9 +91,6 @@ interface IdleSchedulerWindow {
   requestIdleCallback?: (callback: (deadline: IdleDeadlineLike) => void, options?: { timeout?: number }) => number;
   cancelIdleCallback?: (handle: number) => void;
 }
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.min(max, Math.max(min, value));
 
 const createAbortError = (): Error => {
   const error = new Error('Walk-forward calculation was cancelled');
@@ -105,40 +116,6 @@ const scheduleChunk = (callback: (deadline?: IdleDeadlineLike) => void): (() => 
 const mean = (values: readonly number[]): number =>
   values.length === 0 ? 0 : values.reduce((total, value) => total + value, 0) / values.length;
 
-const standardDeviation = (values: readonly number[]): number => {
-  if (values.length < 2) {
-    return 0;
-  }
-  const average = mean(values);
-  const variance = values.reduce((total, value) => total + (value - average) ** 2, 0) / values.length;
-  return Math.sqrt(variance);
-};
-
-const erf = (value: number): number => {
-  const sign = value < 0 ? -1 : 1;
-  const x = Math.abs(value);
-  const t = 1 / (1 + 0.3275911 * x);
-  const y =
-    1 -
-    (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t +
-      0.254829592) *
-      t *
-      Math.exp(-x * x));
-  return sign * y;
-};
-
-const normalCdf = (value: number): number => 0.5 * (1 + erf(value / Math.SQRT2));
-
-const logReturns = (closes: readonly number[]): number[] => {
-  const returns: number[] = [];
-  for (let i = 1; i < closes.length; i += 1) {
-    if (closes[i - 1] > 0 && closes[i] > 0) {
-      returns.push(Math.log(closes[i] / closes[i - 1]));
-    }
-  }
-  return returns;
-};
-
 const calculateAtr = (bars: readonly Bar[], period = 14): number => {
   if (bars.length < 2) {
     return Math.max(Math.abs(bars[0]?.c ?? 1) * 0.001, 0.00001);
@@ -162,109 +139,42 @@ const calculateAtr = (bars: readonly Bar[], period = 14): number => {
   return averageRange > 0 && Number.isFinite(averageRange) ? averageRange : fallback;
 };
 
-const linearRegressionDrift = (returns: readonly number[]): number => {
-  if (returns.length === 0) {
-    return 0;
-  }
-  if (returns.length < 3) {
-    return mean(returns);
-  }
-
-  const n = returns.length;
-  const meanX = (n - 1) / 2;
-  const meanY = mean(returns);
-  let numerator = 0;
-  let denominator = 0;
-  for (let i = 0; i < n; i += 1) {
-    numerator += (i - meanX) * (returns[i] - meanY);
-    denominator += (i - meanX) ** 2;
-  }
-
-  const slope = denominator === 0 ? 0 : numerator / denominator;
-  const intercept = meanY - slope * meanX;
-  return intercept + slope * n;
-};
-
-const lagOneAutocorrelation = (returns: readonly number[]): number => {
-  if (returns.length < 3) {
-    return 0;
-  }
-
-  const lagged = returns.slice(0, -1);
-  const current = returns.slice(1);
-  const laggedMean = mean(lagged);
-  const currentMean = mean(current);
-  let numerator = 0;
-  let laggedVariance = 0;
-  let currentVariance = 0;
-  for (let i = 0; i < current.length; i += 1) {
-    const laggedDiff = lagged[i] - laggedMean;
-    const currentDiff = current[i] - currentMean;
-    numerator += laggedDiff * currentDiff;
-    laggedVariance += laggedDiff ** 2;
-    currentVariance += currentDiff ** 2;
-  }
-
-  const denominator = Math.sqrt(laggedVariance * currentVariance);
-  return denominator === 0 ? 0 : clamp(numerator / denominator, -1, 1);
-};
-
-const probabilityFromLogMove = (
-  expectedLogMove: number,
-  volatility: number,
-  horizon: number,
-): number => {
-  const denominator = Math.max(volatility * Math.sqrt(horizon), 0.000001);
-  return clamp(normalCdf(expectedLogMove / denominator), 0.02, 0.98);
-};
+const magnitudeModelWeights: ModelWeights = { signal: 0.25, drift: 0.45, regime: 0.3 };
 
 const prepareInputs = (bars: readonly Bar[], options: PredictionOptions): CorePredictionInputs => {
   const closes = bars.map((bar) => bar.c);
   const lastClose = closes[closes.length - 1] ?? 1;
-  const returns = logReturns(closes);
-  const regressionLookback = options.regressionLookback ?? 80;
-  const volatilityLookback = options.volatilityLookback ?? 80;
-  const recentReturns = returns.slice(-regressionLookback);
-  const volatilityReturns = returns.slice(-volatilityLookback);
-  const volatility = Math.max(standardDeviation(volatilityReturns), Math.abs(mean(volatilityReturns)), 0.000001);
-  const driftPerBar = linearRegressionDrift(recentReturns);
-  const autocorrelation = lagOneAutocorrelation(recentReturns);
-  const lastReturn = recentReturns[recentReturns.length - 1] ?? 0;
-  const regimeStrength = Math.min(Math.abs(autocorrelation), 1);
-  const regimeReturnPerBar =
-    autocorrelation >= 0 ? lastReturn * regimeStrength : -lastReturn * regimeStrength;
+  const modelStats = modelStatsForBars(bars, options);
 
   return {
-    closes,
-    returns,
     lastClose,
     atr: calculateAtr(bars, 14),
     signalAnalysis: analyzeSignals(bars),
-    driftPerBar,
-    volatility,
-    autocorrelation,
-    regimeReturnPerBar,
+    driftPerBar: modelStats.driftPerBar,
+    volatility: modelStats.volatility,
+    autocorrelation: modelStats.autocorrelation,
+    regimeReturnPerBar: modelStats.regimeReturnPerBar,
   };
 };
 
 const buildCorePrediction = (bars: readonly Bar[], options: PredictionOptions = {}): Omit<PredictionResult, 'walkForward'> => {
   const inputs = prepareInputs(bars, options);
-  const signalBias = clamp(inputs.signalAnalysis.score / 8, -1, 1);
 
+  const adaptiveStats = options.adaptiveStats ?? null;
   const horizons = predictionHorizons.map<HorizonPrediction>((horizon) => {
-    const signalProbability = clamp(0.5 + (signalBias * 0.24) / Math.sqrt(horizon), 0.05, 0.95);
     const driftMove = inputs.driftPerBar * horizon;
-    const driftProbability = probabilityFromLogMove(driftMove, inputs.volatility, horizon);
     const regimeHorizon = Math.min(horizon, 5);
     const regimeMove = inputs.regimeReturnPerBar * regimeHorizon;
-    const regimeProbability = probabilityFromLogMove(regimeMove, inputs.volatility, regimeHorizon);
-    const probabilityUp = clamp(
-      signalProbability * 0.4 + driftProbability * 0.35 + regimeProbability * 0.25,
-      0.02,
-      0.98,
-    );
-    const signalMove = (signalProbability - 0.5) * 2 * inputs.volatility * Math.sqrt(horizon);
-    const expectedLogMove = signalMove * 0.25 + driftMove * 0.45 + regimeMove * 0.3;
+    const modelProbabilities = modelProbabilitiesForBars(bars, horizon, options);
+    const modelWeights = adaptiveStats ? weightsForHorizon(adaptiveStats.weights, horizon) : defaultModelWeights;
+    const rawProbabilityUp = weightedProbability(modelProbabilities, modelWeights);
+    const calibrationTable = calibrationForHorizon(adaptiveStats, horizon);
+    const probabilityUp = calibrationTable ? applyCalibration(rawProbabilityUp, calibrationTable) : rawProbabilityUp;
+    const signalMove = (modelProbabilities.signal - 0.5) * 2 * inputs.volatility * Math.sqrt(horizon);
+    const expectedLogMove =
+      signalMove * magnitudeModelWeights.signal +
+      driftMove * magnitudeModelWeights.drift +
+      regimeMove * magnitudeModelWeights.regime;
     const expectedPrice = inputs.lastClose * Math.exp(expectedLogMove);
     const range68Move = inputs.atr * Math.sqrt(horizon);
     const range95Move = range68Move * 2;
@@ -272,6 +182,8 @@ const buildCorePrediction = (bars: readonly Bar[], options: PredictionOptions = 
     return {
       horizon,
       probabilityUp,
+      rawProbabilityUp,
+      calibratedProbabilityUp: probabilityUp,
       expectedPrice,
       range68: {
         low: Math.max(0, expectedPrice - range68Move),
@@ -281,11 +193,9 @@ const buildCorePrediction = (bars: readonly Bar[], options: PredictionOptions = 
         low: Math.max(0, expectedPrice - range95Move),
         high: expectedPrice + range95Move,
       },
-      modelProbabilities: {
-        signal: signalProbability,
-        drift: driftProbability,
-        regime: regimeProbability,
-      },
+      modelWeights,
+      calibrationApplied: calibrationTable !== null,
+      modelProbabilities,
     };
   });
 
@@ -297,6 +207,11 @@ const buildCorePrediction = (bars: readonly Bar[], options: PredictionOptions = 
     `直近リターンの自己相関は ${inputs.autocorrelation.toFixed(2)} で、統計モデルは${regimeLabel}に切替。`,
     `予測レンジはATR ${inputs.atr.toFixed(5)} を基準に、時間平方根で拡大。`,
   ];
+  if (adaptiveStats) {
+    reasons.push(
+      `適応学習統計は ${new Date(adaptiveStats.generatedAt).toLocaleString('ja-JP')} 生成。モデル重みと確率補正を適用。`,
+    );
+  }
 
   return {
     generatedAt: Date.now(),

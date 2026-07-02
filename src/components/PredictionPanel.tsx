@@ -7,7 +7,12 @@ import {
   Time,
 } from 'lightweight-charts';
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { formatPrice } from '../lib/chart-data';
+import { formatPrice, type AdaptiveStatsFile } from '../lib/chart-data';
+import { adaptiveModelIds, type AdaptiveModelId } from '../lib/adaptive';
+import {
+  updatePredictionJournalForDisplay,
+  type PredictionJournalSummary,
+} from '../lib/journal';
 import {
   predict,
   walkForwardAccuracyAsync,
@@ -21,6 +26,7 @@ interface PredictionPanelProps {
   bars: Bar[];
   pair: Pair;
   timeframe: Timeframe;
+  adaptiveStats?: AdaptiveStatsFile | null;
 }
 
 const timeframeSeconds: Record<Timeframe, number> = {
@@ -53,6 +59,29 @@ const createPredictionChart = (container: HTMLDivElement): IChartApi =>
 
 const probabilityLabel = (value: number): string => `${(value * 100).toFixed(1)}%`;
 
+const modelLabels: Record<AdaptiveModelId, string> = {
+  signal: 'シグナル',
+  drift: 'ドリフト',
+  regime: 'レジーム',
+};
+
+const emptyJournalSummary: PredictionJournalSummary = {
+  total: 0,
+  resolved: 0,
+  pending: 0,
+  hits: 0,
+  misses: 0,
+  accuracy: null,
+};
+
+const formatStatsTime = (value: string | undefined): string => {
+  if (!value) {
+    return '未取得';
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '未取得' : date.toLocaleString('ja-JP');
+};
+
 const gaugeStyle = (probability: number): CSSProperties => {
   const color = probability >= 0.5 ? '#20c997' : '#ff5b78';
   return {
@@ -77,12 +106,33 @@ const fanLine = (
   ];
 };
 
-export function PredictionPanel({ bars, pair, timeframe }: PredictionPanelProps) {
+export function PredictionPanel({ bars, pair, timeframe, adaptiveStats = null }: PredictionPanelProps) {
   const chartRef = useRef<HTMLDivElement | null>(null);
-  const result = useMemo(() => predict(bars, { includeWalkForward: false }), [bars]);
+  const result = useMemo(
+    () => predict(bars, { includeWalkForward: false, adaptiveStats }),
+    [adaptiveStats, bars],
+  );
   const displayBars = useMemo(() => bars.slice(-260), [bars]);
   const [walkForward, setWalkForward] = useState<WalkForwardAccuracy | null>(null);
   const [walkForwardStatus, setWalkForwardStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
+  const [journalSummary, setJournalSummary] = useState<PredictionJournalSummary>(emptyJournalSummary);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const { summary } = updatePredictionJournalForDisplay(
+      window.localStorage,
+      pair,
+      timeframe,
+      bars,
+      result.horizons.map((prediction) => ({
+        horizon: prediction.horizon,
+        probabilityUp: prediction.probabilityUp,
+      })),
+    );
+    setJournalSummary(summary);
+  }, [bars, pair, result.horizons, timeframe]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -150,7 +200,7 @@ export function PredictionPanel({ bars, pair, timeframe }: PredictionPanelProps)
       color: '#f5ce62',
       lineWidth: 2,
       lineStyle: 2,
-      title: '予測中央値',
+      title: '期待値',
     });
     expected.setData(fanLine(bars, timeframe, result.horizons, (item) => item.expectedPrice));
 
@@ -213,11 +263,92 @@ export function PredictionPanel({ bars, pair, timeframe }: PredictionPanelProps)
         </div>
       </section>
 
+      <section className="learning-status">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">適応学習</p>
+            <h2>学習ステータス</h2>
+          </div>
+          <div className="rating-badge">
+            {adaptiveStats ? '統計適用中' : '固定重み'}
+          </div>
+        </div>
+
+        <div className="learning-grid">
+          <div className="learning-card learning-card-wide">
+            <h3>現在のモデル重み</h3>
+            <div className="weight-horizon-list">
+              {result.horizons.map((prediction) => (
+                <div key={prediction.horizon} className="weight-horizon">
+                  <strong>{prediction.horizon}本先</strong>
+                  <div className="weight-bars">
+                    {adaptiveModelIds.map((modelId) => (
+                      <div key={modelId} className="weight-row">
+                        <span>{modelLabels[modelId]}</span>
+                        <div className="weight-track">
+                          <i style={{ width: `${Math.round(prediction.modelWeights[modelId] * 100)}%` }} />
+                        </div>
+                        <small>{probabilityLabel(prediction.modelWeights[modelId])}</small>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="learning-card">
+            <h3>確率補正</h3>
+            <div className="calibration-list">
+              {result.horizons.map((prediction) => (
+                <div key={prediction.horizon} className="calibration-row">
+                  <span>{prediction.horizon}本先</span>
+                  <strong>
+                    {probabilityLabel(prediction.rawProbabilityUp)} → {probabilityLabel(prediction.calibratedProbabilityUp)}
+                  </strong>
+                  <small>{prediction.calibrationApplied ? 'キャリブレーション済み' : '未補正'}</small>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="learning-card">
+            <h3>この端末の台帳実績</h3>
+            <div className="journal-metrics">
+              <div>
+                <span>記録件数</span>
+                <strong>{journalSummary.total.toLocaleString('ja-JP')}</strong>
+              </div>
+              <div>
+                <span>答え合わせ済み</span>
+                <strong>{journalSummary.resolved.toLocaleString('ja-JP')}</strong>
+              </div>
+              <div>
+                <span>的中率</span>
+                <strong>{journalSummary.accuracy === null ? '未算出' : probabilityLabel(journalSummary.accuracy)}</strong>
+              </div>
+            </div>
+            <p className="disclaimer-copy">
+              未確定 {journalSummary.pending.toLocaleString('ja-JP')} 件 / 的中 {journalSummary.hits.toLocaleString('ja-JP')} 件
+            </p>
+          </div>
+
+          <div className="learning-card">
+            <h3>統計の最終更新</h3>
+            <p className="learning-timestamp">{formatStatsTime(adaptiveStats?.generatedAt)}</p>
+            <p className="disclaimer-copy">
+              生成サンプル数: {adaptiveStats ? adaptiveStats.sampleCount.toLocaleString('ja-JP') : '未取得'}
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section className="chart-card">
         <div className="chart-heading">
           <span>ファンチャート</span>
-          <span>黄色: 中央 / 緑: 68% / 青: 95%</span>
+          <span>黄色: 期待値 / 緑: 68% / 青: 95%</span>
         </div>
+        <p className="disclaimer-copy">確率は方向、レンジ中心は期待値で別物です。</p>
         <div ref={chartRef} className="chart-area chart-area-main" />
       </section>
 

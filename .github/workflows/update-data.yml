@@ -26,6 +26,9 @@ jobs:
       - name: Fetch latest FX data from Dukascopy
         run: npm run fetch:data
 
+      - name: Build adaptive model stats
+        run: node scripts/build-model-stats.mjs
+
       - name: Commit updated data
         id: commit
         run: |

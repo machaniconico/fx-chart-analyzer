@@ -203,6 +203,7 @@ input:disabled {
 
 .analysis-panel,
 .prediction-summary,
+.learning-status,
 .detail-card {
   background: #10151f;
   border: 1px solid rgba(142, 155, 179, 0.18);
@@ -414,6 +415,115 @@ input:disabled {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
   gap: 14px;
+}
+
+.learning-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
+  gap: 12px;
+}
+
+.learning-card {
+  min-width: 0;
+  border: 1px solid rgba(142, 155, 179, 0.16);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(17, 24, 36, 0.72);
+}
+
+.learning-card-wide {
+  grid-row: span 3;
+}
+
+.learning-card h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.weight-horizon-list,
+.weight-bars,
+.calibration-list,
+.journal-metrics {
+  display: grid;
+  gap: 10px;
+}
+
+.weight-horizon {
+  display: grid;
+  gap: 8px;
+}
+
+.weight-horizon > strong,
+.calibration-row span,
+.journal-metrics span {
+  color: #8e9bb3;
+  font-size: 12px;
+}
+
+.weight-row {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 8px;
+}
+
+.weight-row span,
+.weight-row small {
+  color: #b9c2d0;
+  font-size: 12px;
+}
+
+.weight-row small {
+  text-align: right;
+}
+
+.weight-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(142, 155, 179, 0.18);
+}
+
+.weight-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #59d6ff, #20c997);
+}
+
+.calibration-row {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 4px 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(142, 155, 179, 0.13);
+}
+
+.calibration-row strong,
+.journal-metrics strong,
+.learning-timestamp {
+  color: #ecf2ff;
+  font-weight: 800;
+}
+
+.calibration-row small {
+  grid-column: 2;
+  color: #8e9bb3;
+  font-size: 12px;
+}
+
+.journal-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.journal-metrics div {
+  display: grid;
+  gap: 4px;
+}
+
+.learning-timestamp {
+  margin: 0;
+  line-height: 1.45;
 }
 
 .detail-card h3 {
@@ -729,11 +839,16 @@ footer {
   }
 
   .probability-grid,
+  .learning-grid,
   .prediction-details,
   .ea-form-grid,
   .condition-grid,
   .metric-grid {
     grid-template-columns: 1fr;
+  }
+
+  .learning-card-wide {
+    grid-row: auto;
   }
 }
 
@@ -764,6 +879,7 @@ footer {
   }
 
   .accuracy-row,
+  .journal-metrics,
   .mini-grid {
     grid-template-columns: 1fr;
   }

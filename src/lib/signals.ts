@@ -173,6 +173,7 @@ const findSwingLevels = (
   };
 };
 
+// Keep these scoring rules aligned with adaptive-core.js scoreSignalSeries.
 export const analyzeSignals = (bars: readonly Bar[]): SignalAnalysis => {
   const signals: Signal[] = [];
   if (bars.length < 2) {
