@@ -18,12 +18,16 @@ export interface MtfAlignmentResult {
 }
 
 const defaultSecondaryTimeframe: Record<Timeframe, Timeframe> = {
+  m15: 'h1',
+  m30: 'h4',
   h1: 'h4',
   h4: 'd1',
   d1: 'h4',
 };
 
 const timeframeRank: Record<Timeframe, number> = {
+  m15: 0.25,
+  m30: 0.5,
   h1: 1,
   h4: 4,
   d1: 24,

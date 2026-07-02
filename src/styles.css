@@ -137,7 +137,7 @@ input:disabled {
 }
 
 .segmented {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
 }
 
 .segment {
@@ -215,6 +215,14 @@ input:disabled {
 .chart-stack {
   display: grid;
   gap: 14px;
+}
+
+.chart-data-note {
+  display: block;
+  margin: -2px 0 10px;
+  color: #8e9bb3;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .analysis-panel,

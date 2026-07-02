@@ -1,5 +1,5 @@
 export type Pair = 'USDJPY' | 'EURUSD' | 'GBPJPY' | 'EURJPY' | 'AUDJPY' | 'GBPUSD';
-export type Timeframe = 'h1' | 'h4' | 'd1';
+export type Timeframe = 'm15' | 'm30' | 'h1' | 'h4' | 'd1';
 
 export interface Bar {
   t: number;
@@ -18,9 +18,11 @@ export interface DataFile {
 }
 
 export const PAIRS: Pair[] = ['USDJPY', 'EURUSD', 'GBPJPY', 'EURJPY', 'AUDJPY', 'GBPUSD'];
-export const TIMEFRAMES: Timeframe[] = ['h1', 'h4', 'd1'];
+export const TIMEFRAMES: Timeframe[] = ['m15', 'm30', 'h1', 'h4', 'd1'];
 
 export const timeframeLabels: Record<Timeframe, string> = {
+  m15: '15分',
+  m30: '30分',
   h1: '1時間',
   h4: '4時間',
   d1: '日足',

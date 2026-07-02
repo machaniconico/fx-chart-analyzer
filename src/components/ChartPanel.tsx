@@ -196,6 +196,7 @@ export function ChartPanel({
   mtf,
   now = Math.floor(Date.now() / 1000),
 }: ChartPanelProps) {
+  const isMinuteTimeframe = timeframe === 'm15' || timeframe === 'm30';
   const mainRef = useRef<HTMLDivElement | null>(null);
   const rsiRef = useRef<HTMLDivElement | null>(null);
   const macdRef = useRef<HTMLDivElement | null>(null);
@@ -667,6 +668,11 @@ export function ChartPanel({
             <span>ローソク足</span>
             <span>{pair} / {timeframe.toUpperCase()}</span>
           </div>
+          {isMinuteTimeframe && (
+            <small className="chart-data-note">
+              データは毎日更新のため、分足はリアルタイムのエントリー判断でなく検証・分析用です
+            </small>
+          )}
           {activeOverlayLegendItems.length > 0 && (
             <div className="overlay-legend" aria-label="表示中の指標">
               {activeOverlayLegendItems.map((item) => (
