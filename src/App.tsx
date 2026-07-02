@@ -48,6 +48,7 @@ function App() {
   const [mtfTimeframe, setMtfTimeframe] = useState<Timeframe>(() => getDefaultMtfTimeframe('h1'));
   const [data, setData] = useState<DataFile | null>(null);
   const [mtfData, setMtfData] = useState<DataFile | null>(null);
+  const [usdJpyData, setUsdJpyData] = useState<DataFile | null>(null);
   const [calendar, setCalendar] = useState<CalendarFile | null>(null);
   const [cot, setCot] = useState<CotFile | null>(null);
   const [cotError, setCotError] = useState<string | null>(null);
@@ -135,6 +136,31 @@ function App() {
       disposed = true;
     };
   }, [mtfEnabled, pair, safeMtfTimeframe]);
+
+  useEffect(() => {
+    if (pair.endsWith('JPY')) {
+      setUsdJpyData(null);
+      return;
+    }
+
+    let disposed = false;
+    setUsdJpyData(null);
+    loadBars('USDJPY', timeframe)
+      .then((payload) => {
+        if (!disposed) {
+          setUsdJpyData(payload);
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setUsdJpyData(null);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [pair, timeframe]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -374,7 +400,12 @@ function App() {
                 now={now}
               />
             ) : (
-              <EaBuilderPanel bars={data.bars} pair={pair} timeframe={timeframe} />
+              <EaBuilderPanel
+                bars={data.bars}
+                pair={pair}
+                timeframe={timeframe}
+                usdJpyBars={pair === 'USDJPY' ? data.bars : usdJpyData?.bars}
+              />
             )
           )}
         </section>

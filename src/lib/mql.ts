@@ -3,13 +3,16 @@ import type {
   BollingerCondition,
   BollingerConditionMode,
   EntryCondition,
+  LotSizingMode,
   MaCrossCondition,
+  MoneyManagementSettings,
   MacdCrossCondition,
   MovingAverageType,
   RsiComparison,
   RsiCondition,
   StrategyDefinition,
 } from './strategy';
+import { defaultMoneyManagement } from './strategy';
 
 const boolLiteral = (value: boolean): string => (value ? 'true' : 'false');
 
@@ -312,26 +315,47 @@ bool EntrySignal(bool longSide)
 `;
 };
 
-const commonInputs = (strategy: StrategyDefinition, mql5: boolean): string[] => [
-  `input double InpLots = ${numberLiteral(strategy.lotSize)};`,
-  `input int InpMagicNumber = ${integerLiteral(strategy.magicNumber)};`,
-  `input bool InpTradeLong = ${boolLiteral(strategy.direction === 'long')};`,
-  `input bool InpSessionFilterEnable = ${boolLiteral(strategy.sessionFilter.enabled)};`,
-  `input string InpSessionStart = "${mqlString(strategy.sessionFilter.start)}";`,
-  `input string InpSessionEnd = "${mqlString(strategy.sessionFilter.end)}";`,
-  ...(mql5
-    ? [
-        `input bool NewsFilterEnable = ${boolLiteral(strategy.newsFilter.enabled)};`,
-        `input int NewsBlockMinutes = ${integerLiteral(strategy.newsFilter.blockMinutes)};`,
-      ]
-    : []),
-  `input int InpStopLossPips = ${integerLiteral(strategy.exit.stopLossPips)};`,
-  `input int InpTakeProfitPips = ${integerLiteral(strategy.exit.takeProfitPips)};`,
-  `input bool InpUseTrailingStop = ${boolLiteral(Boolean(strategy.exit.trailingStopPips && strategy.exit.trailingStopPips > 0))};`,
-  `input int InpTrailingStopPips = ${integerLiteral(strategy.exit.trailingStopPips ?? 0)};`,
-  `input bool InpCloseOnOppositeSignal = ${boolLiteral(strategy.exit.closeOnOppositeSignal)};`,
-  ...strategy.entryConditions.flatMap((condition, index) => conditionInputLines(condition, index + 1, mql5)),
-];
+const lotSizingModeValue = (mode: LotSizingMode): number => {
+  switch (mode) {
+    case 'fixedLot':
+      return 0;
+    case 'fixedRisk':
+      return 1;
+    case 'compound':
+      return 2;
+  }
+};
+
+const moneyManagementForStrategy = (strategy: StrategyDefinition): MoneyManagementSettings =>
+  strategy.moneyManagement ?? defaultMoneyManagement(strategy.lotSize);
+
+const commonInputs = (strategy: StrategyDefinition, mql5: boolean): string[] => {
+  const moneyManagement = moneyManagementForStrategy(strategy);
+  return [
+    `input int InpLotSizingMode = ${lotSizingModeValue(moneyManagement.lotSizingMode)}; // 0=fixed lot, 1=fixed risk %, 2=compound balance %`,
+    `input double InpLots = ${numberLiteral(moneyManagement.fixedLot)};`,
+    `input double InpInitialBalance = ${numberLiteral(moneyManagement.initialBalanceYen)};`,
+    `input double InpRiskPercent = ${numberLiteral(moneyManagement.riskPercent)};`,
+    `input double InpMaxLots = ${numberLiteral(moneyManagement.maxLot)};`,
+    `input int InpMagicNumber = ${integerLiteral(strategy.magicNumber)};`,
+    `input bool InpTradeLong = ${boolLiteral(strategy.direction === 'long')};`,
+    `input bool InpSessionFilterEnable = ${boolLiteral(strategy.sessionFilter.enabled)};`,
+    `input string InpSessionStart = "${mqlString(strategy.sessionFilter.start)}";`,
+    `input string InpSessionEnd = "${mqlString(strategy.sessionFilter.end)}";`,
+    ...(mql5
+      ? [
+          `input bool NewsFilterEnable = ${boolLiteral(strategy.newsFilter.enabled)};`,
+          `input int NewsBlockMinutes = ${integerLiteral(strategy.newsFilter.blockMinutes)};`,
+        ]
+      : []),
+    `input int InpStopLossPips = ${integerLiteral(strategy.exit.stopLossPips)};`,
+    `input int InpTakeProfitPips = ${integerLiteral(strategy.exit.takeProfitPips)};`,
+    `input bool InpUseTrailingStop = ${boolLiteral(Boolean(strategy.exit.trailingStopPips && strategy.exit.trailingStopPips > 0))};`,
+    `input int InpTrailingStopPips = ${integerLiteral(strategy.exit.trailingStopPips ?? 0)};`,
+    `input bool InpCloseOnOppositeSignal = ${boolLiteral(strategy.exit.closeOnOppositeSignal)};`,
+    ...strategy.entryConditions.flatMap((condition, index) => conditionInputLines(condition, index + 1, mql5)),
+  ];
+};
 
 const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[] =>
   conditions.flatMap((condition, index) => {
@@ -441,6 +465,64 @@ double PipPoint()
     return _Point * 10.0;
   }
   return _Point;
+}
+
+double NormalizeLots(double lots)
+{
+  double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+  double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+  double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+  if(minLot <= 0.0)
+  {
+    minLot = 0.01;
+  }
+  if(maxLot <= 0.0)
+  {
+    maxLot = lots;
+  }
+  if(InpMaxLots > 0.0)
+  {
+    maxLot = MathMin(maxLot, InpMaxLots);
+  }
+  lots = MathMax(minLot, MathMin(maxLot, lots));
+  if(step > 0.0)
+  {
+    lots = MathFloor(lots / step) * step;
+  }
+  return NormalizeDouble(lots, 2);
+}
+
+double LotSizeForEntry()
+{
+  if(InpLotSizingMode == 0)
+  {
+    return NormalizeLots(InpLots);
+  }
+  // Fixed-risk live sizing uses the current account balance and broker tick value.
+  double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+  if(InpLotSizingMode == 2)
+  {
+    if(balance <= 0.0 || InpInitialBalance <= 0.0)
+    {
+      return NormalizeLots(InpLots);
+    }
+    return NormalizeLots(InpLots * balance / InpInitialBalance);
+  }
+  if(InpRiskPercent <= 0.0 || InpStopLossPips <= 0)
+  {
+    return NormalizeLots(InpLots);
+  }
+  double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+  double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+  double pipValuePerLot = tickSize > 0.0 ? tickValue * (PipPoint() / tickSize) : 0.0;
+  if(balance <= 0.0 || pipValuePerLot <= 0.0)
+  {
+    return NormalizeLots(InpLots);
+  }
+  double riskAmount = balance * InpRiskPercent / 100.0;
+  double spreadPips = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point / PipPoint();
+  double riskPips = InpStopLossPips + MathMax(0.0, spreadPips);
+  return NormalizeLots(riskAmount / (riskPips * pipValuePerLot));
 }
 
 bool ValueReady(double value)
@@ -661,6 +743,7 @@ bool SelectCurrentPosition()
 void OpenPosition()
 {
   double pip = PipPoint();
+  double lots = LotSizeForEntry();
   trade.SetExpertMagicNumber(InpMagicNumber);
   trade.SetDeviationInPoints(20);
   if(InpTradeLong)
@@ -668,13 +751,13 @@ void OpenPosition()
     double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double sl = NormalizeDouble(ask - InpStopLossPips * pip, _Digits);
     double tp = NormalizeDouble(ask + InpTakeProfitPips * pip, _Digits);
-    trade.Buy(InpLots, _Symbol, ask, sl, tp, "${expertName}");
+    trade.Buy(lots, _Symbol, ask, sl, tp, "${expertName}");
     return;
   }
   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
   double sl = NormalizeDouble(bid + InpStopLossPips * pip, _Digits);
   double tp = NormalizeDouble(bid - InpTakeProfitPips * pip, _Digits);
-  trade.Sell(InpLots, _Symbol, bid, sl, tp, "${expertName}");
+  trade.Sell(lots, _Symbol, bid, sl, tp, "${expertName}");
 }
 
 void CloseCurrentPosition()
@@ -766,6 +849,64 @@ double PipPoint()
     return Point * 10.0;
   }
   return Point;
+}
+
+double NormalizeLots(double lots)
+{
+  double minLot = MarketInfo(_Symbol, MODE_MINLOT);
+  double maxLot = MarketInfo(_Symbol, MODE_MAXLOT);
+  double step = MarketInfo(_Symbol, MODE_LOTSTEP);
+  if(minLot <= 0.0)
+  {
+    minLot = 0.01;
+  }
+  if(maxLot <= 0.0)
+  {
+    maxLot = lots;
+  }
+  if(InpMaxLots > 0.0)
+  {
+    maxLot = MathMin(maxLot, InpMaxLots);
+  }
+  lots = MathMax(minLot, MathMin(maxLot, lots));
+  if(step > 0.0)
+  {
+    lots = MathFloor(lots / step) * step;
+  }
+  return NormalizeDouble(lots, 2);
+}
+
+double LotSizeForEntry()
+{
+  if(InpLotSizingMode == 0)
+  {
+    return NormalizeLots(InpLots);
+  }
+  // Fixed-risk live sizing uses the current account balance and broker tick value.
+  double balance = AccountBalance();
+  if(InpLotSizingMode == 2)
+  {
+    if(balance <= 0.0 || InpInitialBalance <= 0.0)
+    {
+      return NormalizeLots(InpLots);
+    }
+    return NormalizeLots(InpLots * balance / InpInitialBalance);
+  }
+  if(InpRiskPercent <= 0.0 || InpStopLossPips <= 0)
+  {
+    return NormalizeLots(InpLots);
+  }
+  double tickValue = MarketInfo(_Symbol, MODE_TICKVALUE);
+  double tickSize = MarketInfo(_Symbol, MODE_TICKSIZE);
+  double pipValuePerLot = tickSize > 0.0 ? tickValue * (PipPoint() / tickSize) : 0.0;
+  if(balance <= 0.0 || pipValuePerLot <= 0.0)
+  {
+    return NormalizeLots(InpLots);
+  }
+  double riskAmount = balance * InpRiskPercent / 100.0;
+  double spreadPips = MarketInfo(_Symbol, MODE_SPREAD) * Point / PipPoint();
+  double riskPips = InpStopLossPips + MathMax(0.0, spreadPips);
+  return NormalizeLots(riskAmount / (riskPips * pipValuePerLot));
 }
 
 bool ValueReady(double value)
@@ -882,11 +1023,12 @@ void OpenPosition()
 {
   RefreshRates();
   double pip = PipPoint();
+  double lots = LotSizeForEntry();
   if(InpTradeLong)
   {
     double sl = NormalizeDouble(Ask - InpStopLossPips * pip, Digits);
     double tp = NormalizeDouble(Ask + InpTakeProfitPips * pip, Digits);
-    int ticket = OrderSend(_Symbol, OP_BUY, InpLots, Ask, 20, sl, tp, "${expertName}", InpMagicNumber, 0, clrGreen);
+    int ticket = OrderSend(_Symbol, OP_BUY, lots, Ask, 20, sl, tp, "${expertName}", InpMagicNumber, 0, clrGreen);
     if(ticket < 0)
     {
       Print("OrderSend buy failed: ", GetLastError());
@@ -895,7 +1037,7 @@ void OpenPosition()
   }
   double sl = NormalizeDouble(Bid + InpStopLossPips * pip, Digits);
   double tp = NormalizeDouble(Bid - InpTakeProfitPips * pip, Digits);
-  int ticket = OrderSend(_Symbol, OP_SELL, InpLots, Bid, 20, sl, tp, "${expertName}", InpMagicNumber, 0, clrRed);
+  int ticket = OrderSend(_Symbol, OP_SELL, lots, Bid, 20, sl, tp, "${expertName}", InpMagicNumber, 0, clrRed);
   if(ticket < 0)
   {
     Print("OrderSend sell failed: ", GetLastError());
