@@ -678,7 +678,8 @@ input:disabled {
 
 .ea-builder-stack,
 .ea-result-panel,
-.calendar-stack {
+.calendar-stack,
+.cot-stack {
   display: grid;
   gap: 14px;
 }
@@ -701,6 +702,44 @@ input:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.cot-toolbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 96px));
+  gap: 8px;
+}
+
+.cot-chart {
+  min-height: 430px;
+}
+
+.cot-metrics {
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+}
+
+.cot-context {
+  margin: 14px 0 0;
+  border-left: 3px solid rgba(32, 201, 151, 0.72);
+  padding-left: 12px;
+  color: #d8e0ee;
+  line-height: 1.65;
+}
+
+.cot-note-heading {
+  margin: -16px -16px 0;
+}
+
+.cot-note-list {
+  margin: 14px 0 0;
+  padding-left: 18px;
+  color: #b9c2d0;
+  line-height: 1.65;
+  font-size: 14px;
+}
+
+.cot-note-list li + li {
+  margin-top: 6px;
 }
 
 .primary-action,
@@ -951,7 +990,8 @@ footer {
   .prediction-details,
   .ea-form-grid,
   .condition-grid,
-  .metric-grid {
+  .metric-grid,
+  .cot-metrics {
     grid-template-columns: 1fr;
   }
 
@@ -995,5 +1035,9 @@ footer {
   .primary-action,
   .secondary-action {
     width: 100%;
+  }
+
+  .cot-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
