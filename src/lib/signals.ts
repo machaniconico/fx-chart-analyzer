@@ -91,6 +91,16 @@ export const judgeSignalScore = (score: number): SignalRating => {
   return { id: 'strong_buy', label: '強い買い', level: 4 };
 };
 
+export const signalDirectionFromScore = (score: number): SignalDirection => {
+  if (score > 0) {
+    return 'bullish';
+  }
+  if (score < 0) {
+    return 'bearish';
+  }
+  return 'neutral';
+};
+
 const latestAtr = (bars: readonly Bar[], period = 14): number | null => {
   if (bars.length < 2) {
     return null;

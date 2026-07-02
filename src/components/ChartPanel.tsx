@@ -1,20 +1,17 @@
 import {
   AreaData,
   CandlestickData,
-  ColorType,
-  createChart,
   HistogramData,
   IChartApi,
   IPriceLine,
   ISeriesApi,
   LineData,
-  LineStyle,
-  LineWidth,
   SeriesMarker,
   Time,
 } from 'lightweight-charts';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DrawingOverlay, type DrawingOverlayClick } from './DrawingOverlay';
+import { MtfMiniChart } from './MtfMiniChart';
 import {
   calendarImpactLabels,
   formatCalendarTimeJst,
@@ -22,10 +19,18 @@ import {
   upcomingEventsWithin,
   type CalendarEvent,
 } from '../lib/calendar';
-import { formatPrice } from '../lib/chart-data';
+import {
+  chartLineColors as lineColors,
+  createBaseChart,
+  createSupportResistancePriceLineOptions,
+  timeframeSeconds,
+  toFutureLineData,
+  toLineData,
+} from '../lib/chart-rendering';
 import { bollingerBands, ema, ichimoku, macd, rsi, sma } from '../lib/indicators';
-import { detectSupportResistanceLevels, type SupportResistanceLevel } from '../lib/levels';
+import { detectSupportResistanceLevels } from '../lib/levels';
 import { detectPatterns, type DetectedPattern, type PatternDirection } from '../lib/patterns';
+import type { SignalAnalysis } from '../lib/signals';
 import {
   createDrawingId,
   drawingStorageKey,
@@ -54,7 +59,18 @@ interface ChartPanelProps {
   timeframe: Timeframe;
   toggles: IndicatorToggles;
   calendarEvents?: CalendarEvent[];
+  mainSignalAnalysis?: SignalAnalysis | null;
+  mtf?: MtfChartState;
   now?: number;
+}
+
+export interface MtfChartState {
+  enabled: boolean;
+  timeframe: Timeframe;
+  bars: Bar[] | null;
+  analysis: SignalAnalysis | null;
+  loading: boolean;
+  error: string | null;
 }
 
 type DrawingTool = 'select' | 'trendline' | 'horizontal' | 'fibonacci';
@@ -69,28 +85,6 @@ interface DrawingState {
   key: string;
   items: Drawing[];
 }
-
-const lineColors = {
-  sma20: '#f8d66d',
-  sma50: '#59d6ff',
-  sma200: '#ff6b8a',
-  ema12: '#a4ff7a',
-  ema26: '#d88bff',
-  bb: '#8e9bb3',
-  tenkan: '#ff8a3d',
-  kijun: '#6bdcff',
-  spanA: 'rgba(57, 210, 143, 0.22)',
-  spanB: 'rgba(255, 91, 120, 0.20)',
-  rsi: '#f5ce62',
-  macd: '#61dafb',
-  signal: '#ff9f43',
-};
-
-const timeframeSeconds: Record<Timeframe, number> = {
-  h1: 60 * 60,
-  h4: 60 * 60 * 4,
-  d1: 60 * 60 * 24,
-};
 
 const impactMarkerColors: Record<'high' | 'medium', string> = {
   high: '#ff5b78',
@@ -143,49 +137,6 @@ const drawingToolOptions: {
   },
 ];
 
-const toLineData = (bars: readonly Bar[], values: readonly (number | null)[]): LineData[] =>
-  values.flatMap((value, index) =>
-    value === null || index >= bars.length ? [] : [{ time: bars[index].t as Time, value }],
-  );
-
-const toFutureLineData = (
-  bars: readonly Bar[],
-  values: readonly (number | null)[],
-  stepSeconds: number,
-): LineData[] =>
-  values.flatMap((value, index) => {
-    if (value === null) {
-      return [];
-    }
-    const baseTime = index < bars.length ? bars[index].t : bars[bars.length - 1].t + stepSeconds * (index - bars.length + 1);
-    return [{ time: baseTime as Time, value }];
-  });
-
-const createBaseChart = (container: HTMLDivElement, height: number): IChartApi =>
-  createChart(container, {
-    height,
-    layout: {
-      background: { type: ColorType.Solid, color: '#10151f' },
-      textColor: '#b9c2d0',
-      fontFamily: 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    },
-    grid: {
-      vertLines: { color: 'rgba(142,155,179,0.12)' },
-      horzLines: { color: 'rgba(142,155,179,0.12)' },
-    },
-    crosshair: {
-      mode: 1,
-    },
-    rightPriceScale: {
-      borderColor: 'rgba(142,155,179,0.24)',
-    },
-    timeScale: {
-      borderColor: 'rgba(142,155,179,0.24)',
-      timeVisible: true,
-      secondsVisible: false,
-    },
-  });
-
 const markerBarTime = (bars: readonly Bar[], eventTime: number): number | null => {
   if (bars.length === 0 || eventTime < bars[0].t || eventTime > bars[bars.length - 1].t) {
     return null;
@@ -205,26 +156,6 @@ const markerBarTime = (bars: readonly Bar[], eventTime: number): number | null =
 
 const shortenMarkerTitle = (title: string): string =>
   title.length > 28 ? `${title.slice(0, 28)}...` : title;
-
-const priceLineColor = (level: SupportResistanceLevel): string => {
-  const alpha = Math.min(0.9, 0.32 + level.strength * 0.11);
-  return level.direction === 'support'
-    ? `rgba(32, 201, 151, ${alpha.toFixed(2)})`
-    : `rgba(255, 91, 120, ${alpha.toFixed(2)})`;
-};
-
-const priceLineWidth = (level: SupportResistanceLevel): LineWidth => {
-  if (level.strength >= 5) {
-    return 3;
-  }
-  if (level.strength >= 2.5) {
-    return 2;
-  }
-  return 1;
-};
-
-const priceLineStyle = (level: SupportResistanceLevel): LineStyle =>
-  level.touches >= 3 ? LineStyle.Solid : LineStyle.Dashed;
 
 const patternMarker = (pattern: DetectedPattern): SeriesMarker<Time> => ({
   id: pattern.id,
@@ -252,6 +183,8 @@ export function ChartPanel({
   timeframe,
   toggles,
   calendarEvents = emptyCalendarEvents,
+  mainSignalAnalysis = null,
+  mtf,
   now = Math.floor(Date.now() / 1000),
 }: ChartPanelProps) {
   const mainRef = useRef<HTMLDivElement | null>(null);
@@ -653,15 +586,7 @@ export function ChartPanel({
 
     if (toggles.supportResistance) {
       priceLineRefs.current = levels.map((level) =>
-        candleSeries.createPriceLine({
-          price: level.price,
-          color: priceLineColor(level),
-          lineWidth: priceLineWidth(level),
-          lineStyle: priceLineStyle(level),
-          axisLabelVisible: true,
-          lineVisible: true,
-          title: `${formatPrice(pair, level.price)} ${level.direction === 'support' ? 'S' : 'R'} ${level.touches}回`,
-        }),
+        candleSeries.createPriceLine(createSupportResistancePriceLineOptions(pair, level)),
       );
     }
 
@@ -673,83 +598,122 @@ export function ChartPanel({
 
   return (
     <div className="chart-stack">
-      <div className="chart-card">
-        <div className="chart-heading">
-          <span>ローソク足</span>
-          <span>{pair} / {timeframe.toUpperCase()}</span>
-        </div>
-        {upcomingNews.length > 0 && (
-          <div className="news-banner">
-            <strong>今後24時間の指標</strong>
-            <div className="news-banner-list">
-              {upcomingNews.slice(0, 4).map((event) => (
-                <span key={`${event.currency}-${event.time}-${event.title}`}>
-                  <i className={`impact-dot impact-${event.impact}`} />
-                  {formatCalendarTimeJst(event.time)} {event.currency} {calendarImpactLabels[event.impact]} {event.title}
-                </span>
+      <div className={mtf?.enabled ? 'primary-chart-layout primary-chart-layout-mtf' : 'primary-chart-layout'}>
+        <div className="chart-card">
+          <div className="chart-heading">
+            <span>ローソク足</span>
+            <span>{pair} / {timeframe.toUpperCase()}</span>
+          </div>
+          {upcomingNews.length > 0 && (
+            <div className="news-banner">
+              <strong>今後24時間の指標</strong>
+              <div className="news-banner-list">
+                {upcomingNews.slice(0, 4).map((event) => (
+                  <span key={`${event.currency}-${event.time}-${event.title}`}>
+                    <i className={`impact-dot impact-${event.impact}`} />
+                    {formatCalendarTimeJst(event.time)} {event.currency} {calendarImpactLabels[event.impact]} {event.title}
+                  </span>
+                ))}
+                {upcomingNews.length > 4 && <span>他 {upcomingNews.length - 4} 件</span>}
+              </div>
+            </div>
+          )}
+          <div className="drawing-panel">
+            <div className="drawing-toolbar" role="toolbar" aria-label="描画ツール">
+              {drawingToolOptions.map((option) => (
+                <button
+                  key={option.tool}
+                  type="button"
+                  className={`drawing-tool ${activeDrawingTool === option.tool ? 'drawing-tool-active' : ''}`}
+                  title={option.title}
+                  aria-label={option.title}
+                  aria-pressed={activeDrawingTool === option.tool}
+                  onClick={() => handleDrawingToolChange(option.tool)}
+                >
+                  <span className="drawing-tool-icon" aria-hidden="true">{option.icon}</span>
+                  <span>{option.label}</span>
+                </button>
               ))}
-              {upcomingNews.length > 4 && <span>他 {upcomingNews.length - 4} 件</span>}
+              <button
+                type="button"
+                className="drawing-tool drawing-action"
+                title="選択削除: 選択中の描画を削除します"
+                aria-label="選択削除: 選択中の描画を削除します"
+                disabled={!selectedDrawingExists}
+                onClick={handleDeleteSelectedDrawing}
+              >
+                <span className="drawing-tool-icon" aria-hidden="true">DEL</span>
+                <span>選択削除</span>
+              </button>
+              <button
+                type="button"
+                className="drawing-tool drawing-action"
+                title="全削除: この通貨ペアと時間足の描画をすべて削除します"
+                aria-label="全削除: この通貨ペアと時間足の描画をすべて削除します"
+                disabled={drawings.length === 0}
+                onClick={handleClearDrawings}
+              >
+                <span className="drawing-tool-icon" aria-hidden="true">CLR</span>
+                <span>全削除</span>
+              </button>
+            </div>
+            <div className="drawing-status" aria-live="polite">
+              <span>{drawingStatus}</span>
+              <small>v1制約: 最終バーより未来へ引いた線は描画されません。クリック位置はバーにスナップされます。</small>
             </div>
           </div>
-        )}
-        <div className="drawing-panel">
-          <div className="drawing-toolbar" role="toolbar" aria-label="描画ツール">
-            {drawingToolOptions.map((option) => (
-              <button
-                key={option.tool}
-                type="button"
-                className={`drawing-tool ${activeDrawingTool === option.tool ? 'drawing-tool-active' : ''}`}
-                title={option.title}
-                aria-label={option.title}
-                aria-pressed={activeDrawingTool === option.tool}
-                onClick={() => handleDrawingToolChange(option.tool)}
-              >
-                <span className="drawing-tool-icon" aria-hidden="true">{option.icon}</span>
-                <span>{option.label}</span>
-              </button>
-            ))}
-            <button
-              type="button"
-              className="drawing-tool drawing-action"
-              title="選択削除: 選択中の描画を削除します"
-              aria-label="選択削除: 選択中の描画を削除します"
-              disabled={!selectedDrawingExists}
-              onClick={handleDeleteSelectedDrawing}
-            >
-              <span className="drawing-tool-icon" aria-hidden="true">DEL</span>
-              <span>選択削除</span>
-            </button>
-            <button
-              type="button"
-              className="drawing-tool drawing-action"
-              title="全削除: この通貨ペアと時間足の描画をすべて削除します"
-              aria-label="全削除: この通貨ペアと時間足の描画をすべて削除します"
-              disabled={drawings.length === 0}
-              onClick={handleClearDrawings}
-            >
-              <span className="drawing-tool-icon" aria-hidden="true">CLR</span>
-              <span>全削除</span>
-            </button>
-          </div>
-          <div className="drawing-status" aria-live="polite">
-            <span>{drawingStatus}</span>
-            <small>v1制約: 最終バーより未来へ引いた線は描画されません。クリック位置はバーにスナップされます。</small>
+          <div ref={mainRef} className="chart-area chart-area-main">
+            {chartContext && (
+              <DrawingOverlay
+                key={chartContext.version}
+                chart={chartContext.chart}
+                series={chartContext.series}
+                drawings={drawings}
+                selectedDrawingId={selectedDrawingId}
+                bars={bars}
+                pair={pair}
+                onChartClick={handleDrawingOverlayClick}
+              />
+            )}
           </div>
         </div>
-        <div ref={mainRef} className="chart-area chart-area-main">
-          {chartContext && (
-            <DrawingOverlay
-              key={chartContext.version}
-              chart={chartContext.chart}
-              series={chartContext.series}
-              drawings={drawings}
-              selectedDrawingId={selectedDrawingId}
-              bars={bars}
+
+        {mtf?.enabled && (
+          mtf.loading ? (
+            <div className="chart-card mtf-placeholder">
+              <div className="chart-heading">
+                <span>MTF表示</span>
+                <span>{pair} / {mtf.timeframe.toUpperCase()}</span>
+              </div>
+              <div className="mtf-state-message">MTFデータを読み込んでいます...</div>
+            </div>
+          ) : mtf.error ? (
+            <div className="chart-card mtf-placeholder">
+              <div className="chart-heading">
+                <span>MTF表示</span>
+                <span>{pair} / {mtf.timeframe.toUpperCase()}</span>
+              </div>
+              <div className="mtf-state-message mtf-state-error">{mtf.error}</div>
+            </div>
+          ) : mtf.bars && mtf.analysis && mainSignalAnalysis ? (
+            <MtfMiniChart
+              bars={mtf.bars}
               pair={pair}
-              onChartClick={handleDrawingOverlayClick}
+              timeframe={mtf.timeframe}
+              mainTimeframe={timeframe}
+              analysis={mtf.analysis}
+              mainAnalysis={mainSignalAnalysis}
             />
-          )}
-        </div>
+          ) : (
+            <div className="chart-card mtf-placeholder">
+              <div className="chart-heading">
+                <span>MTF表示</span>
+                <span>{pair} / {mtf.timeframe.toUpperCase()}</span>
+              </div>
+              <div className="mtf-state-message">MTF表示の準備中です...</div>
+            </div>
+          )
+        )}
       </div>
       <div className="subcharts">
         <div className="chart-card">
