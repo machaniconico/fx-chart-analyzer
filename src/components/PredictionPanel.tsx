@@ -24,6 +24,8 @@ import {
   type HorizonPrediction,
   type WalkForwardAccuracy,
 } from '../lib/predict';
+import { detectSupportResistanceLevels } from '../lib/levels';
+import { detectPatterns, type PatternDirection } from '../lib/patterns';
 import type { Bar, Pair, Timeframe } from '../types';
 import { timeframeLabels } from '../types';
 
@@ -70,6 +72,12 @@ const modelLabels: Record<AdaptiveModelId, string> = {
   signal: 'シグナル',
   drift: 'ドリフト',
   regime: 'レジーム',
+};
+
+const patternDirectionLabels: Record<PatternDirection, string> = {
+  bullish: '買い',
+  bearish: '売り',
+  neutral: '中立',
 };
 
 const emptyJournalSummary: PredictionJournalSummary = {
@@ -127,6 +135,45 @@ export function PredictionPanel({
     [adaptiveStats, bars],
   );
   const displayBars = useMemo(() => bars.slice(-260), [bars]);
+  const levels = useMemo(
+    () => detectSupportResistanceLevels(bars, { lookback: 240, maxLevels: 8 }),
+    [bars],
+  );
+  const detectedPatterns = useMemo(
+    () => detectPatterns(bars, { lookback: 120 }),
+    [bars],
+  );
+  const supplementalReasons = useMemo(() => {
+    if (bars.length === 0) {
+      return [];
+    }
+    const latestIndex = bars.length - 1;
+    const recentPatterns = detectedPatterns.filter((pattern) => latestIndex - pattern.barIndex <= 5).slice(0, 3);
+    const support = levels
+      .filter((level) => level.direction === 'support')
+      .sort((a, b) => a.distancePct - b.distancePct)[0];
+    const resistance = levels
+      .filter((level) => level.direction === 'resistance')
+      .sort((a, b) => a.distancePct - b.distancePct)[0];
+    const reasons = recentPatterns.length > 0
+      ? recentPatterns.map(
+          (pattern) =>
+            `検出パターン: ${pattern.label}（${patternDirectionLabels[pattern.direction]}、強度${pattern.strength}）。${pattern.detail}`,
+        )
+      : ['検出パターン: 直近5本以内に強いパターンはありません。'];
+
+    if (support) {
+      reasons.push(
+        `キーサポート ${formatPrice(pair, support.price)} まで ${formatPrice(pair, support.distance)}（${(support.distancePct * 100).toFixed(2)}%、${support.touches}回タッチ）。`,
+      );
+    }
+    if (resistance) {
+      reasons.push(
+        `キーレジスタンス ${formatPrice(pair, resistance.price)} まで ${formatPrice(pair, resistance.distance)}（${(resistance.distancePct * 100).toFixed(2)}%、${resistance.touches}回タッチ）。`,
+      );
+    }
+    return reasons;
+  }, [bars.length, detectedPatterns, levels, pair]);
   const [walkForward, setWalkForward] = useState<WalkForwardAccuracy | null>(null);
   const [walkForwardStatus, setWalkForwardStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [journalSummary, setJournalSummary] = useState<PredictionJournalSummary>(emptyJournalSummary);
@@ -390,6 +437,9 @@ export function PredictionPanel({
           <h3>根拠</h3>
           <ul className="reason-list">
             {result.reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+            {supplementalReasons.map((reason) => (
               <li key={reason}>{reason}</li>
             ))}
             {result.signalAnalysis.signals.slice(0, 5).map((signal) => (
