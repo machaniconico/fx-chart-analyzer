@@ -10,9 +10,18 @@ import { runBacktest, type BacktestResult, type BacktestTrade } from '../lib/bac
 import { formatPrice } from '../lib/chart-data';
 import { generateMql4, generateMql5 } from '../lib/mql';
 import {
+  createOptimizationCancelToken,
+  runGridSearchOptimization,
+  type OptimizationCancelToken,
+  type OptimizationRanges,
+  type OptimizationResultRow,
+} from '../lib/optimize';
+import {
+  defaultMoneyManagement,
   defaultStrategies,
   type BollingerCondition,
   type EntryCondition,
+  type LotSizingMode,
   type MaCrossCondition,
   type MacdCrossCondition,
   type MovingAverageType,
@@ -27,6 +36,7 @@ interface EaBuilderPanelProps {
   bars: Bar[];
   pair: Pair;
   timeframe: Timeframe;
+  usdJpyBars?: Bar[];
 }
 
 const cloneStrategy = (strategy: StrategyDefinition): StrategyDefinition =>
@@ -35,6 +45,14 @@ const cloneStrategy = (strategy: StrategyDefinition): StrategyDefinition =>
 const formatPips = (value: number): string => `${value.toFixed(1)} pips`;
 
 const formatPercent = (value: number): string => `${value.toFixed(1)}%`;
+
+const yenFormatter = new Intl.NumberFormat('ja-JP', {
+  style: 'currency',
+  currency: 'JPY',
+  maximumFractionDigits: 0,
+});
+
+const formatYen = (value: number): string => yenFormatter.format(Math.round(value));
 
 const formatProfitFactor = (value: number): string =>
   Number.isFinite(value) ? value.toFixed(2) : '∞';
@@ -130,6 +148,32 @@ const integerInput = (
 const pipsInput = (rawValue: string, previousValue: number, defaultValue: number): number =>
   integerInput(rawValue, previousValue, defaultValue, 1);
 
+interface OptimizationFormState {
+  stopLossMin: number;
+  stopLossMax: number;
+  stopLossStep: number;
+  takeProfitMin: number;
+  takeProfitMax: number;
+  takeProfitStep: number;
+  trailingEnabled: boolean;
+  trailingMin: number;
+  trailingMax: number;
+  trailingStep: number;
+}
+
+const defaultOptimizationForm: OptimizationFormState = {
+  stopLossMin: 15,
+  stopLossMax: 60,
+  stopLossStep: 15,
+  takeProfitMin: 20,
+  takeProfitMax: 100,
+  takeProfitStep: 20,
+  trailingEnabled: false,
+  trailingMin: 10,
+  trailingMax: 40,
+  trailingStep: 10,
+};
+
 const timeTextPattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
@@ -150,6 +194,22 @@ const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
   }
   if (strategy.newsFilter.enabled && strategy.newsFilter.blockMinutes < 1) {
     messages.push('ニュース停止時間は1分以上にしてください。');
+  }
+  const moneyManagement = strategy.moneyManagement ?? defaultMoneyManagement(strategy.lotSize);
+  if (moneyManagement.initialBalanceYen <= 0) {
+    messages.push('初期資金は1円以上にしてください。');
+  }
+  if (moneyManagement.fixedLot <= 0) {
+    messages.push('固定ロットは0より大きい値にしてください。');
+  }
+  if (moneyManagement.maxLot <= 0) {
+    messages.push('上限ロットは0より大きい値にしてください。');
+  }
+  if (
+    moneyManagement.lotSizingMode === 'fixedRisk' &&
+    (moneyManagement.riskPercent <= 0 || moneyManagement.riskPercent > 100)
+  ) {
+    messages.push('リスク%は0より大きく100以下にしてください。');
   }
   return messages;
 };
@@ -194,14 +254,14 @@ function EquityCurve({ result }: { result: BacktestResult }) {
     resizeObserver.observe(chartRef.current);
 
     const line = chart.addLineSeries({
-      color: result.netPips >= 0 ? '#20c997' : '#ff5b78',
+      color: result.netProfitYen >= 0 ? '#20c997' : '#ff5b78',
       lineWidth: 2,
-      title: '累積損益(pips)',
+      title: '残高(円)',
     });
     line.setData(
       result.equityCurve.map<LineData>((point) => ({
         time: point.time as Time,
-        value: point.equityPips,
+        value: point.equityYen,
       })),
     );
     chart.timeScale().fitContent();
@@ -215,13 +275,43 @@ function EquityCurve({ result }: { result: BacktestResult }) {
   return <div ref={chartRef} className="chart-area ea-equity-chart" />;
 }
 
-export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
+export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderPanelProps) {
   const [strategy, setStrategy] = useState<StrategyDefinition>(() => cloneStrategy(defaultStrategies[0]));
   const [result, setResult] = useState<BacktestResult | null>(null);
+  const [optimizationForm, setOptimizationForm] = useState<OptimizationFormState>(() => ({
+    ...defaultOptimizationForm,
+  }));
+  const [optimizationRows, setOptimizationRows] = useState<OptimizationResultRow[]>([]);
+  const [optimizationProgress, setOptimizationProgress] = useState({
+    completed: 0,
+    total: 0,
+    percent: 0,
+    cancelled: false,
+  });
+  const [optimizationRunning, setOptimizationRunning] = useState(false);
+  const [optimizationError, setOptimizationError] = useState<string | null>(null);
+  const optimizationTokenRef = useRef<OptimizationCancelToken | null>(null);
   const validationMessages = useMemo(() => strategyValidationMessages(strategy), [strategy]);
   const hasValidationErrors = validationMessages.length > 0;
   const mql5Source = useMemo(() => generateMql5(strategy), [strategy]);
   const mql4Source = useMemo(() => generateMql4(strategy), [strategy]);
+  const moneyManagement = strategy.moneyManagement ?? defaultMoneyManagement(strategy.lotSize);
+
+  useEffect(() => () => {
+    if (optimizationTokenRef.current) {
+      optimizationTokenRef.current.aborted = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    setResult(null);
+    setOptimizationRows([]);
+    if (optimizationTokenRef.current) {
+      optimizationTokenRef.current.aborted = true;
+      optimizationTokenRef.current = null;
+    }
+    setOptimizationRunning(false);
+  }, [bars, pair, timeframe, usdJpyBars]);
 
   const getCondition = <T extends ConditionType>(type: T): ConditionByType<T> | undefined =>
     strategy.entryConditions.find((condition): condition is ConditionByType<T> => condition.type === type);
@@ -235,6 +325,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
     updater: (condition: ConditionByType<T>) => ConditionByType<T>,
   ): void => {
     setResult(null);
+    setOptimizationRows([]);
     setStrategy((current) => {
       const existingIndex = current.entryConditions.findIndex((condition) => condition.type === type);
       const existing =
@@ -258,6 +349,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
     fallback: () => ConditionByType<T>,
   ): void => {
     setResult(null);
+    setOptimizationRows([]);
     setStrategy((current) => ({
       ...current,
       entryConditions: checked
@@ -270,6 +362,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
 
   const updateStrategy = (updater: (current: StrategyDefinition) => StrategyDefinition): void => {
     setResult(null);
+    setOptimizationRows([]);
     setStrategy(updater);
   };
 
@@ -278,11 +371,112 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
   const bbCondition = getCondition('bollinger');
   const macdCondition = getCondition('macdCross');
 
+  const updateMoneyManagement = (
+    updater: (current: typeof moneyManagement) => typeof moneyManagement,
+  ): void => {
+    updateStrategy((current) => {
+      const currentMoneyManagement = current.moneyManagement ?? defaultMoneyManagement(current.lotSize);
+      const nextMoneyManagement = updater(currentMoneyManagement);
+      return {
+        ...current,
+        lotSize: nextMoneyManagement.fixedLot,
+        moneyManagement: nextMoneyManagement,
+      };
+    });
+  };
+
   const run = (): void => {
     if (hasValidationErrors) {
       return;
     }
-    setResult(runBacktest(bars, strategy, pair));
+    setResult(runBacktest(bars, strategy, pair, { usdJpyBars }));
+  };
+
+  const updateOptimizationForm = (
+    updater: (current: OptimizationFormState) => OptimizationFormState,
+  ): void => {
+    setOptimizationForm(updater);
+    setOptimizationError(null);
+  };
+
+  const optimizationRanges = (): OptimizationRanges => ({
+    stopLossPips: {
+      min: optimizationForm.stopLossMin,
+      max: optimizationForm.stopLossMax,
+      step: optimizationForm.stopLossStep,
+    },
+    takeProfitPips: {
+      min: optimizationForm.takeProfitMin,
+      max: optimizationForm.takeProfitMax,
+      step: optimizationForm.takeProfitStep,
+    },
+    trailingStopPips: optimizationForm.trailingEnabled
+      ? {
+          min: optimizationForm.trailingMin,
+          max: optimizationForm.trailingMax,
+          step: optimizationForm.trailingStep,
+        }
+      : null,
+  });
+
+  const runOptimization = (): void => {
+    if (hasValidationErrors || optimizationRunning) {
+      return;
+    }
+    const token = createOptimizationCancelToken();
+    optimizationTokenRef.current = token;
+    setOptimizationRunning(true);
+    setOptimizationError(null);
+    setOptimizationRows([]);
+    setOptimizationProgress({ completed: 0, total: 0, percent: 0, cancelled: false });
+
+    runGridSearchOptimization(bars, strategy, pair, optimizationRanges(), {
+      usdJpyBars,
+      cancelToken: token,
+      onProgress: setOptimizationProgress,
+    })
+      .then((runResult) => {
+        if (optimizationTokenRef.current !== token) {
+          return;
+        }
+        setOptimizationRows(runResult.rows);
+        setOptimizationProgress({
+          completed: runResult.completed,
+          total: runResult.total,
+          percent: runResult.total === 0 ? 100 : (runResult.completed / runResult.total) * 100,
+          cancelled: runResult.cancelled,
+        });
+      })
+      .catch((reason: unknown) => {
+        if (optimizationTokenRef.current === token) {
+          setOptimizationError(reason instanceof Error ? reason.message : '最適化に失敗しました。');
+        }
+      })
+      .finally(() => {
+        if (optimizationTokenRef.current === token) {
+          optimizationTokenRef.current = null;
+          setOptimizationRunning(false);
+        }
+      });
+  };
+
+  const cancelOptimization = (): void => {
+    if (optimizationTokenRef.current) {
+      optimizationTokenRef.current.aborted = true;
+    }
+  };
+
+  const applyOptimizationParameters = (row: OptimizationResultRow): void => {
+    setResult(null);
+    setStrategy((current) => ({
+      ...current,
+      exit: {
+        ...current.exit,
+        stopLossPips: row.parameters.stopLossPips,
+        takeProfitPips: row.parameters.takeProfitPips,
+        trailingStopPips: row.parameters.trailingStopPips,
+      },
+    }));
   };
 
   const filenameBase = `${strategy.name.replace(/[^a-zA-Z0-9_-]+/g, '_')}_${pair}_${timeframe}`;
@@ -309,6 +503,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                 const preset = defaultStrategies.find((item) => item.id === event.target.value) ?? defaultStrategies[0];
                 setStrategy(cloneStrategy(preset));
                 setResult(null);
+                setOptimizationRows([]);
               }}
             >
               {defaultStrategies.map((preset) => (
@@ -346,22 +541,6 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
           </label>
 
           <label className="form-field">
-            <span className="field-label">ロット</span>
-            <input
-              min="0.01"
-              step="0.01"
-              type="number"
-              value={strategy.lotSize}
-              onChange={(event) =>
-                updateStrategy((current) => ({
-                  ...current,
-                  lotSize: numericInput(event.target.value, current.lotSize, 0.1, 0.01),
-                }))
-              }
-            />
-          </label>
-
-          <label className="form-field">
             <span className="field-label">マジックナンバー</span>
             <input
               min="1"
@@ -377,6 +556,99 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
             />
           </label>
         </div>
+
+        <section className="exit-card">
+          <h3>資金管理</h3>
+          <div className="ea-form-grid money-management-grid">
+            <label className="form-field">
+              <span className="field-label">初期資金(円)</span>
+              <input
+                min="1"
+                step="10000"
+                type="number"
+                value={moneyManagement.initialBalanceYen}
+                onChange={(event) =>
+                  updateMoneyManagement((current) => ({
+                    ...current,
+                    initialBalanceYen: integerInput(
+                      event.target.value,
+                      current.initialBalanceYen,
+                      1_000_000,
+                      1,
+                    ),
+                  }))
+                }
+              />
+            </label>
+            <label className="form-field">
+              <span className="field-label">ロット方式</span>
+              <select
+                value={moneyManagement.lotSizingMode}
+                onChange={(event) =>
+                  updateMoneyManagement((current) => ({
+                    ...current,
+                    lotSizingMode: event.target.value as LotSizingMode,
+                  }))
+                }
+              >
+                <option value="fixedLot">固定ロット</option>
+                <option value="fixedRisk">固定リスク%</option>
+                <option value="compound">複利(残高比例)</option>
+              </select>
+            </label>
+            <label className="form-field">
+              <span className="field-label">固定/基準ロット</span>
+              <input
+                min="0.01"
+                step="0.01"
+                type="number"
+                value={moneyManagement.fixedLot}
+                disabled={moneyManagement.lotSizingMode === 'fixedRisk'}
+                onChange={(event) =>
+                  updateMoneyManagement((current) => ({
+                    ...current,
+                    fixedLot: numericInput(event.target.value, current.fixedLot, 0.1, 0.01),
+                  }))
+                }
+              />
+            </label>
+            <label className="form-field">
+              <span className="field-label">リスク%</span>
+              <input
+                min="0.01"
+                max="100"
+                step="0.1"
+                type="number"
+                value={moneyManagement.riskPercent}
+                disabled={moneyManagement.lotSizingMode !== 'fixedRisk'}
+                onChange={(event) =>
+                  updateMoneyManagement((current) => ({
+                    ...current,
+                    riskPercent: numericInput(event.target.value, current.riskPercent, 1, 0.01, 100),
+                  }))
+                }
+              />
+            </label>
+            <label className="form-field">
+              <span className="field-label">上限ロット</span>
+              <input
+                min="0.01"
+                step="0.01"
+                type="number"
+                value={moneyManagement.maxLot}
+                onChange={(event) =>
+                  updateMoneyManagement((current) => ({
+                    ...current,
+                    maxLot: numericInput(event.target.value, current.maxLot, 100, 0.01),
+                  }))
+                }
+              />
+            </label>
+          </div>
+          <p className="disclaimer-copy">
+            円換算は1ロット=10万通貨で計算します。クロス円/JPYクォートは1pip=1,000円/lot、EURUSD/GBPUSDは10 USD/pip/lotを同時刻近傍のUSDJPYバーで円換算し、バーがない場合はUSDJPY=150円固定で近似します。
+          </p>
+        </section>
 
         <div className="condition-grid">
           <section className="condition-card">
@@ -838,6 +1110,259 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
           </div>
         </section>
 
+        <section className="exit-card optimization-card">
+          <div className="section-heading-row">
+            <h3>最適化</h3>
+            <span className="optimization-status" aria-live="polite">
+              {optimizationRunning
+                ? `${optimizationProgress.percent.toFixed(0)}%`
+                : optimizationRows.length > 0
+                  ? `${optimizationRows.length.toLocaleString('ja-JP')}件`
+                  : '未実行'}
+            </span>
+          </div>
+          <div className="optimization-grid">
+            <label className="form-field">
+              <span className="field-label">SL最小</span>
+              <input
+                min="1"
+                type="number"
+                value={optimizationForm.stopLossMin}
+                onChange={(event) =>
+                  updateOptimizationForm((current) => ({
+                    ...current,
+                    stopLossMin: pipsInput(event.target.value, current.stopLossMin, 15),
+                  }))
+                }
+              />
+            </label>
+            <label className="form-field">
+              <span className="field-label">SL最大</span>
+              <input
+                min="1"
+                type="number"
+                value={optimizationForm.stopLossMax}
+                onChange={(event) =>
+                  updateOptimizationForm((current) => ({
+                    ...current,
+                    stopLossMax: pipsInput(event.target.value, current.stopLossMax, 60),
+                  }))
+                }
+              />
+            </label>
+            <label className="form-field">
+              <span className="field-label">SL刻み</span>
+              <input
+                min="1"
+                type="number"
+                value={optimizationForm.stopLossStep}
+                onChange={(event) =>
+                  updateOptimizationForm((current) => ({
+                    ...current,
+                    stopLossStep: pipsInput(event.target.value, current.stopLossStep, 15),
+                  }))
+                }
+              />
+            </label>
+            <label className="form-field">
+              <span className="field-label">TP最小</span>
+              <input
+                min="1"
+                type="number"
+                value={optimizationForm.takeProfitMin}
+                onChange={(event) =>
+                  updateOptimizationForm((current) => ({
+                    ...current,
+                    takeProfitMin: pipsInput(event.target.value, current.takeProfitMin, 20),
+                  }))
+                }
+              />
+            </label>
+            <label className="form-field">
+              <span className="field-label">TP最大</span>
+              <input
+                min="1"
+                type="number"
+                value={optimizationForm.takeProfitMax}
+                onChange={(event) =>
+                  updateOptimizationForm((current) => ({
+                    ...current,
+                    takeProfitMax: pipsInput(event.target.value, current.takeProfitMax, 100),
+                  }))
+                }
+              />
+            </label>
+            <label className="form-field">
+              <span className="field-label">TP刻み</span>
+              <input
+                min="1"
+                type="number"
+                value={optimizationForm.takeProfitStep}
+                onChange={(event) =>
+                  updateOptimizationForm((current) => ({
+                    ...current,
+                    takeProfitStep: pipsInput(event.target.value, current.takeProfitStep, 20),
+                  }))
+                }
+              />
+            </label>
+            <label className="toggle optimization-toggle">
+              <input
+                type="checkbox"
+                checked={optimizationForm.trailingEnabled}
+                onChange={(event) =>
+                  updateOptimizationForm((current) => ({
+                    ...current,
+                    trailingEnabled: event.target.checked,
+                  }))
+                }
+              />
+              <span>トレーリングも最適化</span>
+            </label>
+            <label className="form-field">
+              <span className="field-label">TR最小</span>
+              <input
+                min="1"
+                type="number"
+                disabled={!optimizationForm.trailingEnabled}
+                value={optimizationForm.trailingMin}
+                onChange={(event) =>
+                  updateOptimizationForm((current) => ({
+                    ...current,
+                    trailingMin: pipsInput(event.target.value, current.trailingMin, 10),
+                  }))
+                }
+              />
+            </label>
+            <label className="form-field">
+              <span className="field-label">TR最大</span>
+              <input
+                min="1"
+                type="number"
+                disabled={!optimizationForm.trailingEnabled}
+                value={optimizationForm.trailingMax}
+                onChange={(event) =>
+                  updateOptimizationForm((current) => ({
+                    ...current,
+                    trailingMax: pipsInput(event.target.value, current.trailingMax, 40),
+                  }))
+                }
+              />
+            </label>
+            <label className="form-field">
+              <span className="field-label">TR刻み</span>
+              <input
+                min="1"
+                type="number"
+                disabled={!optimizationForm.trailingEnabled}
+                value={optimizationForm.trailingStep}
+                onChange={(event) =>
+                  updateOptimizationForm((current) => ({
+                    ...current,
+                    trailingStep: pipsInput(event.target.value, current.trailingStep, 10),
+                  }))
+                }
+              />
+            </label>
+          </div>
+
+          <div className="optimization-actions">
+            <button
+              className="primary-action"
+              type="button"
+              onClick={runOptimization}
+              disabled={hasValidationErrors || optimizationRunning}
+            >
+              最適化実行
+            </button>
+            <button
+              className="secondary-action"
+              type="button"
+              onClick={cancelOptimization}
+              disabled={!optimizationRunning}
+            >
+              キャンセル
+            </button>
+          </div>
+
+          {(optimizationRunning || optimizationProgress.completed > 0) && (
+            <div className="progress-block">
+              <div className="progress-track" aria-label="最適化進捗">
+                <div
+                  className="progress-fill"
+                  style={{ width: `${clampNumber(optimizationProgress.percent, 0, 100)}%` }}
+                />
+              </div>
+              <span>
+                {optimizationProgress.completed.toLocaleString('ja-JP')} / {optimizationProgress.total.toLocaleString('ja-JP')}
+                {optimizationProgress.cancelled ? ' キャンセル済み' : ''}
+              </span>
+            </div>
+          )}
+
+          {optimizationError && (
+            <div className="validation-list" role="alert">
+              <p>{optimizationError}</p>
+            </div>
+          )}
+
+          <p className="disclaimer-copy optimization-disclaimer">
+            過去データへの最適化は将来の成績を保証しません
+          </p>
+
+          {optimizationRows.length > 0 && (
+            <div className="trade-table-wrap optimization-table-wrap">
+              <table className="trade-table optimization-table">
+                <thead>
+                  <tr>
+                    <th>SL</th>
+                    <th>TP</th>
+                    <th>TR</th>
+                    <th>最適化損益</th>
+                    <th>検証損益</th>
+                    <th>最適化PF</th>
+                    <th>検証PF</th>
+                    <th>最適化DD</th>
+                    <th>検証DD</th>
+                    <th>警告</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {optimizationRows.slice(0, 20).map((row) => (
+                    <tr
+                      key={`${row.parameters.stopLossPips}:${row.parameters.takeProfitPips}:${row.parameters.trailingStopPips ?? 'none'}`}
+                      className="optimization-row"
+                      tabIndex={0}
+                      onClick={() => applyOptimizationParameters(row)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          applyOptimizationParameters(row);
+                        }
+                      }}
+                    >
+                      <td>{formatPips(row.parameters.stopLossPips)}</td>
+                      <td>{formatPips(row.parameters.takeProfitPips)}</td>
+                      <td>{row.parameters.trailingStopPips ? formatPips(row.parameters.trailingStopPips) : '-'}</td>
+                      <td className={row.optimization.netProfitYen >= 0 ? 'metric-up' : 'metric-down'}>
+                        {formatYen(row.optimization.netProfitYen)}
+                      </td>
+                      <td className={row.validation.netProfitYen >= 0 ? 'metric-up' : 'metric-down'}>
+                        {formatYen(row.validation.netProfitYen)}
+                      </td>
+                      <td>{formatProfitFactor(row.optimization.profitFactor)}</td>
+                      <td>{formatProfitFactor(row.validation.profitFactor)}</td>
+                      <td>{formatYen(row.optimization.maxDrawdownYen)}</td>
+                      <td>{formatYen(row.validation.maxDrawdownYen)}</td>
+                      <td>{row.overfitWarning ? '⚠️過剰適合の疑い' : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
         <div className="download-row">
           <button
             className="secondary-action"
@@ -863,9 +1388,10 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
           <div className="metric-grid">
             <article className="metric-card">
               <span>純損益</span>
-              <strong className={result.netPips >= 0 ? 'metric-up' : 'metric-down'}>
-                {formatPips(result.netPips)}
+              <strong className={result.netProfitYen >= 0 ? 'metric-up' : 'metric-down'}>
+                {formatYen(result.netProfitYen)}
               </strong>
+              <small>{formatPips(result.netPips)}</small>
             </article>
             <article className="metric-card">
               <span>勝率</span>
@@ -877,7 +1403,7 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
             </article>
             <article className="metric-card">
               <span>最大DD</span>
-              <strong>{formatPips(result.maxDrawdownPips)}</strong>
+              <strong>{formatYen(result.maxDrawdownYen)}</strong>
               <small>{formatPercent(result.maxDrawdownPct)}</small>
             </article>
             <article className="metric-card">
@@ -885,15 +1411,33 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
               <strong>{result.tradeCount.toLocaleString('ja-JP')}</strong>
             </article>
             <article className="metric-card">
+              <span>RR</span>
+              <strong>{formatProfitFactor(result.riskRewardRatio)}</strong>
+            </article>
+            <article className="metric-card">
+              <span>平均勝ち</span>
+              <strong className="metric-up">{formatYen(result.averageWinYen)}</strong>
+            </article>
+            <article className="metric-card">
+              <span>平均負け</span>
+              <strong className="metric-down">{formatYen(result.averageLossYen)}</strong>
+            </article>
+            <article className="metric-card">
+              <span>最大連勝/連敗</span>
+              <strong>{result.maxConsecutiveWins} / {result.maxConsecutiveLosses}</strong>
+            </article>
+            <article className="metric-card">
               <span>スプレッド</span>
               <strong>{formatPips(result.spreadPips)}</strong>
             </article>
           </div>
 
+          <p className="disclaimer-copy result-conversion-note">{result.conversionNote}</p>
+
           <section className="chart-card">
             <div className="chart-heading">
               <span>資産曲線</span>
-              <span>累積pips</span>
+              <span>円残高</span>
             </div>
             <EquityCurve result={result} />
           </section>
@@ -916,7 +1460,9 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                       <th>決済</th>
                       <th>入口</th>
                       <th>出口</th>
-                      <th>損益</th>
+                      <th>ロット</th>
+                      <th>損益(円)</th>
+                      <th>損益(pips)</th>
                       <th>理由</th>
                     </tr>
                   </thead>
@@ -929,6 +1475,10 @@ export function EaBuilderPanel({ bars, pair, timeframe }: EaBuilderPanelProps) {
                         <td>{dateLabel(trade.exitTime)}</td>
                         <td>{formatPrice(pair, trade.entryPrice)}</td>
                         <td>{formatPrice(pair, trade.exitPrice)}</td>
+                        <td>{trade.lotSize.toFixed(2)}</td>
+                        <td className={trade.netProfitYen >= 0 ? 'metric-up' : 'metric-down'}>
+                          {formatYen(trade.netProfitYen)}
+                        </td>
                         <td className={trade.netPips >= 0 ? 'metric-up' : 'metric-down'}>
                           {formatPips(trade.netPips)}
                         </td>

@@ -63,6 +63,24 @@ export interface NewsFilter {
   blockMinutes: number;
 }
 
+export type LotSizingMode = 'fixedLot' | 'fixedRisk' | 'compound';
+
+export interface MoneyManagementSettings {
+  initialBalanceYen: number;
+  lotSizingMode: LotSizingMode;
+  fixedLot: number;
+  riskPercent: number;
+  maxLot: number;
+}
+
+export const defaultMoneyManagement = (fixedLot = 0.1): MoneyManagementSettings => ({
+  initialBalanceYen: 1_000_000,
+  lotSizingMode: 'fixedLot',
+  fixedLot,
+  riskPercent: 1,
+  maxLot: 100,
+});
+
 export interface StrategyDefinition {
   id: string;
   name: string;
@@ -73,6 +91,7 @@ export interface StrategyDefinition {
   sessionFilter: SessionFilter;
   newsFilter: NewsFilter;
   lotSize: number;
+  moneyManagement?: MoneyManagementSettings;
   magicNumber: number;
 }
 
@@ -363,6 +382,7 @@ export const defaultStrategies: StrategyDefinition[] = [
       blockMinutes: 30,
     },
     lotSize: 0.1,
+    moneyManagement: defaultMoneyManagement(0.1),
     magicNumber: 20260701,
   },
   {
@@ -402,6 +422,7 @@ export const defaultStrategies: StrategyDefinition[] = [
       blockMinutes: 30,
     },
     lotSize: 0.1,
+    moneyManagement: defaultMoneyManagement(0.1),
     magicNumber: 20260702,
   },
   {
@@ -441,6 +462,7 @@ export const defaultStrategies: StrategyDefinition[] = [
       blockMinutes: 30,
     },
     lotSize: 0.1,
+    moneyManagement: defaultMoneyManagement(0.1),
     magicNumber: 20260703,
   },
 ];

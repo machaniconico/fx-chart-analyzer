@@ -51,6 +51,13 @@ const fullStrategy: StrategyDefinition = {
     blockMinutes: 45,
   },
   lotSize: 0.2,
+  moneyManagement: {
+    initialBalanceYen: 1_000_000,
+    lotSizingMode: 'fixedLot',
+    fixedLot: 0.2,
+    riskPercent: 1,
+    maxLot: 100,
+  },
   magicNumber: 67890,
 };
 
@@ -87,7 +94,11 @@ describe('mql generation', () => {
     expect(source).toContain('void OnTick()');
     expect(source).toContain('bool IsNewBar()');
     expect(source).toContain('void ManageTrailingStop()');
+    expect(source).toContain('input int InpLotSizingMode = 0;');
     expect(source).toContain('input double InpLots = 0.2;');
+    expect(source).toContain('input double InpInitialBalance = 1000000;');
+    expect(source).toContain('input double InpRiskPercent = 1;');
+    expect(source).toContain('input double InpMaxLots = 100;');
     expect(source).toContain('input int InpMagicNumber = 67890;');
     expect(source).toContain('input bool InpSessionFilterEnable = true;');
     expect(source).toContain('input string InpSessionStart = "08:00";');
@@ -109,6 +120,12 @@ describe('mql generation', () => {
     expect(source).toContain('int macd4Handle = INVALID_HANDLE;');
     expect(source).toContain('int OnInit()');
     expect(source).toContain('void OnDeinit(const int reason)');
+    expect(source).toContain('double LotSizeForEntry()');
+    expect(source).toContain('AccountInfoDouble(ACCOUNT_BALANCE)');
+    expect(source).toContain('SYMBOL_TRADE_TICK_VALUE');
+    expect(source).toContain('SYMBOL_SPREAD');
+    expect(source).toContain('trade.Buy(lots, _Symbol');
+    expect(source).toContain('trade.Sell(lots, _Symbol');
     expect(source).toContain('ma1FastHandle = iMA(_Symbol, _Period, InpMA1FastPeriod');
     expect(source).toContain('rsi2Handle = iRSI(_Symbol, _Period, InpRSI2Period');
     expect(source).toContain('bb3Handle = iBands(_Symbol, _Period, InpBB3Period');
@@ -144,7 +161,11 @@ describe('mql generation', () => {
     expect(source).toContain('bool IsNewBar()');
     expect(source).toContain('int CurrentOrderTicket()');
     expect(source).toContain('void ManageTrailingStop()');
+    expect(source).toContain('input int InpLotSizingMode = 0;');
     expect(source).toContain('input double InpLots = 0.2;');
+    expect(source).toContain('input double InpInitialBalance = 1000000;');
+    expect(source).toContain('input double InpRiskPercent = 1;');
+    expect(source).toContain('input double InpMaxLots = 100;');
     expect(source).toContain('input int InpMagicNumber = 67890;');
     expect(source).toContain('input bool InpSessionFilterEnable = true;');
     expect(source).toContain('input string InpSessionStart = "08:00";');
@@ -159,6 +180,12 @@ describe('mql generation', () => {
     expect(source).toContain('input double InpBB3Deviation = 2;');
     expect(source).toContain('input int InpMACD4SignalPeriod = 9;');
     expect(source).toContain('OrderSend(_Symbol, OP_BUY');
+    expect(source).toContain('double LotSizeForEntry()');
+    expect(source).toContain('AccountBalance()');
+    expect(source).toContain('MODE_TICKVALUE');
+    expect(source).toContain('MODE_SPREAD');
+    expect(source).toContain('OrderSend(_Symbol, OP_BUY, lots');
+    expect(source).toContain('OrderSend(_Symbol, OP_SELL, lots');
     expect(source).toContain('OrderSend(_Symbol, OP_SELL');
     expect(source).toContain('bool IsInTradingSession()');
     expect(source).toContain('MQL4 has no built-in economic calendar API');
@@ -171,7 +198,15 @@ describe('mql generation', () => {
   });
 
   it('rejects non-finite generated numeric values before emitting MQL', () => {
-    expect(() => generateMql5({ ...fullStrategy, lotSize: Number.NaN })).toThrow(
+    expect(() =>
+      generateMql5({
+        ...fullStrategy,
+        moneyManagement: {
+          ...fullStrategy.moneyManagement!,
+          fixedLot: Number.NaN,
+        },
+      }),
+    ).toThrow(
       /non-finite value/,
     );
     expect(() =>
@@ -188,5 +223,54 @@ describe('mql generation', () => {
         ],
       }),
     ).toThrow(/non-finite value/);
+  });
+
+  it('generates account-balance risk lot sizing for fixed risk mode', () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      moneyManagement: {
+        initialBalanceYen: 1_000_000,
+        lotSizingMode: 'fixedRisk',
+        fixedLot: 0.2,
+        riskPercent: 1.5,
+        maxLot: 20,
+      },
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    expect(mql5).toContain('input int InpLotSizingMode = 1;');
+    expect(mql5).toContain('input double InpRiskPercent = 1.5;');
+    expect(mql5).toContain('input double InpMaxLots = 20;');
+    expect(mql5).toContain('double balance = AccountInfoDouble(ACCOUNT_BALANCE);');
+    expect(mql5).toContain('double spreadPips = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point / PipPoint();');
+    expect(mql5).toContain('double riskPips = InpStopLossPips + MathMax(0.0, spreadPips);');
+    expect(mql5).toContain('riskAmount / (riskPips * pipValuePerLot)');
+    expect(mql4).toContain('input int InpLotSizingMode = 1;');
+    expect(mql4).toContain('double balance = AccountBalance();');
+    expect(mql4).toContain('double spreadPips = MarketInfo(_Symbol, MODE_SPREAD) * Point / PipPoint();');
+    expect(mql4).toContain('riskAmount / (riskPips * pipValuePerLot)');
+  });
+
+  it('generates balance-proportional lot sizing for compound mode', () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      moneyManagement: {
+        initialBalanceYen: 1_000_000,
+        lotSizingMode: 'compound',
+        fixedLot: 0.2,
+        riskPercent: 1.5,
+        maxLot: 100,
+      },
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    expect(mql5).toContain('input int InpLotSizingMode = 2;');
+    expect(mql5).toContain('return NormalizeLots(InpLots * balance / InpInitialBalance);');
+    expect(mql4).toContain('input int InpLotSizingMode = 2;');
+    expect(mql4).toContain('return NormalizeLots(InpLots * balance / InpInitialBalance);');
   });
 });
