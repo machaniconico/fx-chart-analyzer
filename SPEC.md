@@ -18,6 +18,9 @@ FXチャート分析サイト。テクニカル分析・シグナル検出・確
   - PAIR: USDJPY, EURUSD, GBPJPY, EURJPY, AUDJPY, GBPUSD
   - TF: h1, h4, d1(h4はh1から合成してもよい)
   - 各TF直近2000本程度。フォーマット: `{ pair, tf, updatedAt, bars: [{t,o,h,l,c,v}] }`(tはunix秒)
+- `scripts/fetch-calendar.mjs`: Forex Factory 無料カレンダーの今週/来週JSONを取得し `public/data/calendar.json` に保存。
+  - フォーマット: `{ updatedAt, events: [{title,currency,time,impact,forecast,previous}] }`(timeはunix秒、impactは high/medium/low/holiday)
+  - 取得失敗時は既存JSONを残し、CIのデータ更新を止めない。
 - 生成したJSONはリポジトリにコミットする(Pagesビルドがネットワーク不要になるように)。
 - `.github/workflows/update-data.yml`: 毎日 06:00 JST に fetch → 差分あれば commit & push(mainへ直push可、データ更新のみの例外)。
 
@@ -46,12 +49,20 @@ FXチャート分析サイト。テクニカル分析・シグナル検出・確
 ### 4. EAビルダータブ
 - 戦略をフォームで組む:
   - エントリー条件(複数AND): MAクロス、RSI閾値、BBタッチ/ブレイク、MACDクロス
+  - 取引フィルター: サーバー時刻の取引許可時間帯(バックテスト用にUTC差を指定)、MQL5内蔵カレンダーAPIによる高インパクト指標前後の新規エントリー停止
   - 決済: SL(pips), TP(pips), トレーリングストップ(任意), 反対シグナル決済(任意)
   - ロット、マジックナンバー
 - `src/lib/backtest.ts`: 手元のヒストリカルデータでバー単位バックテスト(スプレッド固定コスト考慮)。
   - 結果: 勝率、プロフィットファクター、最大DD、取引回数、純損益(pips)、資産曲線チャート
 - `src/lib/mql.ts`: 選択した戦略から MQL5 (.mq5) と MQL4 (.mq4) の完全なEAソースを文字列生成 → ダウンロードボタン。
   - 生成コードはコンパイル可能な完成品(OnTick, ポジション管理, SL/TP設定, トレーリング含む)。iCustomなし、標準指標関数のみ使用。
+
+### 5. 経済指標タブ
+- `public/data/calendar.json` を読み、JSTでイベント一覧を表示。
+- 表示ペアの2通貨クイックフィルタと全通貨フィルタを提供。
+- high/medium/low/holiday を色分けし、「今後」と「過去」に分けて forecast/previous を表示。
+- チャートタブでは対象ペア通貨の high/medium 過去イベントをローソク足マーカー、今後24時間イベントをバナーで表示。
+- 予測タブでは対象ペア通貨の high イベントが24時間以内にある場合、統計予測の信頼性低下を警告。
 
 ## 品質基準
 - `npm run build` と `npm test` が緑。

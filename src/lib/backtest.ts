@@ -1,4 +1,4 @@
-import { createStrategyEvaluator, pipSize, priceToPips, pipsToPrice } from './strategy';
+import { createStrategyEvaluator, isWithinTradingSession, pipSize, priceToPips, pipsToPrice } from './strategy';
 import type { StrategyDefinition, StrategyDirection } from './strategy';
 import type { Bar, Pair } from '../types';
 
@@ -241,7 +241,9 @@ export const runBacktest = (
     }
 
     if (!position && pendingEntry) {
-      position = makePosition(strategy, pair, bar);
+      if (isWithinTradingSession(bar.t, strategy.sessionFilter)) {
+        position = makePosition(strategy, pair, bar);
+      }
       pendingEntry = false;
     }
 
