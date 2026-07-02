@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dataRoot = path.resolve(__dirname, '../public/data');
 const statsRoot = path.join(dataRoot, 'stats');
-const timeframes = ['h1', 'h4', 'd1'];
+const timeframeOrder = ['m15', 'm30', 'h1', 'h4', 'd1'];
 
 const readJson = async (filePath) => JSON.parse(await readFile(filePath, 'utf8'));
 
@@ -20,6 +20,18 @@ const main = async () => {
 
   let generated = 0;
   for (const pair of pairs) {
+    const pairDir = path.join(dataRoot, pair);
+    const timeframes = (await readdir(pairDir, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .map((entry) => path.basename(entry.name, '.json'))
+      .sort((a, b) => {
+        const aIndex = timeframeOrder.indexOf(a);
+        const bIndex = timeframeOrder.indexOf(b);
+        return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex) -
+          (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex) ||
+          a.localeCompare(b);
+      });
+
     for (const tf of timeframes) {
       const sourcePath = path.join(dataRoot, pair, `${tf}.json`);
       const payload = await readJson(sourcePath);

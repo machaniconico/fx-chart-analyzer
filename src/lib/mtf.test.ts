@@ -4,13 +4,37 @@ import {
   getDefaultMtfTimeframe,
   getSelectableMtfTimeframes,
 } from './mtf';
+import { timeframeSeconds } from './chart-rendering';
+import { TIMEFRAMES, timeframeLabels, type Timeframe } from '../types';
 
 describe('mtf', () => {
+  it('covers every timeframe in shared labels and duration maps', () => {
+    expect(TIMEFRAMES).toEqual(['m15', 'm30', 'h1', 'h4', 'd1']);
+    expect(Object.keys(timeframeLabels).sort()).toEqual([...TIMEFRAMES].sort());
+    expect(Object.keys(timeframeSeconds).sort()).toEqual([...TIMEFRAMES].sort());
+    expect(timeframeSeconds).toMatchObject({
+      m15: 15 * 60,
+      m30: 30 * 60,
+      h1: 60 * 60,
+      h4: 4 * 60 * 60,
+      d1: 24 * 60 * 60,
+    });
+  });
+
   it('chooses the default secondary timeframe without matching the main timeframe', () => {
-    expect(getDefaultMtfTimeframe('h1')).toBe('h4');
-    expect(getDefaultMtfTimeframe('h4')).toBe('d1');
-    expect(getDefaultMtfTimeframe('d1')).toBe('h4');
-    expect(getSelectableMtfTimeframes('h4')).toEqual(['h1', 'd1']);
+    const expectedDefaults: Record<Timeframe, Timeframe> = {
+      m15: 'h1',
+      m30: 'h4',
+      h1: 'h4',
+      h4: 'd1',
+      d1: 'h4',
+    };
+
+    for (const item of TIMEFRAMES) {
+      expect(getDefaultMtfTimeframe(item)).toBe(expectedDefaults[item]);
+      expect(getDefaultMtfTimeframe(item)).not.toBe(item);
+      expect(getSelectableMtfTimeframes(item)).toEqual(TIMEFRAMES.filter((timeframe) => timeframe !== item));
+    }
   });
 
   it('marks matching bullish directions as aligned', () => {

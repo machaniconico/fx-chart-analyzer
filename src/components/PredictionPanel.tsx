@@ -12,6 +12,7 @@ import {
   upcomingEventsWithin,
   type CalendarEvent,
 } from '../lib/calendar';
+import { timeframeSeconds } from '../lib/chart-rendering';
 import { formatPrice, type AdaptiveStatsFile } from '../lib/chart-data';
 import { adaptiveModelIds, type AdaptiveModelId } from '../lib/adaptive';
 import {
@@ -37,12 +38,6 @@ interface PredictionPanelProps {
   calendarEvents?: CalendarEvent[];
   now?: number;
 }
-
-const timeframeSeconds: Record<Timeframe, number> = {
-  h1: 60 * 60,
-  h4: 60 * 60 * 4,
-  d1: 60 * 60 * 24,
-};
 
 const createPredictionChart = (container: HTMLDivElement): IChartApi =>
   createChart(container, {

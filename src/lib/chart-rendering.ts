@@ -36,6 +36,8 @@ export const hiddenOverlayPriceAxisOptions = {
 const supportResistanceDisplayLimit = 5;
 
 export const timeframeSeconds: Record<Timeframe, number> = {
+  m15: 60 * 15,
+  m30: 60 * 30,
   h1: 60 * 60,
   h4: 60 * 60 * 4,
   d1: 60 * 60 * 24,

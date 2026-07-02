@@ -9,10 +9,24 @@ const outputDir = path.join(rootDir, 'public', 'data');
 const cacheDir = path.join(rootDir, '.dukascopy-cache');
 
 const PAIRS = ['USDJPY', 'EURUSD', 'GBPJPY', 'EURJPY', 'AUDJPY', 'GBPUSD'];
-const TARGET_BARS = 2000;
+const TARGET_BARS_BY_TIMEFRAME = {
+  m15: 4000,
+  m30: 4000,
+  h1: 2000,
+  h4: 2000,
+  d1: 2000,
+};
+const MIN_EXPECTED_BARS_BY_TIMEFRAME = {
+  m15: 3000,
+  m30: 3000,
+  h1: 1500,
+  h4: 1500,
+  d1: 1500,
+};
+const M15_LOOKBACK_DAYS = 60;
+const M30_LOOKBACK_DAYS = 120;
 const H1_LOOKBACK_DAYS = 730;
 const D1_LOOKBACK_DAYS = 3400;
-const MIN_EXPECTED_BARS = 1500;
 
 const dayMs = 24 * 60 * 60 * 1000;
 
@@ -46,8 +60,10 @@ const validateBars = (pair, tf, bars) => {
   if (invalid) {
     throw new Error(`${pair} ${tf}: invalid bar ${JSON.stringify(invalid)}`);
   }
-  if (bars.length < MIN_EXPECTED_BARS) {
-    throw new Error(`${pair} ${tf}: expected around ${TARGET_BARS} bars, got ${bars.length}`);
+  const minExpectedBars = MIN_EXPECTED_BARS_BY_TIMEFRAME[tf];
+  if (bars.length < minExpectedBars) {
+    const targetBars = TARGET_BARS_BY_TIMEFRAME[tf];
+    throw new Error(`${pair} ${tf}: expected at least ${minExpectedBars} of around ${targetBars} bars, got ${bars.length}`);
   }
 };
 
@@ -91,7 +107,10 @@ const fetchTimeframe = async (pair, timeframe, lookbackDays) => {
     .sort((a, b) => a.t - b.t);
 };
 
-const latest = (bars, count = TARGET_BARS) => bars.slice(Math.max(0, bars.length - count));
+const latest = (bars, tf) => {
+  const count = TARGET_BARS_BY_TIMEFRAME[tf];
+  return bars.slice(Math.max(0, bars.length - count));
+};
 
 const aggregateH4 = (h1Bars) => {
   const grouped = new Map();
@@ -120,16 +139,26 @@ const aggregateH4 = (h1Bars) => {
 await mkdir(outputDir, { recursive: true });
 
 for (const pair of PAIRS) {
+  console.log(`Fetching ${pair} m15...`);
+  const m15 = latest(await fetchTimeframe(pair, 'm15', M15_LOOKBACK_DAYS), 'm15');
+  await writeBars(pair, 'm15', m15);
+  console.log(`  wrote m15=${m15.length}`);
+
+  console.log(`Fetching ${pair} m30...`);
+  const m30 = latest(await fetchTimeframe(pair, 'm30', M30_LOOKBACK_DAYS), 'm30');
+  await writeBars(pair, 'm30', m30);
+  console.log(`  wrote m30=${m30.length}`);
+
   console.log(`Fetching ${pair} h1...`);
   const h1Raw = await fetchTimeframe(pair, 'h1', H1_LOOKBACK_DAYS);
-  const h1 = latest(h1Raw);
-  const h4 = latest(aggregateH4(h1Raw));
+  const h1 = latest(h1Raw, 'h1');
+  const h4 = latest(aggregateH4(h1Raw), 'h4');
   await writeBars(pair, 'h1', h1);
   await writeBars(pair, 'h4', h4);
   console.log(`  wrote h1=${h1.length}, h4=${h4.length}`);
 
   console.log(`Fetching ${pair} d1...`);
-  const d1 = latest(await fetchTimeframe(pair, 'd1', D1_LOOKBACK_DAYS));
+  const d1 = latest(await fetchTimeframe(pair, 'd1', D1_LOOKBACK_DAYS), 'd1');
   await writeBars(pair, 'd1', d1);
   console.log(`  wrote d1=${d1.length}`);
 }
