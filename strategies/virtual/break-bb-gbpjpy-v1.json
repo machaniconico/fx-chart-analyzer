@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "id": "break-bb-gbpjpy-v1",
+    "name": "ポンド円BBブレイク順張り",
+    "version": 1,
+    "pair": "GBPJPY",
+    "timeframe": "h1",
+    "registeredAt": 1782996300
+  },
+  "id": "break-bb-gbpjpy-v1",
+  "name": "ポンド円BBブレイク順張り",
+  "description": "GBPJPY h1でボリンジャーバンド上限ブレイクを買い、下限ブレイクを売りで追随します。",
+  "direction": "long",
+  "entryDirections": ["long", "short"],
+  "entryConditions": [
+    {
+      "type": "bollinger",
+      "period": 20,
+      "multiplier": 2,
+      "mode": "break",
+      "band": "upper"
+    }
+  ],
+  "exit": {
+    "stopLossPips": 39,
+    "takeProfitPips": 25,
+    "trailingStopPips": null,
+    "closeOnOppositeSignal": false
+  },
+  "sessionFilter": {
+    "enabled": true,
+    "start": "07:00",
+    "end": "15:00",
+    "serverUtcOffsetMinutes": 0
+  },
+  "newsFilter": {
+    "enabled": false,
+    "blockMinutes": 30
+  },
+  "lotSize": 0.1,
+  "moneyManagement": {
+    "initialBalanceYen": 1000000,
+    "lotSizingMode": "fixedRisk",
+    "fixedLot": 0.1,
+    "riskPercent": 1,
+    "maxLot": 100
+  },
+  "magicNumber": 1782996304
+}

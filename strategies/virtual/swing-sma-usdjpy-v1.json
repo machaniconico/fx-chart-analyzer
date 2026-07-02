@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "id": "swing-sma-usdjpy-v1",
+    "name": "スイング順張り(SMAクロス)",
+    "version": 1,
+    "pair": "USDJPY",
+    "timeframe": "h4",
+    "registeredAt": 1782996300
+  },
+  "id": "swing-sma-usdjpy-v1",
+  "name": "スイング順張り(SMAクロス)",
+  "description": "SMA20/50クロスを買い・売りの両方向で追随し、反対シグナルで撤退します。",
+  "direction": "long",
+  "entryDirections": ["long", "short"],
+  "entryConditions": [
+    {
+      "type": "maCross",
+      "fastType": "sma",
+      "fastPeriod": 20,
+      "slowType": "sma",
+      "slowPeriod": 50
+    }
+  ],
+  "exit": {
+    "stopLossPips": 73.3,
+    "takeProfitPips": 66.7,
+    "trailingStopPips": 10,
+    "closeOnOppositeSignal": true
+  },
+  "sessionFilter": {
+    "enabled": false,
+    "start": "00:00",
+    "end": "23:59",
+    "serverUtcOffsetMinutes": 0
+  },
+  "newsFilter": {
+    "enabled": false,
+    "blockMinutes": 30
+  },
+  "lotSize": 0.1,
+  "moneyManagement": {
+    "initialBalanceYen": 1000000,
+    "lotSizingMode": "fixedRisk",
+    "fixedLot": 0.1,
+    "riskPercent": 1,
+    "maxLot": 100
+  },
+  "magicNumber": 1782996301
+}

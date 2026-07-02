@@ -1,0 +1,55 @@
+{
+  "meta": {
+    "id": "day-rsi-bb-eurusd-v1",
+    "name": "デイトレ逆張り(RSI+BB)",
+    "version": 1,
+    "pair": "EURUSD",
+    "timeframe": "m30",
+    "registeredAt": 1782996300
+  },
+  "id": "day-rsi-bb-eurusd-v1",
+  "name": "デイトレ逆張り(RSI+BB)",
+  "description": "RSI30/70とボリンジャーバンドタッチを使う平均回帰型です。",
+  "direction": "long",
+  "entryDirections": ["long", "short"],
+  "entryConditions": [
+    {
+      "type": "rsi",
+      "period": 14,
+      "threshold": 30,
+      "comparison": "below"
+    },
+    {
+      "type": "bollinger",
+      "period": 20,
+      "multiplier": 2,
+      "mode": "touch",
+      "band": "lower"
+    }
+  ],
+  "exit": {
+    "stopLossPips": 7.5,
+    "takeProfitPips": 29.2,
+    "trailingStopPips": null,
+    "closeOnOppositeSignal": false
+  },
+  "sessionFilter": {
+    "enabled": false,
+    "start": "00:00",
+    "end": "23:59",
+    "serverUtcOffsetMinutes": 0
+  },
+  "newsFilter": {
+    "enabled": false,
+    "blockMinutes": 30
+  },
+  "lotSize": 0.1,
+  "moneyManagement": {
+    "initialBalanceYen": 1000000,
+    "lotSizingMode": "fixedRisk",
+    "fixedLot": 0.1,
+    "riskPercent": 1,
+    "maxLot": 100
+  },
+  "magicNumber": 1782996302
+}
