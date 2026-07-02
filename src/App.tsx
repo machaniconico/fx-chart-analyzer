@@ -36,6 +36,12 @@ const indicatorLabels: Array<[keyof IndicatorToggles, string]> = [
 ];
 
 const emptyCalendarEvents: CalendarEvent[] = [];
+const offlineDataHint = 'オフラインの可能性があります。一度表示したデータはキャッシュから表示されます';
+
+const dataLoadErrorMessage = (reason: unknown, fallback: string): string => {
+  const message = reason instanceof Error ? reason.message : fallback;
+  return message.includes(offlineDataHint) ? message : `${message}。${offlineDataHint}`;
+};
 
 type ActiveTab = 'chart' | 'prediction' | 'cot' | 'calendar' | 'ea';
 
@@ -81,7 +87,7 @@ function App() {
       })
       .catch((reason: unknown) => {
         if (!disposed) {
-          setError(reason instanceof Error ? reason.message : 'データ読み込みに失敗しました');
+          setError(dataLoadErrorMessage(reason, 'データ読み込みに失敗しました'));
           setData(null);
           setAdaptiveStats(null);
         }
@@ -122,7 +128,7 @@ function App() {
       })
       .catch((reason: unknown) => {
         if (!disposed) {
-          setMtfError(reason instanceof Error ? reason.message : 'MTFデータ読み込みに失敗しました');
+          setMtfError(dataLoadErrorMessage(reason, 'MTFデータ読み込みに失敗しました'));
           setMtfData(null);
         }
       })
@@ -199,7 +205,7 @@ function App() {
       .catch((reason: unknown) => {
         if (!disposed) {
           setCot(null);
-          setCotError(reason instanceof Error ? reason.message : 'COTデータを読み込めませんでした');
+          setCotError(dataLoadErrorMessage(reason, 'COTデータを読み込めませんでした'));
         }
       });
     return () => {
