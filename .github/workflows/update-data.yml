@@ -35,30 +35,31 @@ jobs:
       - name: Build adaptive model stats
         run: node scripts/build-model-stats.mjs
 
+      - name: Build scanner walk-forward stats
+        continue-on-error: true
+        run: node scripts/build-scanner-stats.mjs
+
       - name: Run EA forward tests
         continue-on-error: true
         run: node scripts/run-forward-test.mjs
 
       - name: Commit updated data
-        id: commit
+        continue-on-error: true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/data
           if git diff --cached --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No data changes to commit"
           else
             git commit -m "data: daily FX data update"
             git push
-            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       # GITHUB_TOKEN による push は deploy.yml を発火しないため、ここでデプロイまで行う
       - run: npm run build
-        if: steps.commit.outputs.changed == 'true'
 
       - name: Deploy to Cloudflare Pages
-        if: steps.commit.outputs.changed == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

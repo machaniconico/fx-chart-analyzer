@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { formatPrice, loadAdaptiveStats, loadBars, type AdaptiveStatsFile } from '../lib/chart-data';
+import { formatPrice, loadAdaptiveStats, loadBars, loadScannerStats, type AdaptiveStatsFile } from '../lib/chart-data';
 import {
   recommendationStyles,
+  scannerMinimumSampleSize,
   scanRecommendations,
   type PairRecommendation,
+  type ScannerMonthlySimulation,
+  type ScannerStats,
   type RecommendationStyle,
 } from '../lib/recommend';
 import { PAIRS, type DataFile, type Pair } from '../types';
@@ -23,7 +26,13 @@ interface RecommendationSectionData {
   recommendations: PairRecommendation[];
 }
 
+type SimulationMode = 'mediumOrHigher' | 'highOnly';
+
 const sectionOrder: RecommendationStyle[] = ['daytrade', 'swing'];
+const simulationModeLabels: Record<SimulationMode, string> = {
+  mediumOrHigher: '中以上',
+  highOnly: '高のみ',
+};
 
 const latestUpdatedAt = (values: readonly string[]): string | null => {
   const newest = values
@@ -73,7 +82,10 @@ const loadPairScannerData = async (pair: Pair): Promise<PairScannerData> => {
   };
 };
 
-const buildSections = (items: readonly PairScannerData[]): RecommendationSectionData[] => {
+const buildSections = (
+  items: readonly PairScannerData[],
+  scannerStats: ScannerStats | null,
+): RecommendationSectionData[] => {
   const daytrade = scanRecommendations(
     items.map((item) => ({
       pair: item.pair,
@@ -81,6 +93,7 @@ const buildSections = (items: readonly PairScannerData[]): RecommendationSection
       executionBars: item.m30.bars,
       environmentBars: item.h4.bars,
       adaptiveStats: item.m30Stats,
+      scannerStats,
       executionUpdatedAt: item.m30.updatedAt,
       environmentUpdatedAt: item.h4.updatedAt,
     })),
@@ -93,6 +106,7 @@ const buildSections = (items: readonly PairScannerData[]): RecommendationSection
       executionBars: item.h4.bars,
       environmentBars: item.d1.bars,
       adaptiveStats: item.h4Stats,
+      scannerStats,
       executionUpdatedAt: item.h4.updatedAt,
       environmentUpdatedAt: item.d1.updatedAt,
     })),
@@ -123,6 +137,19 @@ const entryLabel = (recommendation: PairRecommendation): string => {
   return `押し目/戻り ${formatPrice(recommendation.pair, zone.low)} - ${formatPrice(recommendation.pair, zone.high)}`;
 };
 
+const formatPercent = (value: number | null | undefined, digits = 0): string =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? `${(value * 100).toFixed(digits)}%`
+    : '--';
+
+const formatYen = (value: number): string =>
+  `${value >= 0 ? '+' : '-'}${Math.abs(value).toLocaleString('ja-JP')}円`;
+
+const formatMonth = (month: string): string => {
+  const [year, rawMonth] = month.split('-');
+  return `${year}/${Number(rawMonth)}`;
+};
+
 function RecommendationCard({ recommendation }: { recommendation: PairRecommendation }) {
   const directionClass = recommendation.direction === '買い' ? 'recommendation-buy' : 'recommendation-sell';
   const expectationClass = `recommendation-expectation-${recommendation.expectation.tier}`;
@@ -149,6 +176,13 @@ function RecommendationCard({ recommendation }: { recommendation: PairRecommenda
           期待度 {recommendation.expectation.label}
         </span>
         <p>{recommendation.expectation.detail}</p>
+        {recommendation.historicalPerformance ? (
+          <p className="recommendation-history-line">
+            {recommendation.historicalPerformance.recommendations < scannerMinimumSampleSize
+              ? `サンプル不足(${recommendation.historicalPerformance.recommendations.toLocaleString('ja-JP')}回)`
+              : `この型の過去成績: 勝率 ${formatPercent(recommendation.historicalPerformance.winRate)}(${recommendation.historicalPerformance.recommendations.toLocaleString('ja-JP')}回)`}
+          </p>
+        ) : null}
       </div>
 
       <dl className="recommendation-trade-grid">
@@ -214,6 +248,112 @@ function EmptyRecommendationState() {
   );
 }
 
+function SimulationSummary({ simulation }: { simulation: ScannerMonthlySimulation }) {
+  const { summary } = simulation;
+  const period =
+    summary.periodStartMonth && summary.periodEndMonth
+      ? `${formatMonth(summary.periodStartMonth)}-${formatMonth(summary.periodEndMonth)}`
+      : '--';
+  return (
+    <div className="recommendation-simulation-summary">
+      <div>
+        <span>対象期間</span>
+        <strong>{period}</strong>
+      </div>
+      <div>
+        <span>稼働月</span>
+        <strong>{summary.activeMonths.toLocaleString('ja-JP')}ヶ月</strong>
+      </div>
+      <div>
+        <span>プラス月</span>
+        <strong>{formatPercent(summary.plusMonthRate)}</strong>
+      </div>
+      <div>
+        <span>最高月</span>
+        <strong>{summary.bestMonth ? `${formatMonth(summary.bestMonth.month)} ${formatYen(summary.bestMonth.pnlYen)}` : '--'}</strong>
+      </div>
+      <div>
+        <span>最悪月</span>
+        <strong>{summary.worstMonth ? `${formatMonth(summary.worstMonth.month)} ${formatYen(summary.worstMonth.pnlYen)}` : '--'}</strong>
+      </div>
+      <div>
+        <span>月平均</span>
+        <strong>{formatYen(summary.averageMonthlyPnlYen)}</strong>
+      </div>
+    </div>
+  );
+}
+
+function ScannerSimulationSection({ scannerStats }: { scannerStats: ScannerStats | null }) {
+  const [mode, setMode] = useState<SimulationMode>('mediumOrHigher');
+  const simulation = scannerStats?.monthlySimulation?.[mode] ?? null;
+  const rows = simulation?.months ?? [];
+  const hasActiveMonths = (simulation?.summary.activeMonths ?? 0) > 0;
+
+  return (
+    <section className="recommendation-simulation-section">
+      <div className="recommendation-simulation-heading">
+        <div>
+          <h2>この戦略に従った場合の過去成績(シミュレーション)</h2>
+          <p>初期100万円、1回の固定リスク1%で月別に再計算</p>
+        </div>
+        <div className="recommendation-simulation-toggle" role="group" aria-label="シミュレーション条件">
+          {(Object.keys(simulationModeLabels) as SimulationMode[]).map((item) => (
+            <button
+              key={item}
+              type="button"
+              className={item === mode ? 'segment segment-active' : 'segment'}
+              onClick={() => setMode(item)}
+            >
+              {simulationModeLabels[item]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {!simulation ? (
+        <div className="recommendation-empty">
+          <strong>シミュレーション統計は未生成です</strong>
+          <p>scanner.json がない場合も、今日のおすすめ判定は従来通り表示されます。</p>
+        </div>
+      ) : !hasActiveMonths ? (
+        <div className="recommendation-empty">
+          <strong>この条件では期間中に該当シグナルがありませんでした</strong>
+          <p>{simulationModeLabels[mode]}の条件で約定まで到達したシグナルはありません。</p>
+        </div>
+      ) : (
+        <>
+          <SimulationSummary simulation={simulation} />
+          <div className="recommendation-simulation-table-wrap">
+            <table className="recommendation-simulation-table">
+              <thead>
+                <tr>
+                  <th>月</th>
+                  <th>損益円</th>
+                  <th>勝敗</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.month}>
+                    <td>{formatMonth(row.month)}</td>
+                    <td className={row.pnlYen >= 0 ? 'profit-positive' : 'profit-negative'}>{formatYen(row.pnlYen)}</td>
+                    <td>{row.wins}勝 {row.losses}敗</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      <p className="recommendation-simulation-disclaimer">
+        過去データへの遡及シミュレーションであり将来の収益を保証しません。全取引は固定リスク1%、初期資金100万円、固定スプレッド考慮済み・スリッページ未考慮の前提です。
+      </p>
+    </section>
+  );
+}
+
 function RecommendationSection({ section }: { section: RecommendationSectionData }) {
   const styleDefinition = recommendationStyles[section.style];
   const allCandidatesAreLow =
@@ -255,6 +395,7 @@ function RecommendationSection({ section }: { section: RecommendationSectionData
 
 export function RecommendationPanel() {
   const [scannerData, setScannerData] = useState<PairScannerData[] | null>(null);
+  const [scannerStats, setScannerStats] = useState<ScannerStats | null>(null);
   const [failedPairCount, setFailedPairCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -264,10 +405,14 @@ export function RecommendationPanel() {
     setLoading(true);
     setError(null);
     setScannerData(null);
+    setScannerStats(null);
     setFailedPairCount(0);
 
-    Promise.allSettled(PAIRS.map((pair) => loadPairScannerData(pair)))
-      .then((results) => {
+    Promise.all([
+      Promise.allSettled(PAIRS.map((pair) => loadPairScannerData(pair))),
+      loadScannerStats().catch(() => null),
+    ])
+      .then(([results, stats]) => {
         if (disposed) {
           return;
         }
@@ -287,6 +432,7 @@ export function RecommendationPanel() {
         }
 
         setScannerData(items);
+        setScannerStats(stats);
         setFailedPairCount(rejectedResults.length);
       })
       .finally(() => {
@@ -301,8 +447,8 @@ export function RecommendationPanel() {
   }, []);
 
   const sections = useMemo(
-    () => (scannerData ? buildSections(scannerData) : []),
-    [scannerData],
+    () => (scannerData ? buildSections(scannerData, scannerStats) : []),
+    [scannerData, scannerStats],
   );
 
   return (
@@ -328,6 +474,7 @@ export function RecommendationPanel() {
         const section = sections.find((item) => item.style === style);
         return section ? <RecommendationSection key={style} section={section} /> : null;
       })}
+      {!loading && !error ? <ScannerSimulationSection scannerStats={scannerStats} /> : null}
     </div>
   );
 }

@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { loadEsbuild, splitBarsByRegistration } from './run-forward-test.mjs';
+import { loadEsbuild } from './lib/esbuild-loader.mjs';
+import { splitBarsByRegistration } from './run-forward-test.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
