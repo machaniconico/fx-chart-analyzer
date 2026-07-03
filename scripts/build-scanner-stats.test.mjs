@@ -204,6 +204,40 @@ describe('scanner stats builder', () => {
     expect(result?.realizedR).toBeCloseTo(1.973241, 6);
   });
 
+  it('clamps pullback fill prices to the reached bar range', () => {
+    const result = judgeRecommendationOutcome({
+      recommendation: recommendation({
+        decisionTime: time('2026-01-05T00:00:00Z'),
+        entry: {
+          type: 'pullback',
+          price: 100,
+          zone: { low: 99.5, high: 100.5 },
+        },
+      }),
+      maxHoldingBusinessDays: 5,
+      futureBars: [
+        bar('2026-01-05T00:30:00Z', 99.7, {
+          h: 99.8,
+          l: 99.4,
+          c: 99.7,
+        }),
+        bar('2026-01-05T01:00:00Z', 101.5, {
+          h: 102.2,
+          l: 101,
+          c: 102,
+        }),
+      ],
+    });
+
+    expect(result).toMatchObject({
+      outcome: 'win',
+      entryTime: time('2026-01-05T00:30:00Z'),
+      signalEntryPrice: 99.8,
+      spreadPips: 0.9,
+    });
+    expect(result?.entryPrice).toBeCloseTo(99.809, 6);
+  });
+
   it('returns unfilled for pullback entries that never reach the zone inside the holding window', () => {
     const result = judgeRecommendationOutcome({
       recommendation: recommendation({

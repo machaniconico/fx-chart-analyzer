@@ -136,6 +136,8 @@ const barTouchesPrice = (bar, price) => bar.l <= price && bar.h >= price;
 
 const barTouchesZone = (bar, zone) => bar.h >= zone.low && bar.l <= zone.high;
 
+const clampPriceToBar = (price, bar) => Math.min(bar.h, Math.max(bar.l, price));
+
 const resolveEntryFill = (recommendation, evaluationBars) => {
   if (recommendation.entry.type === 'market') {
     const entryBar = evaluationBars[0];
@@ -150,7 +152,7 @@ const resolveEntryFill = (recommendation, evaluationBars) => {
     const bar = evaluationBars[index];
     const touched = zone ? barTouchesZone(bar, zone) : barTouchesPrice(bar, targetPrice);
     if (touched) {
-      return { bar, barIndex: index, signalEntryPrice: targetPrice };
+      return { bar, barIndex: index, signalEntryPrice: clampPriceToBar(targetPrice, bar) };
     }
   }
   return null;

@@ -1,6 +1,6 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getHistoricalRates } from 'dukascopy-node';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,8 +27,27 @@ const M15_LOOKBACK_DAYS = 60;
 const M30_LOOKBACK_DAYS = 120;
 const H1_LOOKBACK_DAYS = 730;
 const D1_LOOKBACK_DAYS = 3400;
+const DUKASCOPY_TIMEOUT_MS = 90_000;
 
 const dayMs = 24 * 60 * 60 * 1000;
+const daySeconds = 24 * 60 * 60;
+const barSecondsByTimeframe = {
+  m15: 15 * 60,
+  m30: 30 * 60,
+  h1: 60 * 60,
+  h4: 4 * 60 * 60,
+  d1: 24 * 60 * 60,
+};
+const YAHOO_TIMEFRAME_PARAMS = {
+  m15: { interval: '15m', range: '60d' },
+  m30: { interval: '30m', range: '60d' },
+  h1: { interval: '1h', range: '730d' },
+  d1: { interval: '1d', range: '10y' },
+};
+const YAHOO_STANDALONE_MIN_EXPECTED_BARS_BY_TIMEFRAME = {
+  m15: 2500,
+  m30: 1800,
+};
 
 const toUnixSeconds = (timestamp) => {
   const value = Number(timestamp);
@@ -47,7 +66,87 @@ const normalizeBar = (row) => ({
   v: Number(row.volume ?? 0),
 });
 
-const validateBars = (pair, tf, bars) => {
+const yahooNumber = (value) => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
+export const normalizeYahooChartResponse = (
+  payload,
+  tf,
+  { nowSeconds = Math.floor(Date.now() / 1000) } = {},
+) => {
+  const timeframe = YAHOO_TIMEFRAME_PARAMS[tf];
+  const barSeconds = barSecondsByTimeframe[tf];
+  if (!timeframe || !barSeconds) {
+    throw new Error(`Yahoo fallback is not configured for timeframe: ${tf}`);
+  }
+
+  const result = payload?.chart?.result?.[0];
+  const timestamps = result?.timestamp;
+  const quote = result?.indicators?.quote?.[0] ?? {};
+  const { open, high, low, close } = quote;
+  if (
+    !Array.isArray(timestamps) ||
+    !Array.isArray(open) ||
+    !Array.isArray(high) ||
+    !Array.isArray(low) ||
+    !Array.isArray(close)
+  ) {
+    throw new Error(`Yahoo ${tf}: malformed chart response`);
+  }
+
+  const currentUtcDayStart = Math.floor(nowSeconds / daySeconds) * daySeconds;
+  const normalizedBars = timestamps
+    .map((timestamp, index) => {
+      const rawTime = toUnixSeconds(timestamp);
+      const bar = {
+        t: tf === 'd1' ? Math.round(rawTime / daySeconds) * daySeconds : rawTime,
+        o: yahooNumber(open[index]),
+        h: yahooNumber(high[index]),
+        l: yahooNumber(low[index]),
+        c: yahooNumber(close[index]),
+        v: 0,
+      };
+      if ([bar.o, bar.h, bar.l, bar.c].some((value) => value === null)) {
+        return null;
+      }
+      return bar;
+    })
+    .filter((bar) => {
+      if (!bar) {
+        return false;
+      }
+      if (tf === 'd1') {
+        return bar.t < currentUtcDayStart && bar.h >= bar.l && bar.o > 0 && bar.c > 0;
+      }
+      if (bar.t % barSeconds !== 0 || bar.t > nowSeconds - barSeconds) {
+        return false;
+      }
+      return bar.h >= bar.l && bar.o > 0 && bar.c > 0;
+    });
+
+  if (tf !== 'd1') {
+    return normalizedBars.sort((a, b) => a.t - b.t);
+  }
+
+  const dedupedByTime = new Map();
+  for (const bar of normalizedBars) {
+    dedupedByTime.set(bar.t, bar);
+  }
+  return [...dedupedByTime.values()].sort((a, b) => a.t - b.t);
+};
+
+export const mergeAppendOnlyBars = (existingBars, yahooBars) => {
+  const existing = Array.isArray(existingBars) ? existingBars : [];
+  const lastExistingTime = existing.length ? existing[existing.length - 1].t : -Infinity;
+  return [...existing, ...yahooBars.filter((bar) => bar.t > lastExistingTime)];
+};
+
+const validateBars = (pair, tf, bars, { minExpectedBars = MIN_EXPECTED_BARS_BY_TIMEFRAME[tf] } = {}) => {
   const invalid = bars.find(
     (bar) =>
       !Number.isFinite(bar.t) ||
@@ -60,24 +159,32 @@ const validateBars = (pair, tf, bars) => {
   if (invalid) {
     throw new Error(`${pair} ${tf}: invalid bar ${JSON.stringify(invalid)}`);
   }
-  const minExpectedBars = MIN_EXPECTED_BARS_BY_TIMEFRAME[tf];
   if (bars.length < minExpectedBars) {
     const targetBars = TARGET_BARS_BY_TIMEFRAME[tf];
     throw new Error(`${pair} ${tf}: expected at least ${minExpectedBars} of around ${targetBars} bars, got ${bars.length}`);
   }
 };
 
-const writeBars = async (pair, tf, bars) => {
-  validateBars(pair, tf, bars);
+const writeBars = async (pair, tf, bars, source, validateOptions = {}) => {
+  validateBars(pair, tf, bars, validateOptions);
   const pairDir = path.join(outputDir, pair);
   await mkdir(pairDir, { recursive: true });
   const payload = {
     pair,
     tf,
     updatedAt: new Date().toISOString(),
+    source,
     bars,
   };
   await writeFile(path.join(pairDir, `${tf}.json`), `${JSON.stringify(payload)}\n`);
+};
+
+const persistBars = async (pair, tf, result) => {
+  if (result.shouldWrite === false) {
+    return `kept ${tf}=${result.bars.length} source=${result.source} (no new Yahoo bars)`;
+  }
+  await writeBars(pair, tf, result.bars, result.source, result.validateOptions);
+  return `wrote ${tf}=${result.bars.length} source=${result.source}`;
 };
 
 // 分足は取得ファイル数が多く、並列度が高いと Dukascopy 側にスロットリングされ
@@ -87,27 +194,51 @@ const REQUEST_PROFILE_BY_TIMEFRAME = {
   m30: { batchSize: 4, pauseBetweenBatchesMs: 400 },
 };
 
+const timeoutAfter = (ms, message) => {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+    timeoutId.unref?.();
+  });
+  return { timeout, clear: () => clearTimeout(timeoutId) };
+};
+
+export const withTimeout = async (promise, ms, message) => {
+  const guardedPromise = Promise.resolve(promise);
+  guardedPromise.catch(() => {});
+  const { timeout, clear } = timeoutAfter(ms, message);
+  try {
+    return await Promise.race([guardedPromise, timeout]);
+  } finally {
+    clear();
+  }
+};
+
 const fetchTimeframe = async (pair, timeframe, lookbackDays) => {
   const to = new Date();
   const from = new Date(to.getTime() - lookbackDays * dayMs);
   const profile = REQUEST_PROFILE_BY_TIMEFRAME[timeframe] ?? { batchSize: 8, pauseBetweenBatchesMs: 150 };
-  const rows = await getHistoricalRates({
-    instrument: pair.toLowerCase(),
-    dates: { from, to },
-    timeframe,
-    priceType: 'bid',
-    volumes: true,
-    volumeUnits: 'units',
-    ignoreFlats: true,
-    format: 'json',
-    batchSize: profile.batchSize,
-    pauseBetweenBatchesMs: profile.pauseBetweenBatchesMs,
-    useCache: true,
-    cacheFolderPath: cacheDir,
-    retryCount: 5,
-    retryOnEmpty: true,
-    pauseBetweenRetriesMs: 1500,
-  });
+  const rows = await withTimeout(
+    getHistoricalRates({
+      instrument: pair.toLowerCase(),
+      dates: { from, to },
+      timeframe,
+      priceType: 'bid',
+      volumes: true,
+      volumeUnits: 'units',
+      ignoreFlats: true,
+      format: 'json',
+      batchSize: profile.batchSize,
+      pauseBetweenBatchesMs: profile.pauseBetweenBatchesMs,
+      useCache: true,
+      cacheFolderPath: cacheDir,
+      retryCount: 5,
+      retryOnEmpty: true,
+      pauseBetweenRetriesMs: 1500,
+    }),
+    DUKASCOPY_TIMEOUT_MS,
+    `${pair} ${timeframe}: Dukascopy timed out after ${DUKASCOPY_TIMEOUT_MS / 1000}s`,
+  );
 
   return rows
     .map(normalizeBar)
@@ -120,9 +251,116 @@ const latest = (bars, tf) => {
   return bars.slice(Math.max(0, bars.length - count));
 };
 
-const aggregateH4 = (h1Bars) => {
+const formatError = (error) => (error instanceof Error ? error.message : String(error));
+
+const fetchYahooTimeframe = async (pair, tf) => {
+  const timeframe = YAHOO_TIMEFRAME_PARAMS[tf];
+  if (!timeframe) {
+    throw new Error(`Yahoo fallback is not configured for timeframe: ${tf}`);
+  }
+  const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${pair}=X`);
+  url.searchParams.set('interval', timeframe.interval);
+  url.searchParams.set('range', timeframe.range);
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Yahoo ${pair} ${tf}: HTTP ${response.status}`);
+  }
+  const payload = await response.json();
+  const chartError = payload?.chart?.error;
+  if (chartError) {
+    throw new Error(`Yahoo ${pair} ${tf}: ${chartError.description ?? chartError.code ?? 'chart error'}`);
+  }
+  return normalizeYahooChartResponse(payload, tf);
+};
+
+const readExistingBars = async (pair, tf) => {
+  try {
+    const payload = JSON.parse(await readFile(path.join(outputDir, pair, `${tf}.json`), 'utf8'));
+    if (!Array.isArray(payload.bars)) {
+      throw new Error(`${pair} ${tf}: existing payload has no bars array`);
+    }
+    return payload.bars;
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
+};
+
+const yahooMinExpectedBars = (tf, hasExistingBars) =>
+  !hasExistingBars
+    ? YAHOO_STANDALONE_MIN_EXPECTED_BARS_BY_TIMEFRAME[tf] ?? MIN_EXPECTED_BARS_BY_TIMEFRAME[tf]
+    : MIN_EXPECTED_BARS_BY_TIMEFRAME[tf];
+
+const buildYahooFallbackBars = async (pair, tf, yahooBars) => {
+  const existingBars = await readExistingBars(pair, tf);
+  const hasExistingBars = Array.isArray(existingBars);
+  const lastExistingTime = hasExistingBars && existingBars.length > 0
+    ? existingBars[existingBars.length - 1].t
+    : -Infinity;
+  const appendedCount = hasExistingBars
+    ? yahooBars.filter((bar) => bar.t > lastExistingTime).length
+    : yahooBars.length;
+  const merged = hasExistingBars ? mergeAppendOnlyBars(existingBars, yahooBars) : yahooBars;
+  const bars = latest(merged, tf);
+  const validateOptions = { minExpectedBars: yahooMinExpectedBars(tf, hasExistingBars) };
+  validateBars(pair, tf, bars, validateOptions);
+  return { bars, source: 'yahoo-fallback', validateOptions, shouldWrite: appendedCount > 0 };
+};
+
+const fetchTimeframeWithFallback = async (pair, tf, lookbackDays) => {
+  try {
+    const bars = latest(await fetchTimeframe(pair, tf, lookbackDays), tf);
+    validateBars(pair, tf, bars);
+    return { bars, source: 'dukascopy', validateOptions: {}, shouldWrite: true };
+  } catch (dukascopyError) {
+    console.warn(`  Dukascopy failed for ${pair} ${tf}: ${formatError(dukascopyError)}; trying Yahoo fallback`);
+    try {
+      const yahooBars = await fetchYahooTimeframe(pair, tf);
+      return await buildYahooFallbackBars(pair, tf, yahooBars);
+    } catch (yahooError) {
+      throw new Error(
+        `Dukascopy failed: ${formatError(dukascopyError)}; Yahoo fallback failed: ${formatError(yahooError)}`,
+      );
+    }
+  }
+};
+
+const fetchH1AndH4WithFallback = async (pair) => {
+  try {
+    const h1Raw = await fetchTimeframe(pair, 'h1', H1_LOOKBACK_DAYS);
+    const h1 = latest(h1Raw, 'h1');
+    const h4 = latest(aggregateH4(h1Raw), 'h4');
+    validateBars(pair, 'h1', h1);
+    validateBars(pair, 'h4', h4);
+    return {
+      h1: { bars: h1, source: 'dukascopy', validateOptions: {}, shouldWrite: true },
+      h4: { bars: h4, source: 'dukascopy', validateOptions: {}, shouldWrite: true },
+    };
+  } catch (dukascopyError) {
+    console.warn(`  Dukascopy failed for ${pair} h1/h4: ${formatError(dukascopyError)}; trying Yahoo fallback`);
+    try {
+      const yahooH1 = await fetchYahooTimeframe(pair, 'h1');
+      const h1 = await buildYahooFallbackBars(pair, 'h1', yahooH1);
+      const h4 = await buildYahooFallbackBars(pair, 'h4', aggregateH4(yahooH1, { dropIncompleteTail: true }));
+      return { h1, h4 };
+    } catch (yahooError) {
+      throw new Error(
+        `Dukascopy failed: ${formatError(dukascopyError)}; Yahoo fallback failed: ${formatError(yahooError)}`,
+      );
+    }
+  }
+};
+
+export const aggregateH4 = (h1Bars, { dropIncompleteTail = false } = {}) => {
   const grouped = new Map();
-  for (const bar of h1Bars) {
+  const sortedBars = [...h1Bars].sort((a, b) => a.t - b.t);
+  for (const bar of sortedBars) {
     const bucket = Math.floor(bar.t / (4 * 60 * 60)) * 4 * 60 * 60;
     const group = grouped.get(bucket);
     if (!group) {
@@ -141,64 +379,77 @@ const aggregateH4 = (h1Bars) => {
     group.c = bar.c;
     group.v += bar.v;
   }
-  return [...grouped.values()].sort((a, b) => a.t - b.t);
+  const bars = [...grouped.values()].sort((a, b) => a.t - b.t);
+  if (dropIncompleteTail && bars.length > 0 && sortedBars.length > 0) {
+    const lastH1Bar = sortedBars[sortedBars.length - 1];
+    const lastH4Bar = bars[bars.length - 1];
+    if (lastH4Bar.t + barSecondsByTimeframe.h4 > lastH1Bar.t + barSecondsByTimeframe.h1) {
+      bars.pop();
+    }
+  }
+  return bars;
 };
 
-await mkdir(outputDir, { recursive: true });
+export const main = async () => {
+  await mkdir(outputDir, { recursive: true });
 
-// 時間足単位で失敗を許容する: 失敗した組合せは既存JSONを温存してスキップし、
-// 部分更新でもデプロイを止めない(fetch-calendar/cot と同じ方針)。
-const failures = [];
+  // 時間足単位で失敗を許容する: 失敗した組合せは既存JSONを温存してスキップし、
+  // 部分更新でもデプロイを止めない(fetch-calendar/cot と同じ方針)。
+  const failures = [];
 
-const tryUpdate = async (pair, tf, task) => {
-  try {
-    await task();
-  } catch (error) {
-    failures.push(`${pair} ${tf}`);
-    console.warn(`  SKIP ${pair} ${tf}: ${error instanceof Error ? error.message : error} (既存データを温存)`);
+  const tryUpdate = async (pair, tf, task) => {
+    try {
+      await task();
+    } catch (error) {
+      failures.push(`${pair} ${tf}`);
+      console.warn(`  SKIP ${pair} ${tf}: ${formatError(error)} (既存データを温存)`);
+    }
+  };
+
+  for (const pair of PAIRS) {
+    console.log(`Fetching ${pair} m15...`);
+    await tryUpdate(pair, 'm15', async () => {
+      const m15 = await fetchTimeframeWithFallback(pair, 'm15', M15_LOOKBACK_DAYS);
+      console.log(`  ${await persistBars(pair, 'm15', m15)}`);
+    });
+
+    console.log(`Fetching ${pair} m30...`);
+    await tryUpdate(pair, 'm30', async () => {
+      const m30 = await fetchTimeframeWithFallback(pair, 'm30', M30_LOOKBACK_DAYS);
+      console.log(`  ${await persistBars(pair, 'm30', m30)}`);
+    });
+
+    console.log(`Fetching ${pair} h1...`);
+    await tryUpdate(pair, 'h1/h4', async () => {
+      const { h1, h4 } = await fetchH1AndH4WithFallback(pair);
+      const h1Message = await persistBars(pair, 'h1', h1);
+      const h4Message = await persistBars(pair, 'h4', h4);
+      console.log(`  ${h1Message}; ${h4Message}`);
+    });
+
+    console.log(`Fetching ${pair} d1...`);
+    await tryUpdate(pair, 'd1', async () => {
+      const d1 = await fetchTimeframeWithFallback(pair, 'd1', D1_LOOKBACK_DAYS);
+      console.log(`  ${await persistBars(pair, 'd1', d1)}`);
+    });
+  }
+
+  if (failures.length > 0) {
+    console.warn(`Data generation finished with ${failures.length} skipped combos: ${failures.join(', ')}`);
+    const total = PAIRS.length * 4;
+    if (failures.length >= total) {
+      console.error('All combos failed.');
+      process.exitCode = 1;
+    }
+  } else {
+    console.log('Data generation complete.');
   }
 };
 
-for (const pair of PAIRS) {
-  console.log(`Fetching ${pair} m15...`);
-  await tryUpdate(pair, 'm15', async () => {
-    const m15 = latest(await fetchTimeframe(pair, 'm15', M15_LOOKBACK_DAYS), 'm15');
-    await writeBars(pair, 'm15', m15);
-    console.log(`  wrote m15=${m15.length}`);
+const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';
+if (import.meta.url === invokedPath) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
   });
-
-  console.log(`Fetching ${pair} m30...`);
-  await tryUpdate(pair, 'm30', async () => {
-    const m30 = latest(await fetchTimeframe(pair, 'm30', M30_LOOKBACK_DAYS), 'm30');
-    await writeBars(pair, 'm30', m30);
-    console.log(`  wrote m30=${m30.length}`);
-  });
-
-  console.log(`Fetching ${pair} h1...`);
-  await tryUpdate(pair, 'h1/h4', async () => {
-    const h1Raw = await fetchTimeframe(pair, 'h1', H1_LOOKBACK_DAYS);
-    const h1 = latest(h1Raw, 'h1');
-    const h4 = latest(aggregateH4(h1Raw), 'h4');
-    await writeBars(pair, 'h1', h1);
-    await writeBars(pair, 'h4', h4);
-    console.log(`  wrote h1=${h1.length}, h4=${h4.length}`);
-  });
-
-  console.log(`Fetching ${pair} d1...`);
-  await tryUpdate(pair, 'd1', async () => {
-    const d1 = latest(await fetchTimeframe(pair, 'd1', D1_LOOKBACK_DAYS), 'd1');
-    await writeBars(pair, 'd1', d1);
-    console.log(`  wrote d1=${d1.length}`);
-  });
-}
-
-if (failures.length > 0) {
-  console.warn(`Data generation finished with ${failures.length} skipped combos: ${failures.join(', ')}`);
-  const total = PAIRS.length * 4;
-  if (failures.length >= total) {
-    console.error('All combos failed.');
-    process.exit(1);
-  }
-} else {
-  console.log('Data generation complete.');
 }
