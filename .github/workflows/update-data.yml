@@ -23,13 +23,18 @@ jobs:
 
       - run: npm ci
 
+      # Dukascopy 全滅時(障害/ブロック)でもカレンダー/COT/統計/デプロイは続行する。
+      # リポジトリにコミット済みの既存データがフォールバックになる。
       - name: Fetch latest FX data from Dukascopy
+        continue-on-error: true
         run: npm run fetch:data
 
       - name: Fetch Forex Factory calendar
+        continue-on-error: true
         run: node scripts/fetch-calendar.mjs
 
       - name: Fetch CFTC COT data
+        continue-on-error: true
         run: node scripts/fetch-cot.mjs
 
       - name: Build adaptive model stats
