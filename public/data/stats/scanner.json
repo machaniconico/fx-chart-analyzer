@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-07-03T03:47:29.358Z",
+  "generatedAt": "2026-07-03T07:02:25.932Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-04-04T16:00:00.000Z",
-    "dataEnd": "2026-07-02T10:30:00.000Z",
+    "dataStart": "2025-04-07T04:00:00.000Z",
+    "dataEnd": "2026-07-03T06:00:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
     "adaptiveStatsMode": "rolling-from-cutoff",
@@ -36,17 +36,17 @@
   "pairStyle": {
     "USDJPY": {
       "daytrade": {
-        "recommendations": 1,
+        "recommendations": 0,
         "wins": 0,
-        "losses": 1,
+        "losses": 0,
         "draws": 0,
-        "winRate": 0,
-        "averageRealizedR": -1,
+        "winRate": null,
+        "averageRealizedR": null,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 1,
-          "winRate": 0,
-          "averageRealizedR": -1
+          "decayedSampleCount": 0,
+          "winRate": null,
+          "averageRealizedR": null
         }
       },
       "swing": {
@@ -115,28 +115,28 @@
         "losses": 2,
         "draws": 0,
         "winRate": 0.5,
-        "averageRealizedR": 0.1929,
+        "averageRealizedR": 0.1407,
         "ewa": {
           "halfLifeSamples": 30,
           "decayedSampleCount": 3.87,
           "winRate": 0.4999,
-          "averageRealizedR": 0.1921
+          "averageRealizedR": 0.1406
         }
       }
     },
     "EURJPY": {
       "daytrade": {
-        "recommendations": 4,
-        "wins": 2,
+        "recommendations": 5,
+        "wins": 3,
         "losses": 2,
         "draws": 0,
-        "winRate": 0.5,
-        "averageRealizedR": 0.1178,
+        "winRate": 0.6,
+        "averageRealizedR": 0.3584,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 3.87,
-          "winRate": 0.4999,
-          "averageRealizedR": 0.1177
+          "decayedSampleCount": 4.78,
+          "winRate": 0.5953,
+          "averageRealizedR": 0.3473
         }
       },
       "swing": {
@@ -175,12 +175,12 @@
         "losses": 3,
         "draws": 0,
         "winRate": 0.4,
-        "averageRealizedR": -0.073,
+        "averageRealizedR": -0.1008,
         "ewa": {
           "halfLifeSamples": 30,
           "decayedSampleCount": 4.78,
           "winRate": 0.4002,
-          "averageRealizedR": -0.0693
+          "averageRealizedR": -0.0958
         }
       }
     },
@@ -205,12 +205,12 @@
         "losses": 1,
         "draws": 0,
         "winRate": 0.5,
-        "averageRealizedR": 0.1405,
+        "averageRealizedR": 0.008,
         "ewa": {
           "halfLifeSamples": 30,
           "decayedSampleCount": 1.98,
           "winRate": 0.4942,
-          "averageRealizedR": 0.1273
+          "averageRealizedR": -0.0036
         }
       }
     }
@@ -232,31 +232,31 @@
         }
       },
       "medium": {
+        "recommendations": 3,
+        "wins": 2,
+        "losses": 1,
+        "draws": 0,
+        "winRate": 0.6667,
+        "averageRealizedR": 0.527,
+        "ewa": {
+          "halfLifeSamples": 30,
+          "decayedSampleCount": 2.93,
+          "winRate": 0.6743,
+          "averageRealizedR": 0.5444
+        }
+      },
+      "low": {
         "recommendations": 4,
         "wins": 1,
         "losses": 3,
         "draws": 0,
         "winRate": 0.25,
-        "averageRealizedR": -0.4349,
+        "averageRealizedR": -0.4473,
         "ewa": {
           "halfLifeSamples": 30,
           "decayedSampleCount": 3.87,
-          "winRate": 0.2528,
-          "averageRealizedR": -0.4285
-        }
-      },
-      "low": {
-        "recommendations": 3,
-        "wins": 1,
-        "losses": 2,
-        "draws": 0,
-        "winRate": 0.3333,
-        "averageRealizedR": -0.263,
-        "ewa": {
-          "halfLifeSamples": 30,
-          "decayedSampleCount": 2.93,
-          "winRate": 0.3333,
-          "averageRealizedR": -0.2632
+          "winRate": 0.247,
+          "averageRealizedR": -0.4538
         }
       }
     },
@@ -281,12 +281,12 @@
         "losses": 14,
         "draws": 0,
         "winRate": 0.3636,
-        "averageRealizedR": -0.1338,
+        "averageRealizedR": -0.1617,
         "ewa": {
           "halfLifeSamples": 30,
           "decayedSampleCount": 17.45,
           "winRate": 0.3603,
-          "averageRealizedR": -0.141
+          "averageRealizedR": -0.1636
         }
       },
       "low": {
@@ -377,30 +377,30 @@
         },
         {
           "month": "2026-03",
-          "pnlYen": -28070,
-          "wins": 0,
-          "losses": 3,
+          "pnlYen": -6574,
+          "wins": 1,
+          "losses": 2,
           "draws": 0,
           "tradeCount": 3,
-          "endBalanceYen": 917003
+          "endBalanceYen": 938499
         },
         {
           "month": "2026-04",
-          "pnlYen": 25404,
+          "pnlYen": 25999,
           "wins": 2,
           "losses": 0,
           "draws": 0,
           "tradeCount": 2,
-          "endBalanceYen": 942407
+          "endBalanceYen": 964498
         },
         {
           "month": "2026-05",
-          "pnlYen": -18754,
+          "pnlYen": -9645,
           "wins": 0,
-          "losses": 2,
+          "losses": 1,
           "draws": 0,
-          "tradeCount": 2,
-          "endBalanceYen": 923653
+          "tradeCount": 1,
+          "endBalanceYen": 954853
         },
         {
           "month": "2026-06",
@@ -409,16 +409,16 @@
           "losses": 0,
           "draws": 0,
           "tradeCount": 0,
-          "endBalanceYen": 923653
+          "endBalanceYen": 954853
         },
         {
           "month": "2026-07",
-          "pnlYen": 11525,
+          "pnlYen": 11915,
           "wins": 1,
           "losses": 0,
           "draws": 0,
           "tradeCount": 1,
-          "endBalanceYen": 935178
+          "endBalanceYen": 966768
         }
       ],
       "summary": {
@@ -428,14 +428,14 @@
         "activeMonths": 10,
         "bestMonth": {
           "month": "2026-04",
-          "pnlYen": 25404
+          "pnlYen": 25999
         },
         "worstMonth": {
-          "month": "2026-03",
-          "pnlYen": -28070
+          "month": "2025-09",
+          "pnlYen": -19900
         },
-        "averageMonthlyPnlYen": -6482,
-        "totalPnlYen": -64823
+        "averageMonthlyPnlYen": -3323,
+        "totalPnlYen": -33233
       }
     },
     "highOnly": {
