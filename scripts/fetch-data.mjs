@@ -80,9 +80,17 @@ const writeBars = async (pair, tf, bars) => {
   await writeFile(path.join(pairDir, `${tf}.json`), `${JSON.stringify(payload)}\n`);
 };
 
+// 分足は取得ファイル数が多く、並列度が高いと Dukascopy 側にスロットリングされ
+// fetch failed になりやすい(2026-07-03 に実際に発生)。分足のみ低負荷設定にする。
+const REQUEST_PROFILE_BY_TIMEFRAME = {
+  m15: { batchSize: 3, pauseBetweenBatchesMs: 600 },
+  m30: { batchSize: 4, pauseBetweenBatchesMs: 400 },
+};
+
 const fetchTimeframe = async (pair, timeframe, lookbackDays) => {
   const to = new Date();
   const from = new Date(to.getTime() - lookbackDays * dayMs);
+  const profile = REQUEST_PROFILE_BY_TIMEFRAME[timeframe] ?? { batchSize: 8, pauseBetweenBatchesMs: 150 };
   const rows = await getHistoricalRates({
     instrument: pair.toLowerCase(),
     dates: { from, to },
@@ -92,13 +100,13 @@ const fetchTimeframe = async (pair, timeframe, lookbackDays) => {
     volumeUnits: 'units',
     ignoreFlats: true,
     format: 'json',
-    batchSize: 8,
-    pauseBetweenBatchesMs: 150,
+    batchSize: profile.batchSize,
+    pauseBetweenBatchesMs: profile.pauseBetweenBatchesMs,
     useCache: true,
     cacheFolderPath: cacheDir,
-    retryCount: 3,
+    retryCount: 5,
     retryOnEmpty: true,
-    pauseBetweenRetriesMs: 500,
+    pauseBetweenRetriesMs: 1500,
   });
 
   return rows
@@ -138,29 +146,59 @@ const aggregateH4 = (h1Bars) => {
 
 await mkdir(outputDir, { recursive: true });
 
+// 時間足単位で失敗を許容する: 失敗した組合せは既存JSONを温存してスキップし、
+// 部分更新でもデプロイを止めない(fetch-calendar/cot と同じ方針)。
+const failures = [];
+
+const tryUpdate = async (pair, tf, task) => {
+  try {
+    await task();
+  } catch (error) {
+    failures.push(`${pair} ${tf}`);
+    console.warn(`  SKIP ${pair} ${tf}: ${error instanceof Error ? error.message : error} (既存データを温存)`);
+  }
+};
+
 for (const pair of PAIRS) {
   console.log(`Fetching ${pair} m15...`);
-  const m15 = latest(await fetchTimeframe(pair, 'm15', M15_LOOKBACK_DAYS), 'm15');
-  await writeBars(pair, 'm15', m15);
-  console.log(`  wrote m15=${m15.length}`);
+  await tryUpdate(pair, 'm15', async () => {
+    const m15 = latest(await fetchTimeframe(pair, 'm15', M15_LOOKBACK_DAYS), 'm15');
+    await writeBars(pair, 'm15', m15);
+    console.log(`  wrote m15=${m15.length}`);
+  });
 
   console.log(`Fetching ${pair} m30...`);
-  const m30 = latest(await fetchTimeframe(pair, 'm30', M30_LOOKBACK_DAYS), 'm30');
-  await writeBars(pair, 'm30', m30);
-  console.log(`  wrote m30=${m30.length}`);
+  await tryUpdate(pair, 'm30', async () => {
+    const m30 = latest(await fetchTimeframe(pair, 'm30', M30_LOOKBACK_DAYS), 'm30');
+    await writeBars(pair, 'm30', m30);
+    console.log(`  wrote m30=${m30.length}`);
+  });
 
   console.log(`Fetching ${pair} h1...`);
-  const h1Raw = await fetchTimeframe(pair, 'h1', H1_LOOKBACK_DAYS);
-  const h1 = latest(h1Raw, 'h1');
-  const h4 = latest(aggregateH4(h1Raw), 'h4');
-  await writeBars(pair, 'h1', h1);
-  await writeBars(pair, 'h4', h4);
-  console.log(`  wrote h1=${h1.length}, h4=${h4.length}`);
+  await tryUpdate(pair, 'h1/h4', async () => {
+    const h1Raw = await fetchTimeframe(pair, 'h1', H1_LOOKBACK_DAYS);
+    const h1 = latest(h1Raw, 'h1');
+    const h4 = latest(aggregateH4(h1Raw), 'h4');
+    await writeBars(pair, 'h1', h1);
+    await writeBars(pair, 'h4', h4);
+    console.log(`  wrote h1=${h1.length}, h4=${h4.length}`);
+  });
 
   console.log(`Fetching ${pair} d1...`);
-  const d1 = latest(await fetchTimeframe(pair, 'd1', D1_LOOKBACK_DAYS), 'd1');
-  await writeBars(pair, 'd1', d1);
-  console.log(`  wrote d1=${d1.length}`);
+  await tryUpdate(pair, 'd1', async () => {
+    const d1 = latest(await fetchTimeframe(pair, 'd1', D1_LOOKBACK_DAYS), 'd1');
+    await writeBars(pair, 'd1', d1);
+    console.log(`  wrote d1=${d1.length}`);
+  });
 }
 
-console.log('Data generation complete.');
+if (failures.length > 0) {
+  console.warn(`Data generation finished with ${failures.length} skipped combos: ${failures.join(', ')}`);
+  const total = PAIRS.length * 4;
+  if (failures.length >= total) {
+    console.error('All combos failed.');
+    process.exit(1);
+  }
+} else {
+  console.log('Data generation complete.');
+}

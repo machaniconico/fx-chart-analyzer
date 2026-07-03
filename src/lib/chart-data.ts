@@ -1,5 +1,6 @@
 import type { Bar, DataFile, Pair, Timeframe } from '../types';
 import type { AdaptiveStats } from './adaptive';
+import type { ScannerStats } from './recommend';
 
 export interface AdaptiveStatsFile extends AdaptiveStats {
   pair: Pair;
@@ -25,6 +26,17 @@ export const loadAdaptiveStats = async (pair: Pair, tf: Timeframe): Promise<Adap
     return null;
   }
   return (await response.json()) as AdaptiveStatsFile;
+};
+
+export const loadScannerStats = async (): Promise<ScannerStats | null> => {
+  const response = await fetch('/data/stats/scanner.json', { cache: 'no-cache' });
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    return null;
+  }
+  return (await response.json()) as ScannerStats;
 };
 
 export const pricePrecision = (pair: Pair): number => (pair.endsWith('JPY') ? 3 : 5);

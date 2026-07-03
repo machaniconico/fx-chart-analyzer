@@ -1,8 +1,8 @@
-import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { loadEsbuild } from './lib/esbuild-loader.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -157,27 +157,6 @@ export const buildStrategyReport = ({
     backtestReference: summarizeMetrics(referenceResult),
     barsEvaluated: forwardBars.length,
   };
-};
-
-export const loadEsbuild = () => {
-  const require = createRequire(import.meta.url);
-  const candidates = [
-    'esbuild',
-    path.join(projectRoot, 'node_modules/vitest/node_modules/esbuild/lib/main.js'),
-    path.join(projectRoot, 'node_modules/vite-node/node_modules/esbuild/lib/main.js'),
-  ];
-  const errors = [];
-  for (const candidate of candidates) {
-    try {
-      const resolvedPath = require.resolve(candidate);
-      const esbuild = require(resolvedPath);
-      console.log(`Using esbuild from ${resolvedPath}`);
-      return esbuild;
-    } catch (error) {
-      errors.push(`${candidate}: ${error.code ?? error.message}`);
-    }
-  }
-  throw new Error(`esbuild を読み込めませんでした。\n${errors.join('\n')}`);
 };
 
 export const loadBacktestEngine = async () => {

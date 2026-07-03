@@ -18,6 +18,68 @@ export interface RecommendationExpectation {
   detail: string;
 }
 
+export interface ScannerAggregateStats {
+  recommendations: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  winRate: number | null;
+  averageRealizedR: number | null;
+  ewa: {
+    halfLifeSamples: number;
+    decayedSampleCount: number | null;
+    winRate: number | null;
+    averageRealizedR: number | null;
+  };
+}
+
+export interface ScannerMonthlySimulationRow {
+  month: string;
+  pnlYen: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  tradeCount: number;
+  endBalanceYen: number;
+}
+
+export interface ScannerMonthlySimulation {
+  mode: 'mediumOrHigher' | 'highOnly';
+  label: string;
+  initialBalanceYen: number;
+  riskPercent: number;
+  months: ScannerMonthlySimulationRow[];
+  summary: {
+    periodStartMonth: string | null;
+    periodEndMonth: string | null;
+    plusMonthRate: number | null;
+    activeMonths: number;
+    bestMonth: { month: string; pnlYen: number } | null;
+    worstMonth: { month: string; pnlYen: number } | null;
+    averageMonthlyPnlYen: number;
+    totalPnlYen: number;
+  };
+}
+
+export interface ScannerStats {
+  version: number;
+  generatedAt: string;
+  meta?: Record<string, unknown>;
+  pairStyle: Partial<Record<Pair, Partial<Record<RecommendationStyle, ScannerAggregateStats>>>>;
+  styleTier: Partial<Record<RecommendationStyle, Partial<Record<RecommendationExpectationTier, ScannerAggregateStats>>>>;
+  monthlySimulation: {
+    mediumOrHigher: ScannerMonthlySimulation;
+    highOnly: ScannerMonthlySimulation;
+  };
+}
+
+export interface RecommendationHistoricalPerformance {
+  winRate: number | null;
+  recommendations: number;
+  averageRealizedR: number | null;
+  ewaWinRate: number | null;
+}
+
 export interface RecommendationExpectationInput {
   score: number;
   calibratedDirectionalProbability?: number | null;
@@ -68,6 +130,7 @@ export interface PairRecommendation {
   slPrice: number;
   tpPrice: number;
   riskReward: number;
+  historicalPerformance?: RecommendationHistoricalPerformance;
   reasons: string[];
   dataUpdatedAt: string;
 }
@@ -81,6 +144,7 @@ export interface ScanPairInput {
   executionUpdatedAt?: string;
   environmentUpdatedAt?: string;
   scoreThreshold?: number;
+  scannerStats?: ScannerStats | null;
 }
 
 interface LevelAnchor {
@@ -96,6 +160,8 @@ const expectationProbabilityHighThreshold = 0.57;
 const expectationProbabilityMediumThreshold = 0.54;
 const expectationWalkForwardHighFloor = 0.52;
 const expectationWalkForwardMediumThreshold = 0.51;
+const scannerEwaDowngradeWinRateThreshold = 0.45;
+export const scannerMinimumSampleSize = 10;
 
 export const recommendationScoreThreshold = scoreThresholdDefault;
 
@@ -117,11 +183,59 @@ const expectationDetails: Record<RecommendationExpectationTier, RecommendationEx
   },
 };
 
+const nextLowerExpectationTier: Record<RecommendationExpectationTier, RecommendationExpectationTier> = {
+  high: 'medium',
+  medium: 'low',
+  low: 'low',
+};
+
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
 
 const isFiniteNumber = (value: number | null | undefined): value is number =>
   typeof value === 'number' && Number.isFinite(value);
+
+const pairStyleStats = (
+  scannerStats: ScannerStats | null | undefined,
+  pair: Pair,
+  style: RecommendationStyle,
+): ScannerAggregateStats | null =>
+  scannerStats?.pairStyle?.[pair]?.[style] ?? null;
+
+const historicalPerformanceFromStats = (
+  stats: ScannerAggregateStats | null,
+): RecommendationHistoricalPerformance | undefined => {
+  if (!stats || stats.recommendations <= 0) {
+    return undefined;
+  }
+  return {
+    winRate: isFiniteNumber(stats.winRate) ? stats.winRate : null,
+    recommendations: stats.recommendations,
+    averageRealizedR: isFiniteNumber(stats.averageRealizedR) ? stats.averageRealizedR : null,
+    ewaWinRate: isFiniteNumber(stats.ewa?.winRate) ? stats.ewa.winRate : null,
+  };
+};
+
+const expectationWithScannerStats = (
+  expectation: RecommendationExpectation,
+  stats: ScannerAggregateStats | null,
+): RecommendationExpectation => {
+  if (!stats || stats.recommendations < scannerMinimumSampleSize) {
+    return expectation;
+  }
+  const ewaWinRate = stats?.ewa?.winRate;
+  if (!isFiniteNumber(ewaWinRate) || ewaWinRate >= scannerEwaDowngradeWinRateThreshold) {
+    return expectation;
+  }
+  const downgradedTier = nextLowerExpectationTier[expectation.tier];
+  if (downgradedTier === expectation.tier) {
+    return expectation;
+  }
+  return {
+    ...expectationDetails[downgradedTier],
+    detail: `${expectationDetails[downgradedTier].detail} この型の直近実績が弱いため1段階保守的に判定しています。`,
+  };
+};
 
 export const calculateExpectation = ({
   score,
@@ -410,6 +524,7 @@ export const scanPair = ({
   executionUpdatedAt,
   environmentUpdatedAt,
   scoreThreshold = scoreThresholdDefault,
+  scannerStats = null,
 }: ScanPairInput): PairRecommendation | null => {
   const styleDefinition = recommendationStyles[style];
   const latest = executionBars[executionBars.length - 1];
@@ -483,12 +598,16 @@ export const scanPair = ({
   if (score < scoreThreshold) {
     return null;
   }
-  const expectation = calculateExpectation({
-    score,
-    calibratedDirectionalProbability,
-    walkForwardAccuracy,
-    environmentAligned: mtf.status === 'aligned',
-  });
+  const scannerAggregateStats = pairStyleStats(scannerStats, pair, style);
+  const expectation = expectationWithScannerStats(
+    calculateExpectation({
+      score,
+      calibratedDirectionalProbability,
+      walkForwardAccuracy,
+      environmentAligned: mtf.status === 'aligned',
+    }),
+    scannerAggregateStats,
+  );
 
   const atr = calculateAtr(executionBars, 14);
   if (!atr) {
@@ -524,6 +643,7 @@ export const scanPair = ({
     slPrice: stops.slPrice,
     tpPrice: stops.tpPrice,
     riskReward: stops.riskReward,
+    historicalPerformance: historicalPerformanceFromStats(scannerAggregateStats),
     reasons: [
       ...reasons,
       entryReason,

@@ -127,6 +127,160 @@ describe('recommend', () => {
     expect(result?.dataUpdatedAt).toBe('2026-07-02T01:00:00.000Z');
   });
 
+  it('downgrades expectation when scanner walk-forward EWA performance is weak', () => {
+    const result = scanPair({
+      pair: 'USDJPY',
+      style: 'daytrade',
+      executionBars: buyBars(),
+      environmentBars: buyBars(),
+      scannerStats: {
+        version: 1,
+        generatedAt: '2026-07-02T00:00:00.000Z',
+        pairStyle: {
+          USDJPY: {
+            daytrade: {
+              recommendations: 20,
+              wins: 8,
+              losses: 12,
+              draws: 0,
+              winRate: 0.4,
+              averageRealizedR: -0.1,
+              ewa: {
+                halfLifeSamples: 30,
+                decayedSampleCount: 12.5,
+                winRate: 0.3,
+                averageRealizedR: -0.2,
+              },
+            },
+          },
+        },
+        styleTier: {},
+        monthlySimulation: {
+          mediumOrHigher: {
+            mode: 'mediumOrHigher',
+            label: '中以上',
+            initialBalanceYen: 1000000,
+            riskPercent: 1,
+            months: [],
+            summary: {
+              periodStartMonth: null,
+              periodEndMonth: null,
+              plusMonthRate: null,
+              activeMonths: 0,
+              bestMonth: null,
+              worstMonth: null,
+              averageMonthlyPnlYen: 0,
+              totalPnlYen: 0,
+            },
+          },
+          highOnly: {
+            mode: 'highOnly',
+            label: '高のみ',
+            initialBalanceYen: 1000000,
+            riskPercent: 1,
+            months: [],
+            summary: {
+              periodStartMonth: null,
+              periodEndMonth: null,
+              plusMonthRate: null,
+              activeMonths: 0,
+              bestMonth: null,
+              worstMonth: null,
+              averageMonthlyPnlYen: 0,
+              totalPnlYen: 0,
+            },
+          },
+        },
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.expectation.tier).toBe('low');
+    expect(result?.historicalPerformance).toMatchObject({
+      winRate: 0.4,
+      recommendations: 20,
+      ewaWinRate: 0.3,
+    });
+  });
+
+  it('does not downgrade expectation when scanner sample size is insufficient', () => {
+    const baseline = scanPair({
+      pair: 'USDJPY',
+      style: 'daytrade',
+      executionBars: buyBars(),
+      environmentBars: buyBars(),
+    });
+    const result = scanPair({
+      pair: 'USDJPY',
+      style: 'daytrade',
+      executionBars: buyBars(),
+      environmentBars: buyBars(),
+      scannerStats: {
+        version: 1,
+        generatedAt: '2026-07-02T00:00:00.000Z',
+        pairStyle: {
+          USDJPY: {
+            daytrade: {
+              recommendations: 9,
+              wins: 2,
+              losses: 7,
+              draws: 0,
+              winRate: 0.2222,
+              averageRealizedR: -0.4,
+              ewa: {
+                halfLifeSamples: 30,
+                decayedSampleCount: 8,
+                winRate: 0.2,
+                averageRealizedR: -0.5,
+              },
+            },
+          },
+        },
+        styleTier: {},
+        monthlySimulation: {
+          mediumOrHigher: {
+            mode: 'mediumOrHigher',
+            label: '中以上',
+            initialBalanceYen: 1000000,
+            riskPercent: 1,
+            months: [],
+            summary: {
+              periodStartMonth: null,
+              periodEndMonth: null,
+              plusMonthRate: null,
+              activeMonths: 0,
+              bestMonth: null,
+              worstMonth: null,
+              averageMonthlyPnlYen: 0,
+              totalPnlYen: 0,
+            },
+          },
+          highOnly: {
+            mode: 'highOnly',
+            label: '高のみ',
+            initialBalanceYen: 1000000,
+            riskPercent: 1,
+            months: [],
+            summary: {
+              periodStartMonth: null,
+              periodEndMonth: null,
+              plusMonthRate: null,
+              activeMonths: 0,
+              bestMonth: null,
+              worstMonth: null,
+              averageMonthlyPnlYen: 0,
+              totalPnlYen: 0,
+            },
+          },
+        },
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.expectation.tier).toBe(baseline?.expectation.tier);
+    expect(result?.historicalPerformance?.recommendations).toBe(9);
+  });
+
   it('generates a sell recommendation from aligned execution and environment signals', () => {
     const result = scanPair({
       pair: 'EURUSD',
