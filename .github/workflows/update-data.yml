@@ -9,6 +9,8 @@ on:
 permissions:
   contents: write
   deployments: write
+  pull-requests: write
+  actions: write
 
 jobs:
   update-data:
@@ -48,18 +50,44 @@ jobs:
         continue-on-error: true
         run: node scripts/run-forward-test.mjs
 
-      - name: Commit updated data
+      # GITHUB_TOKEN cannot push to protected main (branch protection rejects it
+      # with GH006), and its pushes/PRs do not trigger other workflows here. So
+      # commit to a fixed branch, open/refresh a PR, dispatch ci.yml explicitly
+      # (its checks bind to the head SHA and satisfy the required "test" check),
+      # then enable native auto-merge. Kept soft so deploy still runs; the final
+      # freshness/persistence gate makes any failure here visible.
+      - name: Commit updated data and open auto-merge PR
+        id: commit-data
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATA_BRANCH: data/daily-update
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/data
           if git diff --cached --quiet; then
             echo "No data changes to commit"
-          else
-            git commit -m "data: daily FX data update"
-            git push
+            echo "DATA_CHANGED=false" >> "$GITHUB_ENV"
+            exit 0
           fi
+
+          git checkout -B "$DATA_BRANCH"
+          git commit -m "data: daily FX data update"
+          git push --force origin "$DATA_BRANCH"
+          echo "DATA_CHANGED=true" >> "$GITHUB_ENV"
+
+          if gh pr view "$DATA_BRANCH" --json state --jq '.state' 2>/dev/null | grep -qx OPEN; then
+            echo "Reusing existing open PR for $DATA_BRANCH"
+          else
+            gh pr create --base main --head "$DATA_BRANCH" \
+              --title "data: daily FX data update" \
+              --body "Automated daily FX data refresh. Auto-merges once the required test check passes."
+          fi
+
+          gh workflow run ci.yml --ref "$DATA_BRANCH"
+          gh pr merge "$DATA_BRANCH" --auto --squash
 
       # GITHUB_TOKEN による push は deploy.yml を発火しないため、ここでデプロイまで行う
       - run: npm run build
@@ -70,3 +98,11 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name=fx-chart-analyzer --branch=main --commit-dirty=true --commit-message="daily data update"
+
+      # Hard gate (no continue-on-error): fails the run if the working-tree data
+      # is stale (>96h) or, when data changed this run, the data/daily-update PR
+      # is missing / lacks auto-merge. This is what makes a silent freeze visible.
+      - name: Verify data freshness and persistence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-data-freshness.mjs
