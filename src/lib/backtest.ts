@@ -7,7 +7,10 @@ import {
   pipsToPrice,
 } from './strategy';
 import type { MoneyManagementSettings, StrategyDefinition, StrategyDirection } from './strategy';
+import { spreadPipsForPair } from './spreads.js';
 import type { Bar, Pair } from '../types';
+
+export { spreadPipsForPair };
 
 export type TradeExitReason = 'stop_loss' | 'take_profit' | 'trailing_stop' | 'opposite_signal' | 'end';
 
@@ -86,17 +89,6 @@ interface OpenPosition {
   lotSize: number;
   pipValueYenPerLot: number;
 }
-
-const defaultSpreadPips: Record<Pair, number> = {
-  USDJPY: 0.9,
-  EURUSD: 0.7,
-  GBPJPY: 1.6,
-  EURJPY: 1.1,
-  AUDJPY: 1.2,
-  GBPUSD: 1.0,
-};
-
-export const spreadPipsForPair = (pair: Pair): number => defaultSpreadPips[pair];
 
 const DEFAULT_USDJPY_RATE = 150;
 
@@ -325,7 +317,8 @@ const resolveIntrabarExit = (
     const stopTouched = bar.l <= stopPrice;
     const takeProfitTouched = bar.h >= position.takeProfitPrice;
     if (stopTouched) {
-      return { exitPrice: stopPrice, reason: stopReason };
+      // A bar that gaps below the stop fills at the open, not the stop price.
+      return { exitPrice: Math.min(stopPrice, bar.o), reason: stopReason };
     }
     if (takeProfitTouched) {
       return { exitPrice: position.takeProfitPrice, reason: 'take_profit' };
@@ -336,7 +329,8 @@ const resolveIntrabarExit = (
   const stopTouched = bar.h >= stopPrice;
   const takeProfitTouched = bar.l <= position.takeProfitPrice;
   if (stopTouched) {
-    return { exitPrice: stopPrice, reason: stopReason };
+    // A bar that gaps above the stop fills at the open, not the stop price.
+    return { exitPrice: Math.max(stopPrice, bar.o), reason: stopReason };
   }
   if (takeProfitTouched) {
     return { exitPrice: position.takeProfitPrice, reason: 'take_profit' };
@@ -399,10 +393,26 @@ export const runBacktest = (
   let usedFallbackUsdJpyRate =
     !pair.endsWith('JPY') && (!options.usdJpyBars || options.usdJpyBars.length === 0);
 
-  const recordEquity = (time: number): void => {
-    peakEquityPips = Math.max(peakEquityPips, realizedPips);
-    const drawdownPips = Math.max(0, peakEquityPips - realizedPips);
-    const equityYen = moneyManagement.initialBalanceYen + realizedYen;
+  const recordEquity = (bar: Bar): void => {
+    const time = bar.t;
+    // Mark an open position to market at the bar's worst price (low for longs,
+    // high for shorts) so the equity curve and drawdown reflect floating losses,
+    // not just realized results. Spread is subtracted because closing costs it.
+    let floatingPips = 0;
+    let floatingYen = 0;
+    if (position) {
+      const worstPrice = position.direction === 'long' ? bar.l : bar.h;
+      const priceMove =
+        position.direction === 'long'
+          ? worstPrice - position.entryPrice
+          : position.entryPrice - worstPrice;
+      floatingPips = priceToPips(pair, priceMove) - spreadPips;
+      floatingYen = floatingPips * position.pipValueYenPerLot * position.lotSize;
+    }
+    const equityPips = realizedPips + floatingPips;
+    const equityYen = moneyManagement.initialBalanceYen + realizedYen + floatingYen;
+    peakEquityPips = Math.max(peakEquityPips, equityPips);
+    const drawdownPips = Math.max(0, peakEquityPips - equityPips);
     peakBalanceYen = Math.max(peakBalanceYen, equityYen);
     const drawdownYen = Math.max(0, peakBalanceYen - equityYen);
     const drawdownPct = peakBalanceYen <= 0 ? 0 : (drawdownYen / peakBalanceYen) * 100;
@@ -411,7 +421,7 @@ export const runBacktest = (
     maxDrawdownPct = Math.max(maxDrawdownPct, drawdownPct);
     const point = {
       time,
-      equityPips: roundPips(realizedPips),
+      equityPips: roundPips(equityPips),
       drawdownPips: roundPips(drawdownPips),
       equityYen: roundYen(equityYen),
       netProfitYen: roundYen(realizedYen),
@@ -426,7 +436,7 @@ export const runBacktest = (
   };
 
   if (bars.length > 0) {
-    recordEquity(bars[0].t);
+    recordEquity(bars[0]);
   }
 
   for (let index = 1; index < bars.length; index += 1) {
@@ -488,7 +498,7 @@ export const runBacktest = (
       }
     }
 
-    recordEquity(bar.t);
+    recordEquity(bar);
 
     if (
       position &&
@@ -521,7 +531,11 @@ export const runBacktest = (
     trades.push(trade);
     realizedPips += trade.netPips;
     realizedYen += trade.netProfitYen;
-    recordEquity(last.t);
+    // Clear the closed position before recording equity, mirroring the in-loop
+    // close path; otherwise recordEquity would re-mark it to market and double
+    // count the floating leg on top of the realized close.
+    position = null;
+    recordEquity(last);
   }
 
   const grossProfitPips = trades

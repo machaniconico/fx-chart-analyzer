@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { formatPrice, loadAdaptiveStats, loadBars, loadScannerStats, type AdaptiveStatsFile } from '../lib/chart-data';
+import { formatPrice, lastBar, loadAdaptiveStats, loadBars, loadScannerStats, type AdaptiveStatsFile } from '../lib/chart-data';
 import {
   recommendationStyles,
   scannerMinimumSampleSize,
@@ -9,7 +9,14 @@ import {
   type ScannerStats,
   type RecommendationStyle,
 } from '../lib/recommend';
-import { PAIRS, type DataFile, type Pair } from '../types';
+import {
+  PAIRS,
+  anyFallbackSource,
+  evaluateFreshness,
+  stalenessWarningMessage,
+  type DataFile,
+  type Pair,
+} from '../types';
 
 interface PairScannerData {
   pair: Pair;
@@ -24,6 +31,8 @@ interface RecommendationSectionData {
   style: RecommendationStyle;
   updatedAt: string | null;
   recommendations: PairRecommendation[];
+  /** この部門の使用データに yahoo-fallback が含まれるペア。 */
+  fallbackPairs: Set<Pair>;
 }
 
 type SimulationMode = 'mediumOrHigher' | 'highOnly';
@@ -112,16 +121,29 @@ const buildSections = (
     })),
   ).slice(0, 3);
 
+  const daytradeFallbackPairs = new Set<Pair>(
+    items
+      .filter((item) => anyFallbackSource([item.m30.source, item.h4.source]))
+      .map((item) => item.pair),
+  );
+  const swingFallbackPairs = new Set<Pair>(
+    items
+      .filter((item) => anyFallbackSource([item.h4.source, item.d1.source]))
+      .map((item) => item.pair),
+  );
+
   return [
     {
       style: 'daytrade',
       updatedAt: latestUpdatedAt(items.flatMap((item) => [item.m30.updatedAt, item.h4.updatedAt])),
       recommendations: daytrade,
+      fallbackPairs: daytradeFallbackPairs,
     },
     {
       style: 'swing',
       updatedAt: latestUpdatedAt(items.flatMap((item) => [item.h4.updatedAt, item.d1.updatedAt])),
       recommendations: swing,
+      fallbackPairs: swingFallbackPairs,
     },
   ];
 };
@@ -150,7 +172,13 @@ const formatMonth = (month: string): string => {
   return `${year}/${Number(rawMonth)}`;
 };
 
-function RecommendationCard({ recommendation }: { recommendation: PairRecommendation }) {
+function RecommendationCard({
+  recommendation,
+  usesFallbackSource,
+}: {
+  recommendation: PairRecommendation;
+  usesFallbackSource: boolean;
+}) {
   const directionClass = recommendation.direction === '買い' ? 'recommendation-buy' : 'recommendation-sell';
   const expectationClass = `recommendation-expectation-${recommendation.expectation.tier}`;
 
@@ -160,6 +188,11 @@ function RecommendationCard({ recommendation }: { recommendation: PairRecommenda
         <div>
           <span className="recommendation-pair">{recommendation.pair}</span>
           <small>データ最終更新: {formatJstUpdatedAt(recommendation.dataUpdatedAt)}</small>
+          {usesFallbackSource ? (
+            <span className="source-badge source-badge-fallback recommendation-source-badge">
+              代替データ源使用中
+            </span>
+          ) : null}
         </div>
         <div className={`recommendation-direction ${directionClass}`}>
           {recommendation.direction}
@@ -383,6 +416,7 @@ function RecommendationSection({ section }: { section: RecommendationSectionData
             <RecommendationCard
               key={`${recommendation.style}-${recommendation.pair}-${recommendation.direction}`}
               recommendation={recommendation}
+              usesFallbackSource={section.fallbackPairs.has(recommendation.pair)}
             />
           ))}
         </div>
@@ -393,7 +427,7 @@ function RecommendationSection({ section }: { section: RecommendationSectionData
   );
 }
 
-export function RecommendationPanel() {
+export function RecommendationPanel({ now }: { now?: number } = {}) {
   const [scannerData, setScannerData] = useState<PairScannerData[] | null>(null);
   const [scannerStats, setScannerStats] = useState<ScannerStats | null>(null);
   const [failedPairCount, setFailedPairCount] = useState(0);
@@ -451,6 +485,25 @@ export function RecommendationPanel() {
     [scannerData, scannerStats],
   );
 
+  const latestBarTimeSec = useMemo(() => {
+    if (!scannerData) {
+      return null;
+    }
+    let latest: number | null = null;
+    for (const item of scannerData) {
+      for (const file of [item.m30, item.h4, item.d1]) {
+        const bar = lastBar(file.bars);
+        if (bar && (latest === null || bar.t > latest)) {
+          latest = bar.t;
+        }
+      }
+    }
+    return latest;
+  }, [scannerData]);
+
+  const nowSec = now ?? Math.floor(Date.now() / 1000);
+  const freshness = evaluateFreshness(latestBarTimeSec, nowSec);
+
   return (
     <div className="recommendation-panel">
       <section className="recommendation-overview">
@@ -458,9 +511,15 @@ export function RecommendationPanel() {
           <p className="eyebrow">おすすめ通貨ペアスキャナー</p>
           <h2>今日の候補をデイトレ/スイングで自動選別</h2>
         </div>
-        <p>
-          ページを開くたびに6通貨ペアのM30/H4/D1最新データを読み込み、当日時点で再計算します。投資助言ではなく、毎日更新データに基づく分析です。
-        </p>
+        {freshness.isStale ? (
+          <p className="recommendation-overview-warning" role="alert">
+            {stalenessWarningMessage(freshness.ageDays)}
+          </p>
+        ) : (
+          <p>
+            ページを開くたびに6通貨ペアのM30/H4/D1最新データを読み込み、当日時点で再計算します。投資助言ではなく、毎日更新データに基づく分析です。
+          </p>
+        )}
       </section>
 
       {loading && <RecommendationSkeleton />}

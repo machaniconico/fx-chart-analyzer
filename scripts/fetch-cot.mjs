@@ -5,6 +5,7 @@ import { cotCurrencyContracts, normalizeCotReports } from './cot-normalize.mjs';
 const endpoint = 'https://publicreporting.cftc.gov/resource/6dca-aqww.json';
 const outputPath = resolve('public/data/cot.json');
 const reportLimit = 104;
+const FETCH_TIMEOUT_MS = 30_000;
 
 const cotUrl = (market) => {
   const url = new URL(endpoint);
@@ -15,7 +16,10 @@ const cotUrl = (market) => {
 };
 
 const loadMarket = async (market) => {
-  const response = await fetch(cotUrl(market), { cache: 'no-store' });
+  const response = await fetch(cotUrl(market), {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   if (!response.ok) {
     throw new Error(`${market} returned ${response.status}`);
   }

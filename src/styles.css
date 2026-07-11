@@ -208,6 +208,44 @@ input:disabled {
   color: #8e9bb3;
 }
 
+.market-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 155, 179, 0.32);
+  background: rgba(142, 155, 179, 0.14);
+  color: #b9c2d0;
+  white-space: nowrap;
+}
+
+.source-badge-fallback {
+  border-color: rgba(240, 173, 78, 0.55);
+  background: rgba(240, 173, 78, 0.16);
+  color: #f0ad4e;
+}
+
+.stale-banner {
+  margin: 14px clamp(12px, 2vw, 28px) 0;
+  padding: 12px 16px;
+  border: 1px solid rgba(240, 173, 78, 0.55);
+  background: rgba(240, 173, 78, 0.14);
+  color: #f0ad4e;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  font-weight: 600;
+}
+
 .chart-workarea {
   min-width: 0;
 }
@@ -403,6 +441,18 @@ input:disabled {
   color: #b9c2d0;
   font-size: 13px;
   line-height: 1.6;
+}
+
+.recommendation-overview-warning {
+  margin: 0;
+  color: #f0ad4e;
+  font-size: 13px;
+  line-height: 1.6;
+  font-weight: 600;
+}
+
+.recommendation-source-badge {
+  margin-top: 4px;
 }
 
 .recommendation-section {

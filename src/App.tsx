@@ -13,7 +13,15 @@ import { formatPrice, lastBar, loadAdaptiveStats, loadBars, type AdaptiveStatsFi
 import { getDefaultMtfTimeframe, getSelectableMtfTimeframes } from './lib/mtf';
 import { analyzeSignals } from './lib/signals';
 import type { DataFile, Pair, Timeframe } from './types';
-import { PAIRS, TIMEFRAMES, timeframeLabels } from './types';
+import {
+  PAIRS,
+  TIMEFRAMES,
+  timeframeLabels,
+  dataSourceLabel,
+  evaluateFreshness,
+  isFallbackSource,
+  stalenessWarningMessage,
+} from './types';
 
 const defaultToggles: IndicatorToggles = {
   sma20: true,
@@ -263,6 +271,7 @@ function App() {
   const previous = data && data.bars.length > 1 ? data.bars[data.bars.length - 2] : null;
   const change = current && previous ? current.c - previous.c : 0;
   const changePercent = current && previous ? (change / previous.c) * 100 : 0;
+  const freshness = evaluateFreshness(current?.t ?? null, now);
   const signalAnalysis = useMemo(
     () => (data ? analyzeSignals(data.bars) : null),
     [data],
@@ -332,6 +341,12 @@ function App() {
           </button>
         </nav>
       </header>
+
+      {data && freshness.isStale && (
+        <div className="stale-banner" role="alert">
+          {stalenessWarningMessage(freshness.ageDays)}
+        </div>
+      )}
 
       <section className="workspace">
         <aside className="control-panel" aria-label="チャート設定">
@@ -417,14 +432,25 @@ function App() {
             <span className={change >= 0 ? 'change change-up' : 'change change-down'}>
               {change >= 0 ? '+' : ''}{current ? formatPrice(pair, change) : '0'} / {changePercent.toFixed(2)}%
             </span>
-            {data && <small>更新: {new Date(data.updatedAt).toLocaleString('ja-JP')}</small>}
+            {data && (
+              <small className="market-meta-line">
+                更新: {new Date(data.updatedAt).toLocaleString('ja-JP')}
+                <span
+                  className={
+                    isFallbackSource(data.source) ? 'source-badge source-badge-fallback' : 'source-badge'
+                  }
+                >
+                  データ源: {dataSourceLabel(data.source)}
+                </span>
+              </small>
+            )}
             {data && <small>表示本数: {data.bars.length.toLocaleString('ja-JP')}</small>}
           </div>
         </aside>
 
         <section className="chart-workarea" aria-live="polite">
           {activeTab === 'recommend' ? (
-            <RecommendationPanel />
+            <RecommendationPanel now={now} />
           ) : activeTab === 'forward' ? (
             <ForwardTestPanel now={now} />
           ) : (

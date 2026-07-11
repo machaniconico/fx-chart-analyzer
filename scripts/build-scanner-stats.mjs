@@ -3,7 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildAdaptiveStats, defaultPredictionHorizons } from '../src/lib/adaptive-core.js';
+import { defaultSpreadPipsByPair, spreadPipsForPair } from '../src/lib/spreads.js';
 import { loadEsbuild } from './lib/esbuild-loader.mjs';
+
+export { defaultSpreadPipsByPair };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,14 +20,6 @@ export const expectationTierKeys = ['high', 'medium', 'low'];
 export const initialSimulationBalanceYen = 1_000_000;
 export const simulationRiskPercent = 1;
 export const simulationWindowMonths = 12;
-export const defaultSpreadPipsByPair = {
-  USDJPY: 0.9,
-  EURUSD: 0.7,
-  GBPJPY: 1.6,
-  EURJPY: 1.1,
-  AUDJPY: 1.2,
-  GBPUSD: 1.0,
-};
 
 const timeframeOrder = ['m15', 'm30', 'h1', 'h4', 'd1'];
 const timeframeSeconds = {
@@ -108,8 +103,6 @@ export const barsThroughTime = (bars, cutoffSeconds, barSeconds = 0) => {
 
 const pipSize = (pair) => (pair.endsWith('JPY') ? 0.01 : 0.0001);
 
-const spreadPipsForPair = (pair) => defaultSpreadPipsByPair[pair] ?? 0;
-
 const entryPriceWithSpread = (recommendation, fillPrice) => {
   const spreadPrice = spreadPipsForPair(recommendation.pair) * pipSize(recommendation.pair);
   return recommendation.direction === '買い'
@@ -192,16 +185,23 @@ export const judgeRecommendationOutcome = ({
   const signalEntryPrice = fill.signalEntryPrice;
   const actualEntryPrice = entryPriceWithSpread(recommendation, signalEntryPrice);
   const barsFromEntry = evaluationBars.slice(fill.barIndex);
+  const isPullbackEntry = recommendation.entry.type !== 'market';
 
-  for (const bar of barsFromEntry) {
+  for (let barOffset = 0; barOffset < barsFromEntry.length; barOffset += 1) {
+    const bar = barsFromEntry[barOffset];
     const slHit =
       recommendation.direction === '買い'
         ? bar.l <= recommendation.slPrice
         : bar.h >= recommendation.slPrice;
+    // On a pullback (limit) fill bar, the bar's TP-side extreme may have printed
+    // before the limit filled, so only SL is judged on that bar; TP starts from
+    // the next bar. This mirrors the pessimistic same-bar SL-over-TP rule.
+    const tpEligible = !(isPullbackEntry && barOffset === 0);
     const tpHit =
-      recommendation.direction === '買い'
+      tpEligible &&
+      (recommendation.direction === '買い'
         ? bar.h >= recommendation.tpPrice
-        : bar.l <= recommendation.tpPrice;
+        : bar.l <= recommendation.tpPrice);
 
     if (slHit || tpHit) {
       const exitPrice = slHit ? recommendation.slPrice : recommendation.tpPrice;
@@ -618,7 +618,7 @@ export const buildScannerStats = async ({
       adaptiveStatsMode: useRollingAdaptiveStats ? 'rolling-from-cutoff' : 'none',
       decisionFrequency: 'last execution bar of each UTC day',
       entryRule: 'market entries fill at the next execution bar open; pullback entries fill only when a future execution bar reaches the entry zone.',
-      outcomeRule: 'Fixed pair spread is applied at entry; SL/TP judged on execution bars after fill; if both hit in one bar, SL wins pessimistically; unsettled trades close at max holding deadline; slippage is not modeled.',
+      outcomeRule: 'Fixed pair spread is applied at entry; SL/TP judged on execution bars after fill; if both hit in one bar, SL wins pessimistically; on a pullback (limit) fill bar only SL is judged and TP judging starts from the next bar (the limit may fill after an intrabar TP spike); unsettled trades close at max holding deadline; slippage is not modeled.',
       spreadPips: defaultSpreadPipsByPair,
       maxHoldingBusinessDays: styleHoldingBusinessDays,
       initialBalanceYen: initialSimulationBalanceYen,

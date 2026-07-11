@@ -7,6 +7,7 @@ const sources = [
 ];
 
 const outputPath = resolve('public/data/calendar.json');
+const FETCH_TIMEOUT_MS = 30_000;
 
 const impactMap = new Map([
   ['High', 'high'],
@@ -41,7 +42,7 @@ const eventKey = (event) =>
   [event.time, event.currency, event.impact, event.title].join('\u0000');
 
 const loadSource = async (url) => {
-  const response = await fetch(url, { cache: 'no-store' });
+  const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!response.ok) {
     throw new Error(`${url} returned ${response.status}`);
   }
