@@ -397,6 +397,34 @@ describe('backtest', () => {
     expect(result.maxDrawdownPct).toBeCloseTo(9);
   });
 
+  it('does not double count the floating leg when a position is force-closed at the end', () => {
+    const result = runBacktest(
+      [
+        bar(0, 100.0, 100.05, 99.95, 100.0),
+        bar(1, 100.0, 100.05, 99.95, 100.0),
+        bar(2, 100.0, 100.05, 99.95, 100.0),
+        bar(3, 99.9, 99.95, 99.8, 99.85),
+        bar(4, 99.5, 99.95, 99.1, 99.9),
+      ],
+      alwaysEntryStrategy({ stopLossPips: 500, takeProfitPips: 500 }),
+      'USDJPY',
+      { spreadPips: 0 },
+    );
+
+    expect(result.tradeCount).toBe(1);
+    expect(result.trades[0].exitReason).toBe('end');
+    expect(result.netProfitYen).toBe(-10_000);
+    // The final bar's low (99.10) is a -90 pip floating trough while the position
+    // is still open, so that is the honest drawdown...
+    expect(result.maxDrawdownPips).toBeCloseTo(90);
+    expect(result.maxDrawdownYen).toBe(90_000);
+    // ...but once the position is closed at the end, the last equity point must be
+    // purely realized: initial balance + net profit, with no floating leg left on.
+    const lastPoint = result.equityCurve[result.equityCurve.length - 1];
+    expect(lastPoint.equityYen).toBe(1_000_000 + result.netProfitYen);
+    expect(lastPoint.equityYen).toBe(990_000);
+  });
+
   it('can evaluate long and short entries from one strategy definition', () => {
     const result = runBacktest(
       [

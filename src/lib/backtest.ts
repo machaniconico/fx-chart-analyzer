@@ -531,6 +531,10 @@ export const runBacktest = (
     trades.push(trade);
     realizedPips += trade.netPips;
     realizedYen += trade.netProfitYen;
+    // Clear the closed position before recording equity, mirroring the in-loop
+    // close path; otherwise recordEquity would re-mark it to market and double
+    // count the floating leg on top of the realized close.
+    position = null;
     recordEquity(last);
   }
 
