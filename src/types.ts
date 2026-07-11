@@ -46,6 +46,22 @@ export interface FreshnessStatus {
   isStale: boolean;
 }
 
+/** Provenance attached to forward results accumulated from immutable daily history. */
+export interface ForwardHistoryCoverage {
+  source: 'confirmed-history';
+  firstConfirmedDate: string | null;
+  confirmedThrough: string | null;
+  confirmedDayCount: number;
+}
+
+/** Coverage of the comparison backtest recalculated from the currently retained data window. */
+export interface BacktestReferenceCoverage {
+  source: 'current-window';
+  firstBarAt: number | null;
+  lastBarAt: number | null;
+  barsEvaluated: number;
+}
+
 /**
  * 最新バー時刻(秒)と現在時刻(秒)から鮮度を評価する。
  * latestBarTimeSec が null / 非数のときは警告を出さない(isStale=false)。

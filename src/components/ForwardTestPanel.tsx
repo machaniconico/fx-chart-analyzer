@@ -14,11 +14,28 @@ import {
   type ForwardStrategyResult,
 } from '../lib/forward-test';
 import type { BacktestTrade } from '../lib/backtest';
-import { timeframeLabels } from '../types';
+import {
+  timeframeLabels,
+  type BacktestReferenceCoverage,
+  type ForwardHistoryCoverage,
+} from '../types';
 
 interface ForwardTestPanelProps {
   now: number;
 }
+
+type ForwardPerformanceWithHistory = ForwardStrategyResult['forward']
+  & Partial<ForwardHistoryCoverage>;
+
+type ForwardStrategyResultWithHistory = Omit<ForwardStrategyResult, 'forward'> & {
+  forward: ForwardPerformanceWithHistory;
+  backtestReferenceCoverage?: BacktestReferenceCoverage;
+};
+
+type ForwardResultsFileWithHistory = Omit<ForwardResultsFile, 'strategies'> & {
+  schemaVersion?: number;
+  strategies: ForwardStrategyResultWithHistory[];
+};
 
 const yenFormatter = new Intl.NumberFormat('ja-JP', {
   style: 'currency',
@@ -52,11 +69,32 @@ const registeredDayLabel = (registeredAt: number, now: number): string => {
   return `${Math.floor((now - registeredAt) / 86_400) + 1}日目`;
 };
 
-const statusLabel = (strategy: ForwardStrategyResult): string => {
+const statusLabel = (strategy: ForwardStrategyResultWithHistory): string => {
   if (strategy.forward.metrics.tradeCount === 0) {
     return 'シグナル待ち';
   }
-  return (strategy.forward.metrics.netProfitYen ?? 0) >= 0 ? '運用中' : 'ドローダウン中';
+  return (strategy.forward.metrics.netProfitYen ?? 0) >= 0 ? '累積プラス' : '累積マイナス';
+};
+
+const isConfirmedHistory = (
+  forward: ForwardPerformanceWithHistory,
+): forward is ForwardStrategyResult['forward'] & ForwardHistoryCoverage => {
+  const coverage = forward as Partial<ForwardHistoryCoverage>;
+  return coverage.source === 'confirmed-history'
+    && (coverage.firstConfirmedDate === null || typeof coverage.firstConfirmedDate === 'string')
+    && (coverage.confirmedThrough === null || typeof coverage.confirmedThrough === 'string')
+    && Number.isInteger(coverage.confirmedDayCount)
+    && (coverage.confirmedDayCount ?? -1) >= 0;
+};
+
+const referenceCoverageLabel = (coverage?: BacktestReferenceCoverage): string => {
+  if (!coverage) {
+    return '旧形式・範囲情報なし';
+  }
+  if (coverage.firstBarAt === null || coverage.lastBarAt === null) {
+    return 'データなし';
+  }
+  return `${dateLabel(coverage.firstBarAt)}〜${dateLabel(coverage.lastBarAt)}`;
 };
 
 const exitReasonLabels: Record<BacktestTrade['exitReason'], string> = {
@@ -89,8 +127,10 @@ const createForwardChart = (container: HTMLDivElement): IChartApi =>
     },
   });
 
-function ForwardEquityCurve({ strategy }: { strategy: ForwardStrategyResult }) {
+function ForwardEquityCurve({ strategy }: { strategy: ForwardStrategyResultWithHistory }) {
   const chartRef = useRef<HTMLDivElement | null>(null);
+  const confirmed = isConfirmedHistory(strategy.forward);
+  const actualLabel = confirmed ? '確定実績' : '登録後の再計算値';
   const points = useMemo(
     () => strategy.forward.equityCurve.filter((point) => Number.isFinite(point.equityYen)),
     [strategy.forward.equityCurve],
@@ -113,7 +153,7 @@ function ForwardEquityCurve({ strategy }: { strategy: ForwardStrategyResult }) {
     const line = chart.addLineSeries({
       color: (strategy.forward.metrics.netProfitYen ?? 0) >= 0 ? '#20c997' : '#ff5b78',
       lineWidth: 2,
-      title: 'フォワード残高',
+      title: `${actualLabel}残高`,
     });
     line.setData(
       points.map<LineData>((point) => ({
@@ -127,17 +167,24 @@ function ForwardEquityCurve({ strategy }: { strategy: ForwardStrategyResult }) {
       resizeObserver.disconnect();
       chart.remove();
     };
-  }, [points, strategy.forward.metrics.netProfitYen]);
+  }, [actualLabel, points, strategy.forward.metrics.netProfitYen]);
 
   if (points.length < 2) {
     return (
       <div className="forward-empty-curve">
-        資産曲線はフォワードデータが増えたら表示されます
+        {confirmed ? '確定日次履歴' : '登録後データ'}が増えたら資産曲線を表示します
       </div>
     );
   }
 
-  return <div ref={chartRef} className="forward-equity-chart" />;
+  return (
+    <div
+      ref={chartRef}
+      className="forward-equity-chart"
+      role="img"
+      aria-label={`${strategy.meta.name}の${actualLabel}累積資産曲線`}
+    />
+  );
 }
 
 function MetricComparison({
@@ -145,12 +192,14 @@ function MetricComparison({
   forward,
   reference,
   formatter,
+  actualLabel,
   emphasizeProfit = false,
 }: {
   label: string;
   forward: number | null;
   reference: number | null;
   formatter: (value: number | null) => string;
+  actualLabel: string;
   emphasizeProfit?: boolean;
 }) {
   const profitClass =
@@ -163,15 +212,19 @@ function MetricComparison({
   return (
     <div className="forward-comparison-row">
       <span>{label}</span>
-      <strong className={profitClass}>{formatter(forward)}</strong>
-      <small>参考: {formatter(reference)}</small>
+      <strong className={profitClass}>{actualLabel}: {formatter(forward)}</strong>
+      <small>参考BT（現行窓）: {formatter(reference)}</small>
     </div>
   );
 }
 
-function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResult; now: number }) {
+function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResultWithHistory; now: number }) {
   const { meta, forward, backtestReference } = strategy;
   const hasNoTrades = forward.metrics.tradeCount === 0;
+  const confirmed = isConfirmedHistory(forward);
+  const actualLabel = confirmed ? '確定実績' : '再計算値';
+  const referenceAvailable = !strategy.backtestReferenceCoverage
+    || strategy.backtestReferenceCoverage.barsEvaluated > 0;
   const tradeCountFormatter = (value: number | null): string =>
     value === null ? '-' : numberFormatter.format(value);
 
@@ -183,14 +236,31 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResult; now:
           <h3>{meta.name}</h3>
         </div>
         <div className="forward-status-block">
-          <span>{registeredDayLabel(meta.registeredAt, now)}</span>
+          <span>
+            {confirmed
+              ? forward.confirmedThrough === null
+                ? '確定待ち'
+                : `${forward.confirmedThrough}まで確定`
+              : registeredDayLabel(meta.registeredAt, now)}
+          </span>
           <strong>{statusLabel(strategy)}</strong>
         </div>
       </header>
 
+      <div className="forward-waiting-message">
+        {confirmed ? (
+          <>
+            <strong>確定実績（仮想）</strong>は日次履歴から累積し、過去日を再計算で変更しません。
+            参考BTは現在保持しているデータ窓で毎回再計算されます。
+          </>
+        ) : (
+          <strong>履歴永続化前の再計算値です。確定実績としては扱いません。</strong>
+        )}
+      </div>
+
       {hasNoTrades && (
         <div className="forward-waiting-message">
-          運用開始直後です。シグナル待ち
+          {actualLabel}の取引はありません。シグナル待ち
         </div>
       )}
 
@@ -198,57 +268,87 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResult; now:
         <MetricComparison
           label="トレード数"
           forward={forward.metrics.tradeCount}
-          reference={backtestReference.tradeCount}
+          reference={referenceAvailable ? backtestReference.tradeCount : null}
           formatter={tradeCountFormatter}
+          actualLabel={actualLabel}
         />
         <MetricComparison
           label="勝率"
           forward={forward.metrics.winRate}
-          reference={backtestReference.winRate}
+          reference={referenceAvailable ? backtestReference.winRate : null}
           formatter={formatPercent}
+          actualLabel={actualLabel}
         />
         <MetricComparison
           label="純損益"
           forward={forward.metrics.netProfitYen}
-          reference={backtestReference.netProfitYen}
+          reference={referenceAvailable ? backtestReference.netProfitYen : null}
           formatter={formatYen}
+          actualLabel={actualLabel}
           emphasizeProfit
         />
         <MetricComparison
           label="最大DD"
           forward={forward.metrics.maxDrawdownYen}
-          reference={backtestReference.maxDrawdownYen}
+          reference={referenceAvailable ? backtestReference.maxDrawdownYen : null}
           formatter={formatYen}
+          actualLabel={actualLabel}
         />
       </div>
 
       <dl className="forward-detail-grid">
         <div>
-          <dt>評価バー</dt>
-          <dd>{strategy.barsEvaluated.toLocaleString('ja-JP')}本</dd>
+          <dt>{confirmed ? '確定期間' : '再計算期間'}</dt>
+          <dd>
+            {confirmed && forward.firstConfirmedDate && forward.confirmedThrough
+              ? `${forward.firstConfirmedDate}〜${forward.confirmedThrough}`
+              : '-'}
+          </dd>
         </div>
         <div>
-          <dt>フォワードpips</dt>
+          <dt>{confirmed ? '確定日数' : '再計算日数'}</dt>
+          <dd>{confirmed ? `${forward.confirmedDayCount.toLocaleString('ja-JP')}日` : '-'}</dd>
+        </div>
+        <div>
+          <dt>{actualLabel}pips</dt>
           <dd>{formatPips(forward.metrics.netPips)}</dd>
         </div>
         <div>
           <dt>参考PF</dt>
-          <dd>{backtestReference.profitFactor === null ? '∞' : backtestReference.profitFactor.toFixed(2)}</dd>
+          <dd>
+            {!referenceAvailable
+              ? '-'
+              : backtestReference.profitFactor === null
+                ? '∞'
+                : backtestReference.profitFactor.toFixed(2)}
+          </dd>
+        </div>
+        <div>
+          <dt>参考BTの評価バー</dt>
+          <dd>
+            {strategy.backtestReferenceCoverage && referenceAvailable
+              ? `${strategy.backtestReferenceCoverage.barsEvaluated.toLocaleString('ja-JP')}本`
+              : '-'}
+          </dd>
+        </div>
+        <div>
+          <dt>参考BTの現行窓</dt>
+          <dd>{referenceCoverageLabel(strategy.backtestReferenceCoverage)}</dd>
         </div>
       </dl>
 
       <section className="chart-card forward-chart-card">
         <div className="chart-heading">
-          <span>資産曲線</span>
-          <span>フォワード</span>
+          <span>{actualLabel}の累積資産</span>
+          <span>{confirmed ? '日次確定履歴から集計' : '現行窓から再計算'}</span>
         </div>
         <ForwardEquityCurve strategy={strategy} />
       </section>
 
       <section className="trade-table-card forward-trades-card">
         <div className="chart-heading">
-          <span>直近トレード</span>
-          <span>{forward.trades.length}件</span>
+          <span>{actualLabel}の直近トレード</span>
+          <span>{forward.trades.length}件（最大50件）</span>
         </div>
         {forward.trades.length === 0 ? (
           <p className="empty-copy">まだ約定はありません。</p>
@@ -268,7 +368,7 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResult; now:
               </thead>
               <tbody>
                 {forward.trades.map((trade) => (
-                  <tr key={trade.id}>
+                  <tr key={`${trade.entryTime}-${trade.exitTime}-${trade.direction}-${trade.id}`}>
                     <td>{trade.id}</td>
                     <td>{trade.direction === 'long' ? '買い' : '売り'}</td>
                     <td>{dateLabel(trade.entryTime)} / {formatPrice(meta.pair, trade.entryPrice)}</td>
@@ -292,7 +392,7 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResult; now:
 }
 
 export function ForwardTestPanel({ now }: ForwardTestPanelProps) {
-  const [results, setResults] = useState<ForwardResultsFile | null>(null);
+  const [results, setResults] = useState<ForwardResultsFileWithHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -303,7 +403,7 @@ export function ForwardTestPanel({ now }: ForwardTestPanelProps) {
     loadForwardResults()
       .then((payload) => {
         if (!disposed) {
-          setResults(payload);
+          setResults(payload as ForwardResultsFileWithHistory);
         }
       })
       .catch((reason: unknown) => {
@@ -343,7 +443,7 @@ export function ForwardTestPanel({ now }: ForwardTestPanelProps) {
           <h2>仮想運用モニター</h2>
         </div>
         <div className="forward-overview-copy">
-          <p>毎朝のデータ更新時に自動でシミュレーションが進みます。</p>
+          <p>確定実績は日次で追記保存し、参考バックテストは現行データ窓で再計算します。</p>
           <small>最終計算: {new Date(results.computedAt).toLocaleString('ja-JP')}</small>
         </div>
       </section>
@@ -355,7 +455,8 @@ export function ForwardTestPanel({ now }: ForwardTestPanelProps) {
       </div>
 
       <p className="forward-disclaimer">
-        フォワードテストは過去に登録したルールを最新バーへ機械的に適用する仮想運用です。
+        確定実績は登録済みルールを日次データへ適用して保存した仮想運用結果であり、実口座の取引履歴ではありません。
+        参考バックテストは現在保持しているデータ窓で再計算されるため、値が変動します。
         約定価格、スリッページ、取引コスト、運用停止条件は実口座と一致しない場合があります。
         本画面の情報は投資助言ではありません。
       </p>
