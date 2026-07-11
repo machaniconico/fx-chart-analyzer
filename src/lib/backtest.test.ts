@@ -354,6 +354,49 @@ describe('backtest', () => {
     expect(result.netProfitYen).toBe(-30_000);
   });
 
+  it('fills a gapped stop at the bar open instead of the stop price', () => {
+    const result = runBacktest(
+      crossSetupBars(
+        bar(5, 100.2, 100.35, 100.18, 100.31),
+        [bar(6, 99.0, 99.1, 98.9, 99.0)],
+      ),
+      baseStrategy({ stopLossPips: 50, takeProfitPips: 100 }),
+      'USDJPY',
+    );
+
+    expect(result.tradeCount).toBe(1);
+    expect(result.trades[0].exitReason).toBe('stop_loss');
+    // Stop sits at 99.70 but the bar gaps open to 99.00, so the fill is the open,
+    // not the stop price (-120 pips, far worse than the naive -50 pip stop).
+    expect(result.trades[0].exitPrice).toBeCloseTo(99.0);
+    expect(result.trades[0].grossPips).toBe(-120);
+    expect(result.netPips).toBeCloseTo(-120.9);
+  });
+
+  it('records floating drawdown while a position is held, not just realized losses', () => {
+    const result = runBacktest(
+      [
+        bar(0, 100.0, 100.05, 99.95, 100.0),
+        bar(1, 100.0, 100.05, 99.95, 100.0),
+        bar(2, 100.0, 100.05, 99.95, 100.0),
+        bar(3, 99.9, 99.95, 99.1, 99.5),
+        bar(4, 99.6, 100.6, 99.55, 100.5),
+      ],
+      alwaysEntryStrategy({ stopLossPips: 200, takeProfitPips: 50 }),
+      'USDJPY',
+      { spreadPips: 0 },
+    );
+
+    expect(result.tradeCount).toBe(1);
+    expect(result.trades[0].exitReason).toBe('take_profit');
+    expect(result.netProfitYen).toBe(50_000);
+    // The position sank to -90 pips (bar 3 low 99.10 vs entry 100.00) before the
+    // take profit, so drawdown reflects the floating loss, not the winning close.
+    expect(result.maxDrawdownPips).toBeCloseTo(90);
+    expect(result.maxDrawdownYen).toBe(90_000);
+    expect(result.maxDrawdownPct).toBeCloseTo(9);
+  });
+
   it('can evaluate long and short entries from one strategy definition', () => {
     const result = runBacktest(
       [

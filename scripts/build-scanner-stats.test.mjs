@@ -163,6 +163,39 @@ describe('scanner stats builder', () => {
     expect(result?.realizedR).toBeCloseTo(0.988072, 6);
   });
 
+  it('does not count a take profit that only prints on the pullback fill bar', () => {
+    const result = judgeRecommendationOutcome({
+      recommendation: recommendation({
+        decisionTime: time('2026-01-05T00:00:00Z'),
+        entry: {
+          type: 'pullback',
+          price: 100,
+          zone: { low: 99.9, high: 100.1 },
+        },
+        slPrice: 99.5,
+        tpPrice: 101,
+      }),
+      maxHoldingBusinessDays: 5,
+      futureBars: [
+        // Fill bar: high spikes to the TP (101.2 >= 101) but the low reaches the
+        // limit zone, so the limit could only have filled after that spike. TP is
+        // not credited on this bar; only SL is judged here.
+        bar('2026-01-05T00:30:00Z', 100.5, { o: 100.5, h: 101.2, l: 100.0, c: 100.2 }),
+        // Next bar takes the stop, so the honest outcome is a loss.
+        bar('2026-01-05T01:00:00Z', 99.8, { o: 99.8, h: 99.9, l: 99.4, c: 99.5 }),
+      ],
+    });
+
+    expect(result).toMatchObject({
+      outcome: 'loss',
+      exitReason: 'sl',
+      entryTime: time('2026-01-05T00:30:00Z'),
+      signalEntryPrice: 100,
+      exitPrice: 99.5,
+    });
+    expect(result?.realizedR).toBeCloseTo(-1, 2);
+  });
+
   it('waits for pullback entries to reach the zone before judging outcomes', () => {
     const result = judgeRecommendationOutcome({
       recommendation: recommendation({

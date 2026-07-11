@@ -283,6 +283,7 @@ const markdownTable = (rows) => {
     'Val PF',
     'Val DD',
     'Val取引',
+    '過学習',
   ];
   const body = rows.map((row, index) => [
     String(index + 1),
@@ -295,6 +296,7 @@ const markdownTable = (rows) => {
     formatPf(row.validation.profitFactor),
     formatDd(row.validation.maxDrawdownYen),
     String(row.validation.tradeCount),
+    row.overfitWarning ? '⚠ 疑い' : '-',
   ]);
   return [
     `| ${header.join(' | ')} |`,
@@ -303,27 +305,27 @@ const markdownTable = (rows) => {
   ].join('\n');
 };
 
-const rankRows = (rows) =>
+// Rank by the optimization (in-sample) window, matching src/lib/optimize.ts, so
+// the validation window stays a genuine out-of-sample hold-out. Ranking by the
+// validation window turned it into a second optimization set (selection bias).
+export const rankRows = (rows) =>
   [...rows].sort((left, right) => {
-    const validationProfitDiff = right.validation.netProfitYen - left.validation.netProfitYen;
-    if (validationProfitDiff !== 0) {
-      return validationProfitDiff;
-    }
-    const validationPfDiff = right.validation.profitFactor - left.validation.profitFactor;
-    if (validationPfDiff !== 0) {
-      return validationPfDiff;
-    }
     const optimizationProfitDiff = right.optimization.netProfitYen - left.optimization.netProfitYen;
     if (optimizationProfitDiff !== 0) {
       return optimizationProfitDiff;
     }
-    return left.validation.maxDrawdownYen - right.validation.maxDrawdownYen;
+    return left.optimization.maxDrawdownYen - right.optimization.maxDrawdownYen;
   });
 
-const isEligible = (row) =>
+// Validation is only a pass/fail gate here, never a ranking key: the adopted row
+// must be profitable in-sample, hold up out-of-sample (>=10 trades, no overfit
+// warning, and keep at least 35% of the in-sample profit).
+export const isEligible = (row) =>
   row.optimization.netProfitYen > 0 &&
   row.validation.netProfitYen > 0 &&
-  row.validation.tradeCount >= 10;
+  row.validation.tradeCount >= 10 &&
+  !row.overfitWarning &&
+  row.validationToOptimizationRatio >= 0.35;
 
 const loadTargetStrategy = async (target) => {
   if (target.strategy) {
@@ -385,7 +387,11 @@ const evaluateTarget = async (engine, target) => {
     }
   }
 
-  const rankedRows = rankRows(rows);
+  // Drop combinations that lose money in-sample (PF < 1) before display and
+  // selection: an in-sample loser has no business being reported as a candidate.
+  const rankedRows = rankRows(rows).filter((row) => row.optimization.profitFactor >= 1);
+  const spanDays = (segment) =>
+    segment.length > 1 ? (segment[segment.length - 1].t - segment[0].t) / 86400 : 0;
   return {
     strategy,
     pair,
@@ -393,6 +399,8 @@ const evaluateTarget = async (engine, target) => {
     referenceBars: referenceBars.length,
     optimizationBars: optimizationBars.length,
     validationBars: validationBars.length,
+    referenceSpanDays: spanDays(referenceBars),
+    validationSpanDays: spanDays(validationBars),
     rows: rankedRows,
     eligible: rankedRows.find(isEligible) ?? null,
   };
@@ -401,8 +409,13 @@ const evaluateTarget = async (engine, target) => {
 const printTargetResult = (result) => {
   console.log(`\n## ${result.strategy.meta.id} (${result.pair} ${result.timeframe})`);
   console.log(
-    `bars: reference=${result.referenceBars}, optimization=${result.optimizationBars}, validation=${result.validationBars}`,
+    `bars: reference=${result.referenceBars} (${Math.round(result.referenceSpanDays)}日), optimization=${result.optimizationBars}, validation=${result.validationBars} (${Math.round(result.validationSpanDays)}日)`,
   );
+  if (result.referenceSpanDays < 730) {
+    console.log(
+      `⚠ 参照データが2年(730日)未満(${Math.round(result.referenceSpanDays)}日)。検証スライスは約${Math.round(result.validationSpanDays)}日しかなく、採用候補のウォークフォワード検証は限定的です。`,
+    );
+  }
   console.log(markdownTable(result.rows.slice(0, 5)));
   if (result.eligible) {
     console.log(`採用候補: ${combinationLabel(result.eligible)}`);
