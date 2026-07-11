@@ -15,6 +15,9 @@ permissions:
 jobs:
   update-data:
     runs-on: ubuntu-latest
+    # A stalled fetch must not hold the runner for GitHub's 6h default, which would skip
+    # the build/deploy and the final freshness gate (hiding the failure for a whole day).
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -73,10 +76,15 @@ jobs:
             exit 0
           fi
 
+          # Record the change BEFORE any commit/push/PR step can fail so the final gate
+          # always runs verifyDataPr on a changed run. If this were set only after a
+          # successful push, a push/PR failure would leave DATA_CHANGED unset and the
+          # persistence check — the very thing meant to catch that — would be skipped.
+          echo "DATA_CHANGED=true" >> "$GITHUB_ENV"
+
           git checkout -B "$DATA_BRANCH"
           git commit -m "data: daily FX data update"
           git push --force origin "$DATA_BRANCH"
-          echo "DATA_CHANGED=true" >> "$GITHUB_ENV"
 
           if gh pr view "$DATA_BRANCH" --json state --jq '.state' 2>/dev/null | grep -qx OPEN; then
             echo "Reusing existing open PR for $DATA_BRANCH"

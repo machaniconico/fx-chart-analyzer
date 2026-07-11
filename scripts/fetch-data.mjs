@@ -28,6 +28,7 @@ const M30_LOOKBACK_DAYS = 120;
 const H1_LOOKBACK_DAYS = 730;
 const D1_LOOKBACK_DAYS = 3400;
 const DUKASCOPY_TIMEOUT_MS = 90_000;
+const YAHOO_FETCH_TIMEOUT_MS = 30_000;
 
 const dayMs = 24 * 60 * 60 * 1000;
 const daySeconds = 24 * 60 * 60;
@@ -140,10 +141,17 @@ export const normalizeYahooChartResponse = (
   return [...dedupedByTime.values()].sort((a, b) => a.t - b.t);
 };
 
-export const mergeAppendOnlyBars = (existingBars, yahooBars) => {
-  const existing = Array.isArray(existingBars) ? existingBars : [];
+export const mergeAppendOnlyBars = (existingBars, incomingBars) => {
+  const existing = Array.isArray(existingBars) ? [...existingBars] : [];
+  const incoming = Array.isArray(incomingBars) ? incomingBars : [];
+  // A previous run may have persisted a still-forming final bar (frozen mid-bucket)
+  // that the strict t > tail filter would never revisit. If the incoming feed carries a
+  // fresh version of that same timestamp, drop the stale tail so it gets replaced.
+  if (existing.length > 0 && incoming.some((bar) => bar.t === existing[existing.length - 1].t)) {
+    existing.pop();
+  }
   const lastExistingTime = existing.length ? existing[existing.length - 1].t : -Infinity;
-  return [...existing, ...yahooBars.filter((bar) => bar.t > lastExistingTime)];
+  return [...existing, ...incoming.filter((bar) => bar.t > lastExistingTime)];
 };
 
 const validateBars = (pair, tf, bars, { minExpectedBars = MIN_EXPECTED_BARS_BY_TIMEFRAME[tf] } = {}) => {
@@ -265,6 +273,7 @@ const fetchYahooTimeframe = async (pair, tf) => {
     headers: {
       'User-Agent': 'Mozilla/5.0',
     },
+    signal: AbortSignal.timeout(YAHOO_FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(`Yahoo ${pair} ${tf}: HTTP ${response.status}`);
@@ -297,20 +306,68 @@ const yahooMinExpectedBars = (tf, hasExistingBars) =>
     ? YAHOO_STANDALONE_MIN_EXPECTED_BARS_BY_TIMEFRAME[tf] ?? MIN_EXPECTED_BARS_BY_TIMEFRAME[tf]
     : MIN_EXPECTED_BARS_BY_TIMEFRAME[tf];
 
-const buildYahooFallbackBars = async (pair, tf, yahooBars) => {
+const barsEqual = (a, b) =>
+  a.o === b.o && a.h === b.h && a.l === b.l && a.c === b.c && a.v === b.v;
+
+const buildYahooFallbackBars = async (pair, tf, incomingBars) => {
   const existingBars = await readExistingBars(pair, tf);
   const hasExistingBars = Array.isArray(existingBars);
-  const lastExistingTime = hasExistingBars && existingBars.length > 0
-    ? existingBars[existingBars.length - 1].t
-    : -Infinity;
+  const existingLast = hasExistingBars && existingBars.length > 0
+    ? existingBars[existingBars.length - 1]
+    : null;
+  const lastExistingTime = existingLast ? existingLast.t : -Infinity;
   const appendedCount = hasExistingBars
-    ? yahooBars.filter((bar) => bar.t > lastExistingTime).length
-    : yahooBars.length;
-  const merged = hasExistingBars ? mergeAppendOnlyBars(existingBars, yahooBars) : yahooBars;
+    ? incomingBars.filter((bar) => bar.t > lastExistingTime).length
+    : incomingBars.length;
+  // Detect a genuine replacement of the (possibly frozen) final bar so a replace-only run
+  // still writes; identical replacements stay no-ops to avoid churning daily commits.
+  const replacement = existingLast ? incomingBars.find((bar) => bar.t === existingLast.t) : null;
+  const replacesLast = Boolean(replacement) && !barsEqual(replacement, existingLast);
+  const merged = hasExistingBars ? mergeAppendOnlyBars(existingBars, incomingBars) : incomingBars;
   const bars = latest(merged, tf);
   const validateOptions = { minExpectedBars: yahooMinExpectedBars(tf, hasExistingBars) };
   validateBars(pair, tf, bars, validateOptions);
-  return { bars, source: 'yahoo-fallback', validateOptions, shouldWrite: appendedCount > 0 };
+  return {
+    bars,
+    source: 'yahoo-fallback',
+    validateOptions,
+    shouldWrite: !hasExistingBars || appendedCount > 0 || replacesLast,
+  };
+};
+
+// Yahoo's daily close is a mid-session snapshot (~the open), not the true daily close, so
+// the d1 fallback must never read Yahoo d1 close directly. For an append-only refresh we
+// rebuild recent daily bars from Yahoo h1 (whose closes are accurate) aggregated to UTC days.
+export const aggregateDailyFromH1 = (h1Bars, { nowSeconds = Math.floor(Date.now() / 1000) } = {}) => {
+  const grouped = new Map();
+  for (const bar of [...h1Bars].sort((a, b) => a.t - b.t)) {
+    const bucket = Math.floor(bar.t / daySeconds) * daySeconds;
+    const group = grouped.get(bucket);
+    if (!group) {
+      grouped.set(bucket, { t: bucket, o: bar.o, h: bar.h, l: bar.l, c: bar.c, v: bar.v });
+      continue;
+    }
+    group.h = Math.max(group.h, bar.h);
+    group.l = Math.min(group.l, bar.l);
+    group.c = bar.c;
+    group.v += bar.v;
+  }
+  const currentUtcDayStart = Math.floor(nowSeconds / daySeconds) * daySeconds;
+  return [...grouped.values()]
+    .filter((bar) => bar.t < currentUtcDayStart)
+    .sort((a, b) => a.t - b.t);
+};
+
+// Standalone build only (no existing file, needs ~10y of daily bars deeper than h1 range):
+// keep Yahoo d1 open (accurate ~1.6 pips) and repair each close as close(D) = open(D+1),
+// then drop the final bar whose close has no next-day open to borrow.
+export const repairDailyClosesFromNextOpen = (dailyBars) => {
+  const sorted = [...dailyBars].sort((a, b) => a.t - b.t);
+  const repaired = [];
+  for (let i = 0; i < sorted.length - 1; i += 1) {
+    repaired.push({ ...sorted[i], c: sorted[i + 1].o });
+  }
+  return repaired;
 };
 
 const fetchTimeframeWithFallback = async (pair, tf, lookbackDays) => {
@@ -323,6 +380,27 @@ const fetchTimeframeWithFallback = async (pair, tf, lookbackDays) => {
     try {
       const yahooBars = await fetchYahooTimeframe(pair, tf);
       return await buildYahooFallbackBars(pair, tf, yahooBars);
+    } catch (yahooError) {
+      throw new Error(
+        `Dukascopy failed: ${formatError(dukascopyError)}; Yahoo fallback failed: ${formatError(yahooError)}`,
+      );
+    }
+  }
+};
+
+const fetchDailyWithFallback = async (pair) => {
+  try {
+    const bars = latest(await fetchTimeframe(pair, 'd1', D1_LOOKBACK_DAYS), 'd1');
+    validateBars(pair, 'd1', bars);
+    return { bars, source: 'dukascopy', validateOptions: {}, shouldWrite: true };
+  } catch (dukascopyError) {
+    console.warn(`  Dukascopy failed for ${pair} d1: ${formatError(dukascopyError)}; trying Yahoo h1->d1 fallback`);
+    try {
+      const existingBars = await readExistingBars(pair, 'd1');
+      const dailyBars = Array.isArray(existingBars)
+        ? aggregateDailyFromH1(await fetchYahooTimeframe(pair, 'h1'))
+        : repairDailyClosesFromNextOpen(await fetchYahooTimeframe(pair, 'd1'));
+      return await buildYahooFallbackBars(pair, 'd1', dailyBars);
     } catch (yahooError) {
       throw new Error(
         `Dukascopy failed: ${formatError(dukascopyError)}; Yahoo fallback failed: ${formatError(yahooError)}`,
@@ -429,7 +507,7 @@ export const main = async () => {
 
     console.log(`Fetching ${pair} d1...`);
     await tryUpdate(pair, 'd1', async () => {
-      const d1 = await fetchTimeframeWithFallback(pair, 'd1', D1_LOOKBACK_DAYS);
+      const d1 = await fetchDailyWithFallback(pair);
       console.log(`  ${await persistBars(pair, 'd1', d1)}`);
     });
   }
