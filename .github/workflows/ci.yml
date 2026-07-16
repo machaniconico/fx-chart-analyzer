@@ -6,9 +6,9 @@ on:
     # The daily data PR (head=data/daily-update) changes only public/data. Skip the
     # pull_request-triggered run for those data-only PRs: as a github-actions[bot] PR it
     # lands "action_required" (approval-gated) and that pending "test" check masks the
-    # passing check from the explicit `gh workflow run ci.yml` dispatch in update-data.yml,
-    # deadlocking auto-merge (observed on PR #17). workflow_dispatch ignores path filters,
-    # so the dispatch still supplies the required "test" check bound to the head SHA.
+    # usable required check. For data-only PRs, update-data.yml runs vitest inline and
+    # posts the required "test" context as a commit status; workflow_dispatch check runs
+    # proved not to count for the merge box.
     # (branches-ignore filters the PR *base* branch — always main here — so it cannot
     # target a head=data/daily-update PR; paths-ignore is what actually excludes it.)
     paths-ignore:

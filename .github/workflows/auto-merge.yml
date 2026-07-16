@@ -5,6 +5,8 @@ name: Auto-merge
 on:
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
+    # update-data.yml already enables auto-merge on the data PR itself; pull_request runs for bot-authored data PRs just land action_required (approval-gated noise).
+    paths-ignore: ["public/data/**"]
 
 permissions:
   contents: write
