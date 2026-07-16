@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-07-10T13:42:14.012Z",
+  "generatedAt": "2026-07-15T22:48:53.001Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-04-14T08:00:00.000Z",
-    "dataEnd": "2026-07-10T11:00:00.000Z",
+    "dataStart": "2025-04-18T00:00:00.000Z",
+    "dataEnd": "2026-07-15T21:30:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
     "adaptiveStatsMode": "rolling-from-cutoff",
@@ -26,12 +26,12 @@
     "initialBalanceYen": 1000000,
     "riskPercent": 1,
     "simulationWindowMonths": 12,
-    "evaluatedDecisionPoints": 2934,
-    "recommendationsFound": 28,
+    "evaluatedDecisionPoints": 2940,
+    "recommendationsFound": 29,
     "judgedRecommendations": 28,
     "skippedNoFutureBars": 0,
     "skippedIncompleteOutcome": 0,
-    "skippedUnfilledPullbacks": 0
+    "skippedUnfilledPullbacks": 1
   },
   "pairStyle": {
     "USDJPY": {
@@ -80,17 +80,17 @@
         }
       },
       "swing": {
-        "recommendations": 4,
+        "recommendations": 5,
         "wins": 1,
-        "losses": 3,
+        "losses": 4,
         "draws": 0,
-        "winRate": 0.25,
-        "averageRealizedR": -0.4381,
+        "winRate": 0.2,
+        "averageRealizedR": -0.5504,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 3.87,
-          "winRate": 0.2587,
-          "averageRealizedR": -0.4184
+          "decayedSampleCount": 4.78,
+          "winRate": 0.2093,
+          "averageRealizedR": -0.5294
         }
       }
     },
@@ -110,17 +110,17 @@
         }
       },
       "swing": {
-        "recommendations": 4,
+        "recommendations": 3,
         "wins": 2,
-        "losses": 2,
+        "losses": 1,
         "draws": 0,
-        "winRate": 0.5,
-        "averageRealizedR": 0.1407,
+        "winRate": 0.6667,
+        "averageRealizedR": 0.5209,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 3.87,
-          "winRate": 0.4999,
-          "averageRealizedR": 0.1406
+          "decayedSampleCount": 2.93,
+          "winRate": 0.6589,
+          "averageRealizedR": 0.5036
         }
       }
     },
@@ -276,31 +276,31 @@
         }
       },
       "medium": {
-        "recommendations": 20,
+        "recommendations": 21,
         "wins": 6,
-        "losses": 14,
+        "losses": 15,
         "draws": 0,
-        "winRate": 0.3,
-        "averageRealizedR": -0.3032,
+        "winRate": 0.2857,
+        "averageRealizedR": -0.3364,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 16.2,
-          "winRate": 0.2911,
-          "averageRealizedR": -0.3227
+          "decayedSampleCount": 16.83,
+          "winRate": 0.2802,
+          "averageRealizedR": -0.3481
         }
       },
       "low": {
-        "recommendations": 3,
+        "recommendations": 2,
         "wins": 1,
-        "losses": 2,
+        "losses": 1,
         "draws": 0,
-        "winRate": 0.3333,
-        "averageRealizedR": -0.1587,
+        "winRate": 0.5,
+        "averageRealizedR": 0.2619,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 2.93,
-          "winRate": 0.3333,
-          "averageRealizedR": -0.1589
+          "decayedSampleCount": 1.98,
+          "winRate": 0.4942,
+          "averageRealizedR": 0.2473
         }
       }
     }
