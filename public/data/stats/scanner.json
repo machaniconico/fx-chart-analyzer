@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-07-20T22:06:54.098Z",
+  "generatedAt": "2026-07-21T22:25:28.006Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-04-23T00:00:00.000Z",
-    "dataEnd": "2026-07-20T21:30:00.000Z",
+    "dataStart": "2025-04-24T00:00:00.000Z",
+    "dataEnd": "2026-07-21T21:30:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
     "adaptiveStatsMode": "rolling-from-cutoff",
@@ -28,9 +28,9 @@
     "simulationWindowMonths": 12,
     "evaluatedDecisionPoints": 2940,
     "recommendationsFound": 28,
-    "judgedRecommendations": 27,
+    "judgedRecommendations": 28,
     "skippedNoFutureBars": 0,
-    "skippedIncompleteOutcome": 1,
+    "skippedIncompleteOutcome": 0,
     "skippedUnfilledPullbacks": 0
   },
   "pairStyle": {
@@ -110,17 +110,17 @@
         }
       },
       "swing": {
-        "recommendations": 3,
+        "recommendations": 4,
         "wins": 2,
-        "losses": 1,
+        "losses": 2,
         "draws": 0,
-        "winRate": 0.6667,
-        "averageRealizedR": 0.5209,
+        "winRate": 0.5,
+        "averageRealizedR": 0.1407,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 2.93,
-          "winRate": 0.6589,
-          "averageRealizedR": 0.5036
+          "decayedSampleCount": 3.87,
+          "winRate": 0.4884,
+          "averageRealizedR": 0.1145
         }
       }
     },
@@ -276,17 +276,17 @@
         }
       },
       "medium": {
-        "recommendations": 20,
+        "recommendations": 21,
         "wins": 6,
-        "losses": 14,
+        "losses": 15,
         "draws": 0,
-        "winRate": 0.3,
-        "averageRealizedR": -0.3032,
+        "winRate": 0.2857,
+        "averageRealizedR": -0.3364,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 16.2,
-          "winRate": 0.2911,
-          "averageRealizedR": -0.3227
+          "decayedSampleCount": 16.83,
+          "winRate": 0.2738,
+          "averageRealizedR": -0.363
         }
       },
       "low": {
@@ -413,12 +413,12 @@
         },
         {
           "month": "2026-07",
-          "pnlYen": 11356,
+          "pnlYen": 2141,
           "wins": 1,
-          "losses": 0,
+          "losses": 1,
           "draws": 0,
-          "tradeCount": 1,
-          "endBalanceYen": 921438
+          "tradeCount": 2,
+          "endBalanceYen": 912224
         }
       ],
       "summary": {
@@ -434,8 +434,8 @@
           "month": "2025-09",
           "pnlYen": -19900
         },
-        "averageMonthlyPnlYen": -7856,
-        "totalPnlYen": -78562
+        "averageMonthlyPnlYen": -8778,
+        "totalPnlYen": -87777
       }
     },
     "highOnly": {
