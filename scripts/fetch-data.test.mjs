@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   aggregateDailyFromH1,
   aggregateH4,
+  fetchTimeframe,
   mergeAppendOnlyBars,
   normalizeYahooChartResponse,
   repairDailyClosesFromNextOpen,
@@ -202,6 +203,20 @@ describe('Dukascopy timeout guard', () => {
     } finally {
       process.off('unhandledRejection', onUnhandled);
     }
+  });
+});
+
+describe('Dukascopy request options', () => {
+  it('disables the dukascopy-node retry path', async () => {
+    const fetchRates = vi.fn(async () => []);
+
+    await fetchTimeframe('USDJPY', 'm15', 60, { fetchRates });
+
+    expect(fetchRates).toHaveBeenCalledOnce();
+    expect(fetchRates.mock.calls[0][0]).toMatchObject({
+      retryCount: 0,
+      retryOnEmpty: false,
+    });
   });
 });
 
