@@ -222,12 +222,17 @@ export const withTimeout = async (promise, ms, message) => {
   }
 };
 
-const fetchTimeframe = async (pair, timeframe, lookbackDays) => {
+export const fetchTimeframe = async (
+  pair,
+  timeframe,
+  lookbackDays,
+  { fetchRates = getHistoricalRates } = {},
+) => {
   const to = new Date();
   const from = new Date(to.getTime() - lookbackDays * dayMs);
   const profile = REQUEST_PROFILE_BY_TIMEFRAME[timeframe] ?? { batchSize: 8, pauseBetweenBatchesMs: 150 };
   const rows = await withTimeout(
-    getHistoricalRates({
+    fetchRates({
       instrument: pair.toLowerCase(),
       dates: { from, to },
       timeframe,
@@ -240,8 +245,12 @@ const fetchTimeframe = async (pair, timeframe, lookbackDays) => {
       pauseBetweenBatchesMs: profile.pauseBetweenBatchesMs,
       useCache: true,
       cacheFolderPath: cacheDir,
-      retryCount: 5,
-      retryOnEmpty: true,
+      // dukascopy-node 1.50.0 のリトライ経路は分足を 429 後に空データ扱いにしてしまう。
+      // 上位層には Yahoo fallback、90秒 timeout、鮮度ゲート、日次再実行があるため、
+      // 一時障害の即時再試行より Dukascopy の分足を取得できることを優先する。
+      retryCount: 0,
+      // retryOnEmpty=true は 429 を "empty dataset" に変えて真因を隠すため、素の失敗を残す。
+      retryOnEmpty: false,
       pauseBetweenRetriesMs: 1500,
     }),
     DUKASCOPY_TIMEOUT_MS,
