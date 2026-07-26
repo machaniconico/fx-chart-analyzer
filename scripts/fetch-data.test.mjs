@@ -2,12 +2,54 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   aggregateDailyFromH1,
   aggregateH4,
+  buildSourceHealth,
   fetchTimeframe,
   mergeAppendOnlyBars,
   normalizeYahooChartResponse,
   repairDailyClosesFromNextOpen,
   withTimeout,
 } from './fetch-data.mjs';
+
+const NOW = Date.UTC(2026, 6, 27, 21, 52, 0);
+
+describe('source health aggregation', () => {
+  it('counts successful timeframe sources and records a current Dukascopy success', () => {
+    expect(
+      buildSourceHealth({
+        sources: ['dukascopy', 'yahoo-fallback', 'dukascopy'],
+        previousHealth: { lastPrimarySuccessAt: '2026-07-20T21:00:00.000Z' },
+        nowMs: NOW,
+      }),
+    ).toEqual({
+      updatedAt: '2026-07-27T21:52:00.000Z',
+      sources: { dukascopy: 2, 'yahoo-fallback': 1 },
+      primaryOkThisRun: true,
+      lastPrimarySuccessAt: '2026-07-27T21:52:00.000Z',
+    });
+  });
+
+  it('carries the previous success forward when this run has no Dukascopy data', () => {
+    const lastPrimarySuccessAt = '2026-07-24T21:00:00.000Z';
+
+    expect(
+      buildSourceHealth({
+        sources: ['yahoo-fallback', 'yahoo-fallback'],
+        previousHealth: { lastPrimarySuccessAt },
+        nowMs: NOW,
+      }).lastPrimarySuccessAt,
+    ).toBe(lastPrimarySuccessAt);
+  });
+
+  it('uses null when this run has no Dukascopy data and no previous success', () => {
+    expect(
+      buildSourceHealth({
+        sources: ['yahoo-fallback'],
+        previousHealth: null,
+        nowMs: NOW,
+      }).lastPrimarySuccessAt,
+    ).toBeNull();
+  });
+});
 
 const yahooFixture = ({ timestamps, open, high, low, close }) => ({
   chart: {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { verifyDataPr } from './check-data-freshness.mjs';
+import { evaluateSourceHealth, verifyDataPr } from './check-data-freshness.mjs';
 
 const HOUR_MS = 3_600_000;
 const NOW = Date.UTC(2026, 6, 10, 21, 0, 0); // fixed "now" for age assertions
@@ -13,6 +13,111 @@ const basePr = (overrides = {}) => ({
   headRefOid: HEAD,
   createdAt: new Date(NOW - HOUR_MS).toISOString(),
   ...overrides,
+});
+
+const baseHealth = (overrides = {}) => ({
+  updatedAt: new Date(NOW).toISOString(),
+  sources: { dukascopy: 14, 'yahoo-fallback': 10 },
+  primaryOkThisRun: true,
+  lastPrimarySuccessAt: new Date(NOW - HOUR_MS).toISOString(),
+  ...overrides,
+});
+
+describe('evaluateSourceHealth primary-source gate', () => {
+  it('passes when health.json does not exist yet', () => {
+    const result = evaluateSourceHealth({ health: null, nowMs: NOW });
+
+    expect(result.level).toBe('ok');
+    expect(result.message).toMatch(/not found.*skipping/i);
+  });
+
+  it('passes when Dukascopy succeeded recently and in this run', () => {
+    const result = evaluateSourceHealth({ health: baseHealth(), nowMs: NOW });
+
+    expect(result.level).toBe('ok');
+  });
+
+  it('warns instead of failing when this run has no Dukascopy data but the last success is within the limit', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({
+        primaryOkThisRun: false,
+        lastPrimarySuccessAt: new Date(NOW - 48 * HOUR_MS).toISOString(),
+      }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('warn');
+  });
+
+  it('fails when the last Dukascopy success is older than 120 hours and reports its age', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({
+        primaryOkThisRun: false,
+        lastPrimarySuccessAt: new Date(NOW - 120.1 * HOUR_MS).toISOString(),
+      }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('fail');
+    expect(result.message).toMatch(/120\.1h/);
+    expect(result.message).toMatch(/120h/);
+  });
+
+  it('warns when the last Dukascopy success is unknown', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({ primaryOkThisRun: false, lastPrimarySuccessAt: null }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('warn');
+  });
+
+  it('warns when the last Dukascopy success cannot be parsed', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({ primaryOkThisRun: false, lastPrimarySuccessAt: 'not-a-date' }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('warn');
+  });
+
+  it('does not fail exactly at the 120-hour boundary', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({
+        primaryOkThisRun: false,
+        lastPrimarySuccessAt: new Date(NOW - 120 * HOUR_MS).toISOString(),
+      }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('warn');
+  });
+
+  it('fails immediately after the 120-hour boundary', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({
+        primaryOkThisRun: false,
+        lastPrimarySuccessAt: new Date(NOW - 120 * HOUR_MS - 1).toISOString(),
+      }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('fail');
+  });
+
+  it('does not fail on Sunday after the last Dukascopy success on Friday', () => {
+    const friday = Date.UTC(2026, 6, 10, 21, 0, 0);
+    const sunday = Date.UTC(2026, 6, 12, 21, 0, 0);
+    const result = evaluateSourceHealth({
+      health: baseHealth({
+        primaryOkThisRun: false,
+        lastPrimarySuccessAt: new Date(friday).toISOString(),
+      }),
+      nowMs: sunday,
+    });
+
+    expect(result.level).toBe('warn');
+  });
 });
 
 describe('verifyDataPr head-SHA + freshness gate', () => {

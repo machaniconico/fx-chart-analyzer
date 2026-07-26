@@ -6,12 +6,17 @@ import { execFileSync } from 'node:child_process';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dataRoot = path.resolve(__dirname, '../public/data');
+const healthFile = path.join(dataRoot, 'health.json');
 
 // Fail-visible thresholds and constants.
 const FRESHNESS_LIMIT_HOURS = 96;
 const HOUR_MS = 3_600_000;
 const PAIR_PATTERN = /^[A-Z]{6}$/; // pair dirs like USDJPY; skips stats/forward.
 const DATA_BRANCH = 'data/daily-update';
+// Dukascopy can legitimately have no success for up to 72h from Friday close
+// (21:00 UTC) to Monday open (21:00 UTC). 120h also absorbs one isolated weekday
+// outage, so the gate only fails after 2+ consecutive business days without primary data.
+const PRIMARY_STALE_LIMIT_HOURS = 120;
 // An auto-merge PR that stays open past this is a stuck required check (never merging),
 // not a healthy same-run PR. Healthy runs create a fresh PR daily (< ~24h old).
 const OPEN_PR_MAX_AGE_HOURS = 26;
@@ -46,6 +51,50 @@ export const findLatestCandleMs = async () => {
     }
   }
   return { latestMs, latestSource, pairCount: pairs.length };
+};
+
+export const evaluateSourceHealth = ({
+  health,
+  nowMs = Date.now(),
+  staleLimitHours = PRIMARY_STALE_LIMIT_HOURS,
+}) => {
+  if (!health) {
+    return {
+      level: 'ok',
+      message: 'Source health file not found; skipping primary-source health check during migration.',
+    };
+  }
+
+  const lastPrimarySuccessAt = health.lastPrimarySuccessAt;
+  const lastPrimarySuccessMs = lastPrimarySuccessAt == null ? NaN : Date.parse(lastPrimarySuccessAt);
+  if (!Number.isFinite(lastPrimarySuccessMs)) {
+    return {
+      level: 'warn',
+      message: 'Last Dukascopy success is unknown; primary-source staleness cannot be determined yet.',
+    };
+  }
+
+  const ageHours = (nowMs - lastPrimarySuccessMs) / HOUR_MS;
+  if (ageHours > staleLimitHours) {
+    return {
+      level: 'fail',
+      message:
+        `Dukascopy last succeeded ${ageHours.toFixed(1)}h ago, ` +
+        `exceeding the ${staleLimitHours}h primary-source stale limit.`,
+    };
+  }
+  if (health.primaryOkThisRun === false) {
+    return {
+      level: 'warn',
+      message:
+        `Dukascopy returned no successful timeframes this run; ` +
+        `the last success was ${ageHours.toFixed(1)}h ago (limit ${staleLimitHours}h).`,
+    };
+  }
+  return {
+    level: 'ok',
+    message: `Primary-source health OK: Dukascopy last succeeded ${ageHours.toFixed(1)}h ago.`,
+  };
 };
 
 const gitHeadSha = () => {
@@ -141,6 +190,35 @@ const isTruthy = (value) => /^(1|true|yes)$/i.test((value ?? '').trim());
 const main = async () => {
   const now = Date.now();
   const failures = [];
+
+  let health = null;
+  try {
+    health = await readJson(healthFile);
+  } catch {
+    // Missing or malformed health is treated as migration grace by evaluateSourceHealth.
+  }
+  const dukascopyCount = Number(health?.sources?.dukascopy) || 0;
+  const yahooFallbackCount = Number(health?.sources?.['yahoo-fallback']) || 0;
+  const lastPrimarySuccessMs = health?.lastPrimarySuccessAt == null
+    ? NaN
+    : Date.parse(health.lastPrimarySuccessAt);
+  const lastPrimarySummary = Number.isFinite(lastPrimarySuccessMs)
+    ? `${health.lastPrimarySuccessAt}, ${((now - lastPrimarySuccessMs) / HOUR_MS).toFixed(1)}h ago`
+    : 'unknown';
+  console.log(
+    `Source breakdown: dukascopy=${dukascopyCount}, yahoo-fallback=${yahooFallbackCount} ` +
+      `(last primary success ${lastPrimarySummary}).`,
+  );
+
+  const sourceHealth = evaluateSourceHealth({ health, nowMs: now });
+  if (sourceHealth.level === 'warn') {
+    console.log(`::warning::${sourceHealth.message}`);
+  } else {
+    console.log(sourceHealth.message);
+  }
+  if (sourceHealth.level === 'fail') {
+    failures.push(sourceHealth.message);
+  }
 
   const { latestMs, latestSource, pairCount } = await findLatestCandleMs();
   if (latestMs === 0) {
