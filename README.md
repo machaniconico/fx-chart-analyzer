@@ -21,7 +21,8 @@ npm run build      # 本番ビルド (dist/)
 ## データ更新
 
 ```bash
-npm run fetch:data   # Dukascopyから6ペア×h1/h4/d1 (各2000本) を取得し public/data/ に保存
+npm run fetch:data           # Dukascopyから6ペア×h1/h4/d1 (各2000本) を取得し public/data/ に保存
+npm run diagnose:dukascopy   # Dukascopy一次ソースのm15/h1/d1を、保存・Yahooフォールバックなしで診断
 ```
 
 GitHub Actions (`.github/workflows/update-data.yml`) が毎日 06:00 JST に自動実行し、差分があればコミット→デプロイします。
