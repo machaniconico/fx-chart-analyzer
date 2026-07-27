@@ -118,7 +118,8 @@ jobs:
         uses: cloudflare/wrangler-action@v4
         with:
           # See deploy.yml: v4's only breaking change is defaulting Wrangler to v4, so pin the
-          # version already in use and keep this a Node 24 runtime bump alone.
+          # version already in use and keep this a Node 24 runtime bump alone. Keep in sync with
+          # the wrangler devDependency, or the action reinstalls Wrangler on every run.
           wranglerVersion: "3.90.0"
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
