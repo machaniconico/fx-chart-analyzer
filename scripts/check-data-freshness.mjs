@@ -25,6 +25,14 @@ const OPEN_PR_MAX_AGE_HOURS = 26;
 const readJson = async (filePath) => JSON.parse(await readFile(filePath, 'utf8'));
 const formatError = (error) => (error instanceof Error ? error.message : String(error));
 
+// One decimal reads best during an incident, but at the boundary it rounds to the limit itself
+// ("120.0h ago, exceeding the 120h limit") and looks like an off-by-one in the gate. Only when
+// that happens, widen until the excess is actually visible.
+const formatAgeHours = (ageHours, limitHours) =>
+  Number(ageHours.toFixed(1)) > limitHours
+    ? ageHours.toFixed(1)
+    : ageHours.toFixed(7).replace(/0+$/, '').replace(/\.$/, '.0');
+
 export const findLatestCandleMs = async () => {
   const entries = await readdir(dataRoot, { withFileTypes: true });
   const pairs = entries
@@ -99,7 +107,7 @@ export const evaluateSourceHealth = ({
     return {
       level: 'warn',
       message:
-        `Source health was updated ${healthAgeHours.toFixed(1)}h ago, over the ` +
+        `Source health was updated ${formatAgeHours(healthAgeHours, HEALTH_STALE_LIMIT_HOURS)}h ago, over the ` +
         `${HEALTH_STALE_LIMIT_HOURS}h limit; it was not written by this run.`,
     };
   }
@@ -122,11 +130,10 @@ export const evaluateSourceHealth = ({
 
   const ageHours = (nowMs - lastPrimarySuccessMs) / HOUR_MS;
   if (ageHours > staleLimitHours) {
-    const ageLabel = ageHours.toFixed(7).replace(/0+$/, '').replace(/\.$/, '.0');
     return {
       level: 'fail',
       message:
-        `Dukascopy last succeeded ${ageLabel}h ago, ` +
+        `Dukascopy last succeeded ${formatAgeHours(ageHours, staleLimitHours)}h ago, ` +
         `exceeding the ${staleLimitHours}h primary-source stale limit.`,
     };
   }

@@ -315,7 +315,13 @@ const writeSourceHealth = async (sources) => {
     await writeFile(tempPath, `${JSON.stringify(health, null, 2)}\n`, 'utf8');
     await rename(tempPath, healthFile);
   } catch (error) {
-    console.warn(`Could not write ${healthFile}; continuing without updating source health: ${formatError(error)}`);
+    // Louder than the read failure: an unwritten health.json freezes updatedAt, and the gate then
+    // short-circuits to warn on staleness instead of ever reaching the 120h fail. Without the
+    // annotation this step is continue-on-error, so the gate would degrade to warn-only unnoticed.
+    console.warn(
+      `::warning::Could not write ${healthFile}; continuing without updating source health: ` +
+        formatError(error),
+    );
   }
 };
 
