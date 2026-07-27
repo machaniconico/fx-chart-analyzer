@@ -6,6 +6,7 @@ import { getHistoricalRates } from 'dukascopy-node';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const outputDir = path.join(rootDir, 'public', 'data');
+const healthFile = path.join(outputDir, 'health.json');
 const cacheDir = path.join(rootDir, '.dukascopy-cache');
 
 const PAIRS = ['USDJPY', 'EURUSD', 'GBPJPY', 'EURJPY', 'AUDJPY', 'GBPUSD'];
@@ -270,6 +271,44 @@ const latest = (bars, tf) => {
 
 const formatError = (error) => (error instanceof Error ? error.message : String(error));
 
+export const buildSourceHealth = ({ sources, previousHealth, nowMs = Date.now() }) => {
+  const counts = { dukascopy: 0, 'yahoo-fallback': 0 };
+  for (const source of sources) {
+    if (Object.hasOwn(counts, source)) {
+      counts[source] += 1;
+    }
+  }
+
+  const primaryOkThisRun = counts.dukascopy > 0;
+  const updatedAt = new Date(nowMs).toISOString();
+  return {
+    updatedAt,
+    sources: counts,
+    primaryOkThisRun,
+    lastPrimarySuccessAt: primaryOkThisRun
+      ? updatedAt
+      : previousHealth?.lastPrimarySuccessAt ?? null,
+  };
+};
+
+const writeSourceHealth = async (sources) => {
+  let previousHealth = null;
+  try {
+    previousHealth = JSON.parse(await readFile(healthFile, 'utf8'));
+  } catch (error) {
+    console.warn(
+      `Could not read ${healthFile}; previous primary-source history is unavailable: ${formatError(error)}`,
+    );
+  }
+
+  const health = buildSourceHealth({ sources, previousHealth });
+  try {
+    await writeFile(healthFile, `${JSON.stringify(health, null, 2)}\n`);
+  } catch (error) {
+    console.warn(`Could not write ${healthFile}; continuing without updating source health: ${formatError(error)}`);
+  }
+};
+
 const fetchYahooTimeframe = async (pair, tf) => {
   const timeframe = YAHOO_TIMEFRAME_PARAMS[tf];
   if (!timeframe) {
@@ -483,10 +522,11 @@ export const main = async () => {
   // 時間足単位で失敗を許容する: 失敗した組合せは既存JSONを温存してスキップし、
   // 部分更新でもデプロイを止めない(fetch-calendar/cot と同じ方針)。
   const failures = [];
+  const processedSources = [];
 
   const tryUpdate = async (pair, tf, task) => {
     try {
-      await task();
+      processedSources.push(...await task());
     } catch (error) {
       failures.push(`${pair} ${tf}`);
       console.warn(`  SKIP ${pair} ${tf}: ${formatError(error)} (既存データを温存)`);
@@ -498,12 +538,14 @@ export const main = async () => {
     await tryUpdate(pair, 'm15', async () => {
       const m15 = await fetchTimeframeWithFallback(pair, 'm15', M15_LOOKBACK_DAYS);
       console.log(`  ${await persistBars(pair, 'm15', m15)}`);
+      return [m15.source];
     });
 
     console.log(`Fetching ${pair} m30...`);
     await tryUpdate(pair, 'm30', async () => {
       const m30 = await fetchTimeframeWithFallback(pair, 'm30', M30_LOOKBACK_DAYS);
       console.log(`  ${await persistBars(pair, 'm30', m30)}`);
+      return [m30.source];
     });
 
     console.log(`Fetching ${pair} h1...`);
@@ -512,14 +554,18 @@ export const main = async () => {
       const h1Message = await persistBars(pair, 'h1', h1);
       const h4Message = await persistBars(pair, 'h4', h4);
       console.log(`  ${h1Message}; ${h4Message}`);
+      return [h1.source, h4.source];
     });
 
     console.log(`Fetching ${pair} d1...`);
     await tryUpdate(pair, 'd1', async () => {
       const d1 = await fetchDailyWithFallback(pair);
       console.log(`  ${await persistBars(pair, 'd1', d1)}`);
+      return [d1.source];
     });
   }
+
+  await writeSourceHealth(processedSources);
 
   if (failures.length > 0) {
     console.warn(`Data generation finished with ${failures.length} skipped combos: ${failures.join(', ')}`);
