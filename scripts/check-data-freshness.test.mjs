@@ -59,6 +59,106 @@ describe('evaluateSourceHealth primary-source gate', () => {
     expect(result.level).toBe('ok');
   });
 
+  it('does not fail an old health.json without per-timeframe success history', () => {
+    const result = evaluateSourceHealth({ health: baseHealth(), nowMs: NOW });
+
+    expect(result.level).toBe('ok');
+  });
+
+  it('fails when one timeframe has no Dukascopy success for over 120 hours', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({
+        lastPrimarySuccessByTimeframe: {
+          m15: new Date(NOW - 121 * HOUR_MS).toISOString(),
+          m30: new Date(NOW - HOUR_MS).toISOString(),
+          h1: new Date(NOW - HOUR_MS).toISOString(),
+          h4: new Date(NOW - HOUR_MS).toISOString(),
+          d1: new Date(NOW - HOUR_MS).toISOString(),
+        },
+      }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('fail');
+    expect(result.message).toMatch(/m15/);
+    expect(result.message).toMatch(/121\.0h/);
+  });
+
+  it('reports every stale timeframe while ignoring null and unknown values', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({
+        lastPrimarySuccessByTimeframe: {
+          m15: new Date(NOW - 121 * HOUR_MS).toISOString(),
+          m30: null,
+          h1: 'not-a-date',
+          h4: new Date(NOW - HOUR_MS).toISOString(),
+          d1: new Date(NOW - 122 * HOUR_MS).toISOString(),
+        },
+      }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('fail');
+    expect(result.message).toMatch(/m15/);
+    expect(result.message).toMatch(/d1/);
+  });
+
+  it('allows a timeframe with no success during the first 120 tracking hours', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({
+        timeframeTrackingSince: new Date(NOW - 120 * HOUR_MS).toISOString(),
+        lastPrimarySuccessByTimeframe: {
+          m15: null,
+          m30: new Date(NOW - HOUR_MS).toISOString(),
+          h1: new Date(NOW - HOUR_MS).toISOString(),
+          h4: new Date(NOW - HOUR_MS).toISOString(),
+          d1: new Date(NOW - HOUR_MS).toISOString(),
+        },
+      }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('ok');
+  });
+
+  it('fails when a timeframe has never succeeded after over 120 tracking hours', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({
+        timeframeTrackingSince: new Date(NOW - 121 * HOUR_MS).toISOString(),
+        lastPrimarySuccessByTimeframe: {
+          m15: null,
+          m30: new Date(NOW - HOUR_MS).toISOString(),
+          h1: new Date(NOW - HOUR_MS).toISOString(),
+          h4: new Date(NOW - HOUR_MS).toISOString(),
+          d1: new Date(NOW - HOUR_MS).toISOString(),
+        },
+      }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('fail');
+    expect(result.message).toMatch(/m15/);
+    expect(result.message).toMatch(/never succeeded/i);
+    expect(result.message).toMatch(/121\.0h/);
+  });
+
+  it('keeps skipping an unknown timeframe success in old health without tracking history', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({
+        lastPrimarySuccessByTimeframe: {
+          m15: null,
+          m30: new Date(NOW - HOUR_MS).toISOString(),
+          h1: new Date(NOW - HOUR_MS).toISOString(),
+          h4: new Date(NOW - HOUR_MS).toISOString(),
+          d1: new Date(NOW - HOUR_MS).toISOString(),
+        },
+      }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('ok');
+  });
+
   it('warns instead of failing when this run has no Dukascopy data but the last success is within the limit', () => {
     const result = evaluateSourceHealth({
       health: baseHealth({

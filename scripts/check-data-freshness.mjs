@@ -22,6 +22,7 @@ const PRIMARY_STALE_LIMIT_HOURS = 120;
 // (0.1h in run 30309308282), while the cron fires daily — so 24h, being the sampling period itself,
 // let a stale file pass whenever scheduling drift or a workflow_dispatch landed under 24h apart.
 const HEALTH_STALE_LIMIT_HOURS = 6;
+const SOURCE_HEALTH_TIMEFRAMES = ['m15', 'm30', 'h1', 'h4', 'd1'];
 // An auto-merge PR that stays open past this is a stuck required check (never merging),
 // not a healthy same-run PR. Healthy runs create a fresh PR daily (< ~24h old).
 const OPEN_PR_MAX_AGE_HOURS = 26;
@@ -141,6 +142,45 @@ export const evaluateSourceHealth = ({
         `exceeding the ${staleLimitHours}h primary-source stale limit.`,
     };
   }
+
+  const staleTimeframes = [];
+  const trackingSinceValue = health.timeframeTrackingSince;
+  const trackingSinceMs =
+    trackingSinceValue == null ? NaN : Date.parse(trackingSinceValue);
+  for (const timeframe of SOURCE_HEALTH_TIMEFRAMES) {
+    const value = health.lastPrimarySuccessByTimeframe?.[timeframe];
+    const successMs = value == null ? NaN : Date.parse(value);
+    if (Number.isFinite(successMs)) {
+      const timeframeAgeHours = (nowMs - successMs) / HOUR_MS;
+      if (timeframeAgeHours > staleLimitHours) {
+        staleTimeframes.push(
+          `${timeframe} (last succeeded ${formatAgeHours(timeframeAgeHours, staleLimitHours)}h ago)`,
+        );
+      }
+      continue;
+    }
+    if (Number.isFinite(trackingSinceMs)) {
+      const trackingAgeHours = (nowMs - trackingSinceMs) / HOUR_MS;
+      if (trackingAgeHours <= staleLimitHours) continue;
+      staleTimeframes.push(
+        `${timeframe} (never succeeded; tracked for ` +
+          `${formatAgeHours(trackingAgeHours, staleLimitHours)}h)`,
+      );
+    }
+  }
+  if (staleTimeframes.length > 0) {
+    // This must fail, not warn: warnings keep the workflow green and recreate the exact
+    // "nobody looks because it is green" blind spot this gate closes. The 120h limit already
+    // absorbs the 72h weekend gap plus one weekday outage, and this post-deploy gate cannot
+    // interrupt data delivery.
+    return {
+      level: 'fail',
+      message:
+        `Dukascopy is stale for timeframes ${staleTimeframes.join(', ')}, ` +
+        `exceeding the ${staleLimitHours}h primary-source stale limit.`,
+    };
+  }
+
   if (health.primaryOkThisRun === false) {
     return {
       level: 'warn',

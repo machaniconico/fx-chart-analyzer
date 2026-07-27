@@ -13,41 +13,79 @@ import {
 const NOW = Date.UTC(2026, 6, 27, 21, 52, 0);
 
 describe('source health aggregation', () => {
-  it('counts successful timeframe sources and records a current Dukascopy success', () => {
+  it('counts successful timeframe sources and records Dukascopy success by timeframe', () => {
     expect(
       buildSourceHealth({
-        sources: ['dukascopy', 'yahoo-fallback', 'dukascopy'],
+        sources: [
+          { timeframe: 'm15', source: 'yahoo-fallback' },
+          { timeframe: 'm30', source: 'dukascopy' },
+          { timeframe: 'h1', source: 'dukascopy' },
+          { timeframe: 'h4', source: 'yahoo-fallback' },
+          { timeframe: 'd1', source: 'dukascopy' },
+        ],
         previousHealth: { lastPrimarySuccessAt: '2026-07-20T21:00:00.000Z' },
         nowMs: NOW,
       }),
     ).toEqual({
       updatedAt: '2026-07-27T21:52:00.000Z',
-      sources: { dukascopy: 2, 'yahoo-fallback': 1 },
+      timeframeTrackingSince: '2026-07-27T21:52:00.000Z',
+      sources: { dukascopy: 3, 'yahoo-fallback': 2 },
       primaryOkThisRun: true,
       lastPrimarySuccessAt: '2026-07-27T21:52:00.000Z',
+      lastPrimarySuccessByTimeframe: {
+        m15: null,
+        m30: '2026-07-27T21:52:00.000Z',
+        h1: '2026-07-27T21:52:00.000Z',
+        h4: null,
+        d1: '2026-07-27T21:52:00.000Z',
+      },
     });
   });
 
   it('carries the previous success forward when this run has no Dukascopy data', () => {
     const lastPrimarySuccessAt = '2026-07-24T21:00:00.000Z';
+    const timeframeTrackingSince = '2026-07-20T21:00:00.000Z';
+    const lastPrimarySuccessByTimeframe = {
+      m15: '2026-07-23T21:00:00.000Z',
+      m30: '2026-07-24T21:00:00.000Z',
+      h1: '2026-07-24T21:00:00.000Z',
+      h4: '2026-07-24T21:00:00.000Z',
+      d1: '2026-07-22T21:00:00.000Z',
+    };
 
-    expect(
-      buildSourceHealth({
-        sources: ['yahoo-fallback', 'yahoo-fallback'],
-        previousHealth: { lastPrimarySuccessAt },
-        nowMs: NOW,
-      }).lastPrimarySuccessAt,
-    ).toBe(lastPrimarySuccessAt);
+    const result = buildSourceHealth({
+      sources: [
+        { timeframe: 'm15', source: 'yahoo-fallback' },
+        { timeframe: 'm30', source: 'yahoo-fallback' },
+      ],
+      previousHealth: {
+        lastPrimarySuccessAt,
+        lastPrimarySuccessByTimeframe,
+        timeframeTrackingSince,
+      },
+      nowMs: NOW,
+    });
+
+    expect(result.lastPrimarySuccessAt).toBe(lastPrimarySuccessAt);
+    expect(result.timeframeTrackingSince).toBe(timeframeTrackingSince);
+    expect(result.lastPrimarySuccessByTimeframe).toEqual(lastPrimarySuccessByTimeframe);
   });
 
   it('uses null when this run has no Dukascopy data and no previous success', () => {
-    expect(
-      buildSourceHealth({
-        sources: ['yahoo-fallback'],
-        previousHealth: null,
-        nowMs: NOW,
-      }).lastPrimarySuccessAt,
-    ).toBeNull();
+    const result = buildSourceHealth({
+      sources: [{ timeframe: 'm15', source: 'yahoo-fallback' }],
+      previousHealth: null,
+      nowMs: NOW,
+    });
+
+    expect(result.lastPrimarySuccessAt).toBeNull();
+    expect(result.lastPrimarySuccessByTimeframe).toEqual({
+      m15: null,
+      m30: null,
+      h1: null,
+      h4: null,
+      d1: null,
+    });
   });
 });
 

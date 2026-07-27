@@ -270,27 +270,48 @@ const latest = (bars, tf) => {
 };
 
 const formatError = (error) => (error instanceof Error ? error.message : String(error));
+const SOURCE_HEALTH_TIMEFRAMES = ['m15', 'm30', 'h1', 'h4', 'd1'];
 
 // previousHealth comes from main's checked-out health.json, so carry-over depends on data/daily-update PRs
 // merging; a stuck merge can freeze lastPrimarySuccessAt until a false 120h FAIL, though the
 // OPEN_PR_MAX_AGE_HOURS persistence gate should fail first.
 export const buildSourceHealth = ({ sources, previousHealth, nowMs = Date.now() }) => {
   const counts = { dukascopy: 0, 'yahoo-fallback': 0 };
-  for (const source of sources) {
+  const primarySuccessTimeframes = new Set();
+  for (const entry of sources) {
+    const source = typeof entry === 'string' ? entry : entry?.source;
     if (Object.hasOwn(counts, source)) {
       counts[source] += 1;
+    }
+    if (source === 'dukascopy' && SOURCE_HEALTH_TIMEFRAMES.includes(entry?.timeframe)) {
+      primarySuccessTimeframes.add(entry.timeframe);
     }
   }
 
   const primaryOkThisRun = counts.dukascopy > 0;
   const updatedAt = new Date(nowMs).toISOString();
+  const timeframeTrackingSince =
+    previousHealth != null && Object.hasOwn(previousHealth, 'timeframeTrackingSince')
+      ? previousHealth.timeframeTrackingSince
+      : updatedAt;
+  const previousByTimeframe = previousHealth?.lastPrimarySuccessByTimeframe;
+  const lastPrimarySuccessByTimeframe = Object.fromEntries(
+    SOURCE_HEALTH_TIMEFRAMES.map((timeframe) => [
+      timeframe,
+      primarySuccessTimeframes.has(timeframe)
+        ? updatedAt
+        : previousByTimeframe?.[timeframe] ?? null,
+    ]),
+  );
   return {
     updatedAt,
+    timeframeTrackingSince,
     sources: counts,
     primaryOkThisRun,
     lastPrimarySuccessAt: primaryOkThisRun
       ? updatedAt
       : previousHealth?.lastPrimarySuccessAt ?? null,
+    lastPrimarySuccessByTimeframe,
   };
 };
 
@@ -554,7 +575,7 @@ export const main = async () => {
     await tryUpdate(pair, 'm15', async () => {
       const m15 = await fetchTimeframeWithFallback(pair, 'm15', M15_LOOKBACK_DAYS);
       const message = await persistBars(pair, 'm15', m15);
-      processedSources.push(m15.source);
+      processedSources.push({ timeframe: 'm15', source: m15.source });
       console.log(`  ${message}`);
     });
 
@@ -562,7 +583,7 @@ export const main = async () => {
     await tryUpdate(pair, 'm30', async () => {
       const m30 = await fetchTimeframeWithFallback(pair, 'm30', M30_LOOKBACK_DAYS);
       const message = await persistBars(pair, 'm30', m30);
-      processedSources.push(m30.source);
+      processedSources.push({ timeframe: 'm30', source: m30.source });
       console.log(`  ${message}`);
     });
 
@@ -570,9 +591,9 @@ export const main = async () => {
     await tryUpdate(pair, 'h1/h4', async () => {
       const { h1, h4 } = await fetchH1AndH4WithFallback(pair);
       const h1Message = await persistBars(pair, 'h1', h1);
-      processedSources.push(h1.source);
+      processedSources.push({ timeframe: 'h1', source: h1.source });
       const h4Message = await persistBars(pair, 'h4', h4);
-      processedSources.push(h4.source);
+      processedSources.push({ timeframe: 'h4', source: h4.source });
       console.log(`  ${h1Message}; ${h4Message}`);
     });
 
@@ -580,7 +601,7 @@ export const main = async () => {
     await tryUpdate(pair, 'd1', async () => {
       const d1 = await fetchDailyWithFallback(pair);
       const message = await persistBars(pair, 'd1', d1);
-      processedSources.push(d1.source);
+      processedSources.push({ timeframe: 'd1', source: d1.source });
       console.log(`  ${message}`);
     });
   }
