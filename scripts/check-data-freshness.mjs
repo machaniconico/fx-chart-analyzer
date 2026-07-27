@@ -17,7 +17,11 @@ const DATA_BRANCH = 'data/daily-update';
 // (21:00 UTC) to Monday open (21:00 UTC). 120h also absorbs one isolated weekday
 // outage, so the gate only fails after 2+ consecutive business days without primary data.
 const PRIMARY_STALE_LIMIT_HOURS = 120;
-const HEALTH_STALE_LIMIT_HOURS = 24;
+// This asks "did THIS run write health.json", so the limit must sit between the in-job gap and the
+// gap between runs. The fetch step writes it and the gate reads it minutes later in the same job
+// (0.1h in run 30309308282), while the cron fires daily — so 24h, being the sampling period itself,
+// let a stale file pass whenever scheduling drift or a workflow_dispatch landed under 24h apart.
+const HEALTH_STALE_LIMIT_HOURS = 6;
 // An auto-merge PR that stays open past this is a stuck required check (never merging),
 // not a healthy same-run PR. Healthy runs create a fresh PR daily (< ~24h old).
 const OPEN_PR_MAX_AGE_HOURS = 26;
