@@ -8,3 +8,7 @@ coverage
 *.tsbuildinfo
 .env
 *.log
+# fetch-data / fetch-cot / fetch-calendar write <file>.tmp then rename. A run killed between the
+# two leaves the temp behind, and update-data.yml stages the whole directory — without this it
+# would be committed and served from the site forever, since nothing later removes it.
+public/data/*.tmp
