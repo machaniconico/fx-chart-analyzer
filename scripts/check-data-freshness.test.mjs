@@ -24,11 +24,33 @@ const baseHealth = (overrides = {}) => ({
 });
 
 describe('evaluateSourceHealth primary-source gate', () => {
-  it('passes when health.json does not exist yet', () => {
+  it('warns when health.json does not exist because fetch did not write it', () => {
     const result = evaluateSourceHealth({ health: null, nowMs: NOW });
 
-    expect(result.level).toBe('ok');
-    expect(result.message).toMatch(/not found.*skipping/i);
+    expect(result.level).toBe('warn');
+    expect(result.message).toMatch(/not found.*fetch/i);
+  });
+
+  it('warns when health.json could not be parsed and includes the actual error', () => {
+    const result = evaluateSourceHealth({
+      health: null,
+      healthReadError: 'Unexpected end of JSON input',
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('warn');
+    expect(result.message).toMatch(/invalid.*Unexpected end of JSON input/i);
+  });
+
+  it('warns accurately when health.json contains the JSON literal null', () => {
+    const result = evaluateSourceHealth({
+      health: null,
+      healthFileExists: true,
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('warn');
+    expect(result.message).toMatch(/contains.*null/i);
   });
 
   it('passes when Dukascopy succeeded recently and in this run', () => {
@@ -47,6 +69,54 @@ describe('evaluateSourceHealth primary-source gate', () => {
     });
 
     expect(result.level).toBe('warn');
+  });
+
+  it('warns when health.json is older than 24 hours before evaluating the 120-hour failure threshold', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({
+        updatedAt: new Date(NOW - 24 * HOUR_MS - 1).toISOString(),
+        primaryOkThisRun: false,
+        lastPrimarySuccessAt: new Date(NOW - 121 * HOUR_MS).toISOString(),
+      }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('warn');
+    expect(result.message).toMatch(/not.*this run/i);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['invalid', 'not-a-date'],
+  ])('warns when updatedAt is %s', (_label, updatedAt) => {
+    const health = baseHealth();
+    if (updatedAt === undefined) {
+      delete health.updatedAt;
+    } else {
+      health.updatedAt = updatedAt;
+    }
+
+    const result = evaluateSourceHealth({ health, nowMs: NOW });
+
+    expect(result.level).toBe('warn');
+    expect(result.message).toMatch(/updatedAt/i);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['a string', 'false'],
+  ])('warns when primaryOkThisRun is %s instead of boolean', (_label, primaryOkThisRun) => {
+    const health = baseHealth();
+    if (primaryOkThisRun === undefined) {
+      delete health.primaryOkThisRun;
+    } else {
+      health.primaryOkThisRun = primaryOkThisRun;
+    }
+
+    const result = evaluateSourceHealth({ health, nowMs: NOW });
+
+    expect(result.level).toBe('warn');
+    expect(result.message).toMatch(/primaryOkThisRun.*boolean/i);
   });
 
   it('fails when the last Dukascopy success is older than 120 hours and reports its age', () => {
@@ -103,6 +173,7 @@ describe('evaluateSourceHealth primary-source gate', () => {
     });
 
     expect(result.level).toBe('fail');
+    expect(result.message).toMatch(/120\.0000003h/);
   });
 
   it('does not fail on Sunday after the last Dukascopy success on Friday', () => {
@@ -110,6 +181,7 @@ describe('evaluateSourceHealth primary-source gate', () => {
     const sunday = Date.UTC(2026, 6, 12, 21, 0, 0);
     const result = evaluateSourceHealth({
       health: baseHealth({
+        updatedAt: new Date(sunday).toISOString(),
         primaryOkThisRun: false,
         lastPrimarySuccessAt: new Date(friday).toISOString(),
       }),
