@@ -13,9 +13,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
@@ -27,8 +27,12 @@ jobs:
       - run: npm run build
 
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
+          # v4 exists only to move the action off the deprecated Node 20 runtime; its one breaking
+          # change is defaulting Wrangler to v4. Pin the version the deploys have been running so
+          # this stays a runtime bump and does not become an untested Wrangler major at the same time.
+          wranglerVersion: "3.90.0"
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name=fx-chart-analyzer --branch=main --commit-dirty=true --commit-message="deploy"
