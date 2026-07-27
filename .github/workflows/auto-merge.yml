@@ -6,7 +6,12 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
     # update-data.yml already enables auto-merge on the data PR itself; pull_request runs for bot-authored data PRs just land action_required (approval-gated noise).
-    paths-ignore: ["public/data/**"]
+    # Workflow-touching PRs are skipped because GITHUB_TOKEN cannot enable auto-merge on them:
+    # GitHub refuses enablePullRequestAutoMerge without the `workflows` scope, and that scope does
+    # not exist for GITHUB_TOKEN, so this job could only ever fail (red run, no auto-merge either
+    # way). Enable auto-merge by hand on those PRs — or add a PAT with `workflow` scope if they
+    # should merge unattended.
+    paths-ignore: ["public/data/**", ".github/workflows/**"]
 
 permissions:
   contents: write
