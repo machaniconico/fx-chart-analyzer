@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { getHistoricalRates } from 'dukascopy-node';
@@ -271,6 +271,9 @@ const latest = (bars, tf) => {
 
 const formatError = (error) => (error instanceof Error ? error.message : String(error));
 
+// previousHealth comes from main's checked-out health.json, so carry-over depends on data/daily-update PRs
+// merging; a stuck merge can freeze lastPrimarySuccessAt until a false 120h FAIL, though the
+// OPEN_PR_MAX_AGE_HOURS persistence gate should fail first.
 export const buildSourceHealth = ({ sources, previousHealth, nowMs = Date.now() }) => {
   const counts = { dukascopy: 0, 'yahoo-fallback': 0 };
   for (const source of sources) {
@@ -296,16 +299,29 @@ const writeSourceHealth = async (sources) => {
   try {
     previousHealth = JSON.parse(await readFile(healthFile, 'utf8'));
   } catch (error) {
-    console.warn(
-      `Could not read ${healthFile}; previous primary-source history is unavailable: ${formatError(error)}`,
-    );
+    if (error?.code === 'ENOENT') {
+      console.log(`No previous ${healthFile}; starting source-health history.`);
+    } else {
+      console.warn(
+        `::warning::Could not read ${healthFile}; previous primary-source history is unavailable: ` +
+          formatError(error),
+      );
+    }
   }
 
   const health = buildSourceHealth({ sources, previousHealth });
+  const tempPath = `${healthFile}.tmp`;
   try {
-    await writeFile(healthFile, `${JSON.stringify(health, null, 2)}\n`);
+    await writeFile(tempPath, `${JSON.stringify(health, null, 2)}\n`, 'utf8');
+    await rename(tempPath, healthFile);
   } catch (error) {
-    console.warn(`Could not write ${healthFile}; continuing without updating source health: ${formatError(error)}`);
+    // Louder than the read failure: an unwritten health.json freezes updatedAt, and the gate then
+    // short-circuits to warn on staleness instead of ever reaching the 120h fail. Without the
+    // annotation this step is continue-on-error, so the gate would degrade to warn-only unnoticed.
+    console.warn(
+      `::warning::Could not write ${healthFile}; continuing without updating source health: ` +
+        formatError(error),
+    );
   }
 };
 
@@ -526,7 +542,7 @@ export const main = async () => {
 
   const tryUpdate = async (pair, tf, task) => {
     try {
-      processedSources.push(...await task());
+      await task();
     } catch (error) {
       failures.push(`${pair} ${tf}`);
       console.warn(`  SKIP ${pair} ${tf}: ${formatError(error)} (既存データを温存)`);
@@ -537,31 +553,35 @@ export const main = async () => {
     console.log(`Fetching ${pair} m15...`);
     await tryUpdate(pair, 'm15', async () => {
       const m15 = await fetchTimeframeWithFallback(pair, 'm15', M15_LOOKBACK_DAYS);
-      console.log(`  ${await persistBars(pair, 'm15', m15)}`);
-      return [m15.source];
+      const message = await persistBars(pair, 'm15', m15);
+      processedSources.push(m15.source);
+      console.log(`  ${message}`);
     });
 
     console.log(`Fetching ${pair} m30...`);
     await tryUpdate(pair, 'm30', async () => {
       const m30 = await fetchTimeframeWithFallback(pair, 'm30', M30_LOOKBACK_DAYS);
-      console.log(`  ${await persistBars(pair, 'm30', m30)}`);
-      return [m30.source];
+      const message = await persistBars(pair, 'm30', m30);
+      processedSources.push(m30.source);
+      console.log(`  ${message}`);
     });
 
     console.log(`Fetching ${pair} h1...`);
     await tryUpdate(pair, 'h1/h4', async () => {
       const { h1, h4 } = await fetchH1AndH4WithFallback(pair);
       const h1Message = await persistBars(pair, 'h1', h1);
+      processedSources.push(h1.source);
       const h4Message = await persistBars(pair, 'h4', h4);
+      processedSources.push(h4.source);
       console.log(`  ${h1Message}; ${h4Message}`);
-      return [h1.source, h4.source];
     });
 
     console.log(`Fetching ${pair} d1...`);
     await tryUpdate(pair, 'd1', async () => {
       const d1 = await fetchDailyWithFallback(pair);
-      console.log(`  ${await persistBars(pair, 'd1', d1)}`);
-      return [d1.source];
+      const message = await persistBars(pair, 'd1', d1);
+      processedSources.push(d1.source);
+      console.log(`  ${message}`);
     });
   }
 

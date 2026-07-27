@@ -17,11 +17,21 @@ const DATA_BRANCH = 'data/daily-update';
 // (21:00 UTC) to Monday open (21:00 UTC). 120h also absorbs one isolated weekday
 // outage, so the gate only fails after 2+ consecutive business days without primary data.
 const PRIMARY_STALE_LIMIT_HOURS = 120;
+const HEALTH_STALE_LIMIT_HOURS = 24;
 // An auto-merge PR that stays open past this is a stuck required check (never merging),
 // not a healthy same-run PR. Healthy runs create a fresh PR daily (< ~24h old).
 const OPEN_PR_MAX_AGE_HOURS = 26;
 
 const readJson = async (filePath) => JSON.parse(await readFile(filePath, 'utf8'));
+const formatError = (error) => (error instanceof Error ? error.message : String(error));
+
+// One decimal reads best during an incident, but at the boundary it rounds to the limit itself
+// ("120.0h ago, exceeding the 120h limit") and looks like an off-by-one in the gate. Only when
+// that happens, widen until the excess is actually visible.
+const formatAgeHours = (ageHours, limitHours) =>
+  Number(ageHours.toFixed(1)) > limitHours
+    ? ageHours.toFixed(1)
+    : ageHours.toFixed(7).replace(/0+$/, '').replace(/\.$/, '.0');
 
 export const findLatestCandleMs = async () => {
   const entries = await readdir(dataRoot, { withFileTypes: true });
@@ -55,13 +65,57 @@ export const findLatestCandleMs = async () => {
 
 export const evaluateSourceHealth = ({
   health,
+  healthFileExists = health != null,
+  healthReadError = null,
   nowMs = Date.now(),
   staleLimitHours = PRIMARY_STALE_LIMIT_HOURS,
 }) => {
-  if (!health) {
+  if (healthReadError) {
     return {
-      level: 'ok',
-      message: 'Source health file not found; skipping primary-source health check during migration.',
+      level: 'warn',
+      message: `Source health file is invalid or unreadable: ${healthReadError}`,
+    };
+  }
+  if (!healthFileExists) {
+    return {
+      level: 'warn',
+      message: 'Source health file not found; the fetch step did not write health.json.',
+    };
+  }
+  if (health === null) {
+    return {
+      level: 'warn',
+      message: 'Source health file contains the JSON literal null instead of a health object.',
+    };
+  }
+  if (typeof health !== 'object' || Array.isArray(health)) {
+    return {
+      level: 'warn',
+      message: 'Source health file must contain a JSON object.',
+    };
+  }
+
+  const updatedAtMs = Date.parse(health.updatedAt);
+  if (!Number.isFinite(updatedAtMs)) {
+    return {
+      level: 'warn',
+      message: 'Source health updatedAt is missing or invalid; this run cannot be verified.',
+    };
+  }
+  const healthAgeHours = (nowMs - updatedAtMs) / HOUR_MS;
+  if (healthAgeHours > HEALTH_STALE_LIMIT_HOURS) {
+    return {
+      level: 'warn',
+      message:
+        `Source health was updated ${formatAgeHours(healthAgeHours, HEALTH_STALE_LIMIT_HOURS)}h ago, over the ` +
+        `${HEALTH_STALE_LIMIT_HOURS}h limit; it was not written by this run.`,
+    };
+  }
+
+  if (typeof health.primaryOkThisRun !== 'boolean') {
+    return {
+      level: 'warn',
+      message: 'Source health primaryOkThisRun must be a boolean.',
     };
   }
 
@@ -79,7 +133,7 @@ export const evaluateSourceHealth = ({
     return {
       level: 'fail',
       message:
-        `Dukascopy last succeeded ${ageHours.toFixed(1)}h ago, ` +
+        `Dukascopy last succeeded ${formatAgeHours(ageHours, staleLimitHours)}h ago, ` +
         `exceeding the ${staleLimitHours}h primary-source stale limit.`,
     };
   }
@@ -192,10 +246,16 @@ const main = async () => {
   const failures = [];
 
   let health = null;
+  let healthFileExists = true;
+  let healthReadError = null;
   try {
     health = await readJson(healthFile);
-  } catch {
-    // Missing or malformed health is treated as migration grace by evaluateSourceHealth.
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      healthFileExists = false;
+    } else {
+      healthReadError = formatError(error);
+    }
   }
   const dukascopyCount = Number(health?.sources?.dukascopy) || 0;
   const yahooFallbackCount = Number(health?.sources?.['yahoo-fallback']) || 0;
@@ -210,7 +270,12 @@ const main = async () => {
       `(last primary success ${lastPrimarySummary}).`,
   );
 
-  const sourceHealth = evaluateSourceHealth({ health, nowMs: now });
+  const sourceHealth = evaluateSourceHealth({
+    health,
+    healthFileExists,
+    healthReadError,
+    nowMs: now,
+  });
   if (sourceHealth.level === 'warn') {
     console.log(`::warning::${sourceHealth.message}`);
   } else {
