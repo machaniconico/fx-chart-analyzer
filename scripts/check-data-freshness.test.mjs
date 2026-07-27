@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateSourceHealth, verifyDataPr } from './check-data-freshness.mjs';
+import {
+  evaluateDatasetFreshness,
+  evaluateSourceHealth,
+  verifyDataPr,
+} from './check-data-freshness.mjs';
 
 const HOUR_MS = 3_600_000;
 const NOW = Date.UTC(2026, 6, 10, 21, 0, 0); // fixed "now" for age assertions
@@ -21,6 +25,149 @@ const baseHealth = (overrides = {}) => ({
   primaryOkThisRun: true,
   lastPrimarySuccessAt: new Date(NOW - HOUR_MS).toISOString(),
   ...overrides,
+});
+
+const baseDataset = (overrides = {}) => ({
+  name: 'EURUSD/m15.json',
+  pair: 'EURUSD',
+  tf: 'm15',
+  latestMs: NOW - HOUR_MS,
+  ...overrides,
+});
+
+describe('evaluateDatasetFreshness per-dataset gate', () => {
+  it('passes when every dataset is fresh and aligned with its peers', () => {
+    const result = evaluateDatasetFreshness({
+      datasets: [
+        baseDataset(),
+        baseDataset({ name: 'USDJPY/m15.json', pair: 'USDJPY' }),
+      ],
+      nowMs: NOW,
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('fails the one stale dataset even when another dataset is fresh', () => {
+    const result = evaluateDatasetFreshness({
+      datasets: [
+        baseDataset(),
+        baseDataset({
+          name: 'USDJPY/m15.json',
+          pair: 'USDJPY',
+          latestMs: NOW - 100 * HOUR_MS,
+        }),
+      ],
+      nowMs: NOW,
+    });
+
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toMatch(/USDJPY\/m15\.json/);
+  });
+
+  it('fails every dataset when all datasets are stale', () => {
+    const result = evaluateDatasetFreshness({
+      datasets: [
+        baseDataset({ latestMs: NOW - 100 * HOUR_MS }),
+        baseDataset({
+          name: 'USDJPY/m15.json',
+          pair: 'USDJPY',
+          latestMs: NOW - 100 * HOUR_MS,
+        }),
+      ],
+      nowMs: NOW,
+    });
+
+    expect(result.failures).toHaveLength(2);
+  });
+
+  it('fails a dataset without a finite latest candle timestamp', () => {
+    const result = evaluateDatasetFreshness({
+      datasets: [baseDataset({ latestMs: null })],
+      nowMs: NOW,
+    });
+
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toMatch(/EURUSD\/m15\.json/);
+  });
+
+  it('fails when no datasets were found', () => {
+    const result = evaluateDatasetFreshness({ datasets: [], nowMs: NOW });
+
+    expect(result.failures).toHaveLength(1);
+  });
+
+  it('warns when one dataset trails a peer in the same timeframe by five hours', () => {
+    const result = evaluateDatasetFreshness({
+      datasets: [
+        baseDataset(),
+        baseDataset({
+          name: 'USDJPY/m15.json',
+          pair: 'USDJPY',
+          latestMs: NOW - 6 * HOUR_MS,
+        }),
+      ],
+      nowMs: NOW,
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/USDJPY\/m15\.json/);
+  });
+
+  it('compares peers only within the same timeframe', () => {
+    const result = evaluateDatasetFreshness({
+      datasets: [
+        baseDataset({ latestMs: NOW - 0.2 * HOUR_MS }),
+        baseDataset({
+          name: 'USDJPY/m15.json',
+          pair: 'USDJPY',
+          latestMs: NOW - 0.2 * HOUR_MS,
+        }),
+        baseDataset({
+          name: 'EURUSD/d1.json',
+          tf: 'd1',
+          latestMs: NOW - 47 * HOUR_MS,
+        }),
+        baseDataset({
+          name: 'USDJPY/d1.json',
+          pair: 'USDJPY',
+          tf: 'd1',
+          latestMs: NOW - 47 * HOUR_MS,
+        }),
+      ],
+      nowMs: NOW,
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('warns for the ten lagging minute datasets from the production incident', () => {
+    const pairs = ['EURUSD', 'USDJPY', 'GBPUSD', 'EURJPY', 'AUDJPY', 'GBPJPY'];
+    const timeframes = ['m15', 'm30', 'h1', 'h4', 'd1'];
+    const laggingPairs = new Set(pairs.slice(0, 5));
+    const datasets = pairs.flatMap((pair) =>
+      timeframes.map((tf) =>
+        baseDataset({
+          name: `${pair}/${tf}.json`,
+          pair,
+          tf,
+          latestMs:
+            laggingPairs.has(pair) && (tf === 'm15' || tf === 'm30')
+              ? NOW - 23 * HOUR_MS
+              : NOW - HOUR_MS,
+        }),
+      ),
+    );
+
+    const result = evaluateDatasetFreshness({ datasets, nowMs: NOW });
+
+    expect(result.failures).toEqual([]);
+    expect(result.warnings).toHaveLength(10);
+    expect(result.warnings.every((warning) => /\/m(15|30)\.json/.test(warning))).toBe(true);
+  });
 });
 
 describe('evaluateSourceHealth primary-source gate', () => {

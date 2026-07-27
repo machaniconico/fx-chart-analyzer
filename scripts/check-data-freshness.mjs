@@ -10,6 +10,10 @@ const healthFile = path.join(dataRoot, 'health.json');
 
 // Fail-visible thresholds and constants.
 const FRESHNESS_LIMIT_HOURS = 96;
+// ignoreFlats can legitimately omit a few trailing candles for quiet cross pairs.
+// Three hours leaves room for that while still exposing abnormal divergence between
+// pairs on the same timeframe.
+const PEER_LAG_WARN_HOURS = 3;
 const HOUR_MS = 3_600_000;
 const PAIR_PATTERN = /^[A-Z]{6}$/; // pair dirs like USDJPY; skips stats/forward.
 const DATA_BRANCH = 'data/daily-update';
@@ -38,15 +42,14 @@ const formatAgeHours = (ageHours, limitHours) =>
     ? ageHours.toFixed(1)
     : ageHours.toFixed(7).replace(/0+$/, '').replace(/\.$/, '.0');
 
-export const findLatestCandleMs = async () => {
+export const collectDatasetLatest = async () => {
   const entries = await readdir(dataRoot, { withFileTypes: true });
   const pairs = entries
     .filter((entry) => entry.isDirectory() && PAIR_PATTERN.test(entry.name))
     .map((entry) => entry.name)
     .sort();
 
-  let latestMs = 0;
-  let latestSource = null;
+  const datasets = [];
   for (const pair of pairs) {
     const pairDir = path.join(dataRoot, pair);
     const files = (await readdir(pairDir, { withFileTypes: true }))
@@ -55,17 +58,92 @@ export const findLatestCandleMs = async () => {
       .sort();
     for (const file of files) {
       const payload = await readJson(path.join(pairDir, file));
-      if (!Array.isArray(payload.bars)) continue;
-      for (const bar of payload.bars) {
-        const ms = Number(bar.t) * 1000;
-        if (Number.isFinite(ms) && ms > latestMs) {
-          latestMs = ms;
-          latestSource = `${pair}/${file}`;
+      let latestMs = null;
+      if (Array.isArray(payload.bars)) {
+        for (const bar of payload.bars) {
+          if (bar?.t == null) continue;
+          const ms = Number(bar.t) * 1000;
+          if (Number.isFinite(ms) && (latestMs === null || ms > latestMs)) {
+            latestMs = ms;
+          }
         }
       }
+      datasets.push({
+        name: `${pair}/${file}`,
+        pair,
+        tf: path.basename(file, path.extname(file)),
+        latestMs,
+      });
     }
   }
-  return { latestMs, latestSource, pairCount: pairs.length };
+  return { datasets, pairCount: pairs.length };
+};
+
+export const evaluateDatasetFreshness = ({
+  datasets,
+  nowMs = Date.now(),
+  freshnessLimitHours = FRESHNESS_LIMIT_HOURS,
+  peerLagWarnHours = PEER_LAG_WARN_HOURS,
+}) => {
+  const failures = [];
+  const warnings = [];
+
+  if (datasets.length === 0) {
+    failures.push('No candle datasets found.');
+  }
+
+  const validDatasets = [];
+  for (const dataset of datasets) {
+    if (!Number.isFinite(dataset.latestMs)) {
+      failures.push(`Dataset ${dataset.name} has no finite candle timestamp.`);
+      continue;
+    }
+
+    validDatasets.push(dataset);
+    const ageHours = (nowMs - dataset.latestMs) / HOUR_MS;
+    if (ageHours > freshnessLimitHours) {
+      failures.push(
+        `Stale dataset ${dataset.name}: latest candle ${new Date(dataset.latestMs).toISOString()} ` +
+          `is ${formatAgeHours(ageHours, freshnessLimitHours)}h old, exceeding the ` +
+          `${freshnessLimitHours}h freshness limit.`,
+      );
+    }
+  }
+
+  const latestByTimeframe = new Map();
+  for (const dataset of validDatasets) {
+    const peerLatestMs = latestByTimeframe.get(dataset.tf);
+    if (peerLatestMs === undefined || dataset.latestMs > peerLatestMs) {
+      latestByTimeframe.set(dataset.tf, dataset.latestMs);
+    }
+  }
+  for (const dataset of validDatasets) {
+    const peerLatestMs = latestByTimeframe.get(dataset.tf);
+    const peerLagHours = (peerLatestMs - dataset.latestMs) / HOUR_MS;
+    if (peerLagHours >= peerLagWarnHours) {
+      warnings.push(
+        `Dataset ${dataset.name} trails the latest ${dataset.tf} peer by ` +
+          `${peerLagHours.toFixed(1)}h (latest candle ${new Date(dataset.latestMs).toISOString()}, ` +
+          `peer latest ${new Date(peerLatestMs).toISOString()}, warning threshold ` +
+          `${peerLagWarnHours}h).`,
+      );
+    }
+  }
+
+  let summary = 'Dataset freshness: no datasets with finite candle timestamps.';
+  if (validDatasets.length > 0) {
+    const latest = validDatasets.reduce((candidate, dataset) =>
+      dataset.latestMs > candidate.latestMs ? dataset : candidate,
+    );
+    const slowest = validDatasets.reduce((candidate, dataset) =>
+      dataset.latestMs < candidate.latestMs ? dataset : candidate,
+    );
+    summary =
+      `Dataset freshness: latest ${latest.name} at ${new Date(latest.latestMs).toISOString()}; ` +
+      `slowest ${slowest.name} at ${new Date(slowest.latestMs).toISOString()}.`;
+  }
+
+  return { failures, warnings, summary };
 };
 
 export const evaluateSourceHealth = ({
@@ -329,22 +407,13 @@ const main = async () => {
     failures.push(sourceHealth.message);
   }
 
-  const { latestMs, latestSource, pairCount } = await findLatestCandleMs();
-  if (latestMs === 0) {
-    failures.push(`No candle data found under ${dataRoot} (scanned ${pairCount} pair directories).`);
-  } else {
-    const ageHours = (now - latestMs) / HOUR_MS;
-    const latestIso = new Date(latestMs).toISOString();
-    console.log(
-      `Latest candle: ${latestIso} (${latestSource}), age ${ageHours.toFixed(1)}h, limit ${FRESHNESS_LIMIT_HOURS}h.`,
-    );
-    if (ageHours > FRESHNESS_LIMIT_HOURS) {
-      failures.push(
-        `Stale data: latest candle ${latestIso} is ${ageHours.toFixed(1)}h old, ` +
-          `exceeding the ${FRESHNESS_LIMIT_HOURS}h freshness limit.`,
-      );
-    }
+  const { datasets, pairCount } = await collectDatasetLatest();
+  const datasetFreshness = evaluateDatasetFreshness({ datasets, nowMs: now });
+  console.log(`${datasetFreshness.summary} Scanned ${pairCount} pair directories.`);
+  for (const warning of datasetFreshness.warnings) {
+    console.log(`::warning::${warning}`);
   }
+  failures.push(...datasetFreshness.failures);
 
   const dataChanged = isTruthy(process.env.DATA_CHANGED) || process.argv.includes('--data-changed');
   if (dataChanged) {
