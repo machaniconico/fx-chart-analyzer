@@ -6,6 +6,12 @@ on:
     - cron: "0 21 * * *"
   workflow_dispatch:
 
+# Do not cancel after a force-push: the run could stop before opening its PR,
+# leaving pushed data without the PR required by the persistence gate. Queue runs instead.
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
 permissions:
   contents: write
   deployments: write
@@ -43,6 +49,10 @@ jobs:
         continue-on-error: true
         run: node scripts/fetch-cot.mjs
 
+      # The soft/hard failure split below is deliberate — do not "normalize" it. Data refreshes stay
+      # soft so existing data is preserved and the deploy still runs; the final freshness/health gate
+      # is what exposes the anomaly. Adaptive stats, build, deploy and that gate stay hard: they fail
+      # before any PR is opened, so the run goes red instead of shipping quietly degraded output.
       - name: Build adaptive model stats
         run: node scripts/build-model-stats.mjs
 

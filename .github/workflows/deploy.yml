@@ -5,6 +5,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Pages deployment is last-write-wins, so only the newest run matters;
+# cancel older runs to prevent stale content from finishing last.
+concurrency:
+  group: deploy-pages
+  cancel-in-progress: true
+
 permissions:
   contents: read
   deployments: write
