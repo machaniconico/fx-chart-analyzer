@@ -71,10 +71,10 @@ describe('evaluateSourceHealth primary-source gate', () => {
     expect(result.level).toBe('warn');
   });
 
-  it('warns when health.json is older than 24 hours before evaluating the 120-hour failure threshold', () => {
+  it('warns when health.json predates this run, before evaluating the 120-hour failure threshold', () => {
     const result = evaluateSourceHealth({
       health: baseHealth({
-        updatedAt: new Date(NOW - 24 * HOUR_MS - 1).toISOString(),
+        updatedAt: new Date(NOW - 6 * HOUR_MS - 1).toISOString(),
         primaryOkThisRun: false,
         lastPrimarySuccessAt: new Date(NOW - 121 * HOUR_MS).toISOString(),
       }),
@@ -83,6 +83,17 @@ describe('evaluateSourceHealth primary-source gate', () => {
 
     expect(result.level).toBe('warn');
     expect(result.message).toMatch(/not.*this run/i);
+  });
+
+  // The gate must not fire on the gap a healthy run actually has: fetch writes health.json and the
+  // gate reads it minutes later in the same job (0.1h observed in production).
+  it('does not treat a health file written earlier in the same job as stale', () => {
+    const result = evaluateSourceHealth({
+      health: baseHealth({ updatedAt: new Date(NOW - 6 * HOUR_MS).toISOString() }),
+      nowMs: NOW,
+    });
+
+    expect(result.level).toBe('ok');
   });
 
   it.each([
