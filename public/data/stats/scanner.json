@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-07T21:37:49.164Z",
+  "generatedAt": "2026-08-08T21:28:19.437Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-05-13T00:00:00.000Z",
+    "dataStart": "2025-05-06T00:00:00.000Z",
     "dataEnd": "2026-08-07T20:30:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
@@ -26,9 +26,9 @@
     "initialBalanceYen": 1000000,
     "riskPercent": 1,
     "simulationWindowMonths": 12,
-    "evaluatedDecisionPoints": 2928,
-    "recommendationsFound": 27,
-    "judgedRecommendations": 27,
+    "evaluatedDecisionPoints": 2926,
+    "recommendationsFound": 26,
+    "judgedRecommendations": 26,
     "skippedNoFutureBars": 0,
     "skippedIncompleteOutcome": 0,
     "skippedUnfilledPullbacks": 0
@@ -127,16 +127,16 @@
     "EURJPY": {
       "daytrade": {
         "recommendations": 1,
-        "wins": 0,
-        "losses": 1,
+        "wins": 1,
+        "losses": 0,
         "draws": 0,
-        "winRate": 0,
-        "averageRealizedR": -1,
+        "winRate": 1,
+        "averageRealizedR": 1.2604,
         "ewa": {
           "halfLifeSamples": 30,
           "decayedSampleCount": 1,
-          "winRate": 0,
-          "averageRealizedR": -1
+          "winRate": 1,
+          "averageRealizedR": 1.2604
         }
       },
       "swing": {
@@ -200,17 +200,17 @@
         }
       },
       "swing": {
-        "recommendations": 1,
-        "wins": 1,
+        "recommendations": 0,
+        "wins": 0,
         "losses": 0,
         "draws": 0,
-        "winRate": 1,
-        "averageRealizedR": 1.5813,
+        "winRate": null,
+        "averageRealizedR": null,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 1,
-          "winRate": 1,
-          "averageRealizedR": 1.5813
+          "decayedSampleCount": 0,
+          "winRate": null,
+          "averageRealizedR": null
         }
       }
     }
@@ -247,16 +247,16 @@
       },
       "low": {
         "recommendations": 2,
-        "wins": 1,
-        "losses": 1,
+        "wins": 2,
+        "losses": 0,
         "draws": 0,
-        "winRate": 0.5,
-        "averageRealizedR": 0.2761,
+        "winRate": 1,
+        "averageRealizedR": 1.4063,
         "ewa": {
           "halfLifeSamples": 30,
           "decayedSampleCount": 1.98,
-          "winRate": 0.5058,
-          "averageRealizedR": 0.2908
+          "winRate": 1,
+          "averageRealizedR": 1.4079
         }
       }
     },
@@ -290,17 +290,17 @@
         }
       },
       "low": {
-        "recommendations": 2,
-        "wins": 2,
+        "recommendations": 1,
+        "wins": 1,
         "losses": 0,
         "draws": 0,
         "winRate": 1,
-        "averageRealizedR": 1.4012,
+        "averageRealizedR": 1.2211,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 1.98,
+          "decayedSampleCount": 1,
           "winRate": 1,
-          "averageRealizedR": 1.3992
+          "averageRealizedR": 1.2211
         }
       }
     }
