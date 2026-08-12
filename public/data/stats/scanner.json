@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-11T21:44:34.372Z",
+  "generatedAt": "2026-08-12T21:43:24.429Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-04-16T00:00:00.000Z",
-    "dataEnd": "2026-08-11T21:30:00.000Z",
+    "dataStart": "2025-05-16T04:00:00.000Z",
+    "dataEnd": "2026-08-12T21:30:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
     "adaptiveStatsMode": "rolling-from-cutoff",
@@ -26,10 +26,10 @@
     "initialBalanceYen": 1000000,
     "riskPercent": 1,
     "simulationWindowMonths": 12,
-    "evaluatedDecisionPoints": 2936,
-    "recommendationsFound": 26,
-    "judgedRecommendations": 26,
-    "skippedNoFutureBars": 0,
+    "evaluatedDecisionPoints": 2937,
+    "recommendationsFound": 28,
+    "judgedRecommendations": 27,
+    "skippedNoFutureBars": 1,
     "skippedIncompleteOutcome": 0,
     "skippedUnfilledPullbacks": 0
   },
@@ -140,17 +140,17 @@
         }
       },
       "swing": {
-        "recommendations": 6,
-        "wins": 2,
+        "recommendations": 7,
+        "wins": 3,
         "losses": 4,
         "draws": 0,
-        "winRate": 0.3333,
-        "averageRealizedR": -0.1465,
+        "winRate": 0.4286,
+        "averageRealizedR": 0.1472,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 5.67,
-          "winRate": 0.3409,
-          "averageRealizedR": -0.1287
+          "decayedSampleCount": 6.54,
+          "winRate": 0.4286,
+          "averageRealizedR": 0.1426
         }
       }
     },
@@ -161,12 +161,12 @@
         "losses": 0,
         "draws": 0,
         "winRate": 1,
-        "averageRealizedR": 1.5522,
+        "averageRealizedR": 1.3232,
         "ewa": {
           "halfLifeSamples": 30,
           "decayedSampleCount": 1,
           "winRate": 1,
-          "averageRealizedR": 1.5522
+          "averageRealizedR": 1.3232
         }
       },
       "swing": {
@@ -251,12 +251,12 @@
         "losses": 1,
         "draws": 0,
         "winRate": 0.5,
-        "averageRealizedR": 0.2761,
+        "averageRealizedR": 0.1616,
         "ewa": {
           "halfLifeSamples": 30,
           "decayedSampleCount": 1.98,
           "winRate": 0.5058,
-          "averageRealizedR": 0.2908
+          "averageRealizedR": 0.175
         }
       }
     },
@@ -276,17 +276,17 @@
         }
       },
       "medium": {
-        "recommendations": 21,
-        "wins": 7,
+        "recommendations": 22,
+        "wins": 8,
         "losses": 14,
         "draws": 0,
-        "winRate": 0.3333,
-        "averageRealizedR": -0.217,
+        "winRate": 0.3636,
+        "averageRealizedR": -0.1203,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 16.83,
-          "winRate": 0.3222,
-          "averageRealizedR": -0.2453
+          "decayedSampleCount": 17.45,
+          "winRate": 0.3461,
+          "averageRealizedR": -0.1687
         }
       },
       "low": {
