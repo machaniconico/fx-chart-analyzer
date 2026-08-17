@@ -442,7 +442,8 @@ const ichimokuParityComment = `
 `;
 
 const ichimokuDisplacementWarning = (condition: IchimokuCrossCondition): string =>
-  condition.displacement !== condition.basePeriod
+  // 雲フィルタOFF時は displacement がシグナルに影響しないため警告しない(TS評価器と同じ早期return)
+  condition.requireCloudFilter && condition.displacement !== condition.basePeriod
     ? `// WARNING: Ichimoku displacement ${integerLiteral(condition.displacement)} differs from basePeriod ${integerLiteral(condition.basePeriod)}. MQL iIchimoku follows its basePeriod displacement, so cloud parity with TS is not guaranteed.\n`
     : '';
 

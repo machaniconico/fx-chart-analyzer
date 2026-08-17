@@ -201,6 +201,8 @@ const defaultOptimizationForm: OptimizationFormState = {
 };
 
 const timeTextPattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const ichimokuDisplacementWarning =
+  '先行スパン変位(displacement)が基準線期間と異なる場合、MT4/MT5のEAでは基準線期間の変位で動作します(バックテストと乖離)';
 
 const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
   const messages: string[] = [];
@@ -221,6 +223,9 @@ const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
       ].some((period) => !Number.isInteger(period) || period < 1)
     ) {
       messages.push('一目均衡表の期間は1以上の整数にしてください。');
+    }
+    if (condition.type === 'ichimokuCross' && condition.requireCloudFilter && condition.displacement !== condition.basePeriod) {
+      messages.push(ichimokuDisplacementWarning);
     }
     if (condition.type === 'donchianBreak' && (!Number.isInteger(condition.period) || condition.period < 1)) {
       messages.push('ドンチアンブレイクの期間は1以上の整数にしてください。');
@@ -343,7 +348,9 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const [optimizationError, setOptimizationError] = useState<string | null>(null);
   const optimizationTokenRef = useRef<OptimizationCancelToken | null>(null);
   const validationMessages = useMemo(() => strategyValidationMessages(strategy), [strategy]);
-  const hasValidationErrors = validationMessages.length > 0;
+  const validationWarnings = validationMessages.filter((message) => message === ichimokuDisplacementWarning);
+  const validationErrors = validationMessages.filter((message) => message !== ichimokuDisplacementWarning);
+  const hasValidationErrors = validationErrors.length > 0;
   const mql5Source = useMemo(() => generateMql5(strategy), [strategy]);
   const mql4Source = useMemo(() => generateMql4(strategy), [strategy]);
   const moneyManagement = strategy.moneyManagement ?? defaultMoneyManagement(strategy.lotSize);
@@ -1132,6 +1139,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                       }))
                     }
                   />
+                  <small className="control-hint">%Dは判定に使用されません(生成EAでも未使用)</small>
                 </label>
                 <label>
                   <span>平滑化</span>
@@ -1288,9 +1296,17 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
           </p>
         </section>
 
-        {validationMessages.length > 0 && (
+        {validationWarnings.length > 0 && (
+          <div className="warning-banner" role="note">
+            {validationWarnings.map((message) => (
+              <span key={message}>{message}</span>
+            ))}
+          </div>
+        )}
+
+        {validationErrors.length > 0 && (
           <div className="validation-list" role="alert">
-            {validationMessages.map((message) => (
+            {validationErrors.map((message) => (
               <p key={message}>{message}</p>
             ))}
           </div>

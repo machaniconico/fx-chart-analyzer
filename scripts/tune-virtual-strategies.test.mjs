@@ -23,6 +23,7 @@ import {
   parseCliArgs,
   rankRows,
   selectEligibleRow,
+  splitBarsIntoQuarterlySegments,
   writeTuningReport,
 } from './tune-virtual-strategies.mjs';
 
@@ -371,6 +372,33 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(CLI_USAGE).toContain('--session-variants');
     expect(CLI_USAGE).toContain('--help, -h');
     expect(CLI_USAGE).toMatch(/console.*PF.*JSON report.*all evaluated combinations/i);
+  });
+
+  it('supports walk-forward mode without changing the default filter shape', () => {
+    expect(parseCliArgs([])).not.toHaveProperty('walkForward');
+    expect(parseCliArgs(['--walk-forward'])).toMatchObject({
+      help: false,
+      walkForward: true,
+      pairs: [],
+      entryTypes: [],
+      timeframes: [],
+    });
+    expect(parseCliArgs(['--walk-forward', '--help'])).toMatchObject({
+      help: true,
+      walkForward: true,
+    });
+    expect(CLI_USAGE).toContain('--walk-forward');
+  });
+
+  it('splits reference bars by timestamp boundaries rather than bar counts', () => {
+    const bars = [0, 1, 2, 25, 50, 75, 99].map((t) => ({ t }));
+
+    expect(splitBarsIntoQuarterlySegments(bars).map((segment) => segment.map((bar) => bar.t))).toEqual([
+      [0, 1, 2],
+      [25],
+      [50],
+      [75, 99],
+    ]);
   });
 
   it('shows usage instead of throwing when help and an unknown option coexist', async () => {
@@ -810,6 +838,174 @@ describe('tune-virtual-strategies deep-history cache', () => {
   });
 });
 
+describe('tune-virtual-strategies quarterly stability mode', () => {
+  const daySeconds = 24 * 60 * 60;
+
+  const makeReferenceBars = (registeredAt) =>
+    [0, 1, 2, 25, 50, 75, 99].map((offset) => ({
+      t: registeredAt - (100 - offset) * daySeconds,
+      o: 150,
+      h: 151,
+      l: 149,
+      c: 150.5,
+      v: 1,
+    }));
+
+  const writeBarCache = async (root, target, bars) => {
+    const { pair, timeframe } = target.strategy.meta;
+    await mkdir(path.join(root, pair), { recursive: true });
+    await writeFile(
+      path.join(root, pair, `${timeframe}.json`),
+      `${JSON.stringify({ bars })}\n`,
+    );
+  };
+
+  const makeEngine = (quarterlyNetProfits) => {
+    let backtestIndex = 0;
+    const runBacktest = vi.fn((bars, strategy, pair, options) => ({
+      bars,
+      strategy,
+      pair,
+      options,
+      backtestIndex: backtestIndex++,
+    }));
+    return {
+      generateParameterCombinations: () => [{ stopLossPips: 30, takeProfitPips: 60 }],
+      splitOptimizationBars: (bars) => {
+        const splitAt = Math.floor(bars.length * 0.7);
+        return { optimizationBars: bars.slice(0, splitAt), validationBars: bars.slice(splitAt) };
+      },
+      runBacktest,
+      scoreBacktestResult: ({ backtestIndex: index }) => {
+        const netProfitYen = index < 2 ? 100 : quarterlyNetProfits[index - 2];
+        return {
+          netProfitYen,
+          profitFactor: index < 2 || netProfitYen > 0 ? 1.5 : 0.5,
+          maxDrawdownYen: 0,
+          tradeCount: index < 2 ? 20 : netProfitYen > 0 ? 5 : 1,
+        };
+      },
+      validationToOptimizationRatio: () => 0.6,
+      isOverfitSuspect: () => false,
+    };
+  };
+
+  const makeTarget = () => ({
+    ...buildCandidateMatrix()[0],
+    parameterRanges: {
+      stopLossPips: { min: 30, max: 30, step: 1 },
+      takeProfitPips: { min: 60, max: 60, step: 1 },
+    },
+    trailingStopPips: [null],
+    sessionVariants: [SESSION_VARIANTS[1]],
+  });
+
+  it('runs four time-based selected-parameter checks and preserves the selected session filter', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-quarterly-pass-'));
+    const dataDirectory = path.join(tempRoot, 'data');
+    const target = makeTarget();
+    const engine = makeEngine([100, 50, -10, 25]);
+
+    try {
+      await writeBarCache(dataDirectory, target, makeReferenceBars(target.strategy.meta.registeredAt));
+      const result = await evaluateTarget(engine, target, {
+        dataDirectory,
+        walkForward: true,
+      });
+      const report = createTuningReport([result], {
+        filters: { pairs: [], entryTypes: [], timeframes: [], walkForward: true },
+      });
+
+      expect(engine.runBacktest).toHaveBeenCalledTimes(6);
+      expect(engine.runBacktest.mock.calls.slice(2).map(([bars]) => bars.map((bar) => bar.t))).toEqual([
+        [target.strategy.meta.registeredAt - 100 * daySeconds, target.strategy.meta.registeredAt - 99 * daySeconds, target.strategy.meta.registeredAt - 98 * daySeconds],
+        [target.strategy.meta.registeredAt - 75 * daySeconds],
+        [target.strategy.meta.registeredAt - 50 * daySeconds],
+        [target.strategy.meta.registeredAt - 25 * daySeconds, target.strategy.meta.registeredAt - daySeconds],
+      ]);
+      expect(engine.runBacktest.mock.calls.slice(2).map(([, candidate]) => candidate.sessionFilter)).toEqual([
+        SESSION_VARIANTS[1].filter,
+        SESSION_VARIANTS[1].filter,
+        SESSION_VARIANTS[1].filter,
+        SESSION_VARIANTS[1].filter,
+      ]);
+      expect(result).toMatchObject({
+        eligible: expect.any(Object),
+        selectedCandidate: {
+          quarterlyResults: [
+            { netProfitYen: 100, profitFactor: 1.5, tradeCount: 5 },
+            { netProfitYen: 50, profitFactor: 1.5, tradeCount: 5 },
+            { netProfitYen: -10, profitFactor: 0.5, tradeCount: 1 },
+            { netProfitYen: 25, profitFactor: 1.5, tradeCount: 5 },
+          ],
+          quarterlyStability: {
+            mode: 'selected-parameter-quarterly-stability',
+            positiveSegmentCount: 3,
+            requiredPositiveSegmentCount: 3,
+            passed: true,
+          },
+        },
+      });
+      expect(report).toMatchObject({
+        filters: { walkForward: true },
+        candidates: [
+          {
+            status: 'passed',
+            selectedCandidate: {
+              quarterlyResults: expect.any(Array),
+              quarterlyStability: { positiveSegmentCount: 3, passed: true },
+            },
+          },
+        ],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('downgrades a selected candidate when fewer than three quarters are profitable', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-quarterly-reject-'));
+    const dataDirectory = path.join(tempRoot, 'data');
+    const target = makeTarget();
+    const engine = makeEngine([100, -1, 50, -1]);
+
+    try {
+      await writeBarCache(dataDirectory, target, makeReferenceBars(target.strategy.meta.registeredAt));
+      const result = await evaluateTarget(engine, target, {
+        dataDirectory,
+        walkForward: true,
+      });
+      const report = createTuningReport([result], {
+        filters: { pairs: [], entryTypes: [], timeframes: [], walkForward: true },
+      });
+
+      expect(result.eligible).toBeNull();
+      expect(result.selectedCandidate).toMatchObject({
+        quarterlyStability: { positiveSegmentCount: 2, passed: false },
+      });
+      expect(isEligible(result.selectedCandidate, { walkForward: true })).toBe(false);
+      expect(report.candidates[0]).toMatchObject({
+        status: 'rejected',
+        selectedCandidate: {
+          selected: true,
+          quarterlyResults: expect.any(Array),
+          rejectionReasons: [
+            {
+              code: 'quarterly_stability_below_threshold',
+              actual: 2,
+              operator: '>=',
+              threshold: 3,
+            },
+          ],
+        },
+        rejectionReasons: [{ code: 'quarterly_stability_below_threshold', actual: 2, count: 1 }],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('tune-virtual-strategies ranking and unchanged selection gate', () => {
   it('ranks by the optimization window, not the validation window', () => {
     const strongOptimization = row({ optNet: 100_000, valNet: 5_000 });
@@ -958,6 +1154,7 @@ describe('tune-virtual-strategies JSON report', () => {
     expect(evaluate.mock.calls[0]).toHaveLength(2);
     expect(reports[0]).not.toHaveProperty('provenance');
     expect(reports[0].filters).not.toHaveProperty('deepHistory');
+    expect(reports[0].filters).not.toHaveProperty('walkForward');
 
     const deepHistoryDirectory = path.join(os.tmpdir(), 'mock-deep-history');
     await main({ ...common, args: ['--deep-history'], deepHistoryDirectory });
@@ -1017,6 +1214,35 @@ describe('tune-virtual-strategies JSON report', () => {
       filters: { pairs: ['EURUSD'], entryTypes: ['rsi'], timeframes: ['h1'] },
       summary: { candidateCount: 1 },
     });
+  });
+
+  it('forwards walk-forward mode and records it in the report filters', async () => {
+    const [target] = buildCandidateMatrix();
+    const passing = row({ optNet: 100_000, valNet: 60_000, ratio: 0.6 });
+    let writtenReport;
+    const evaluate = vi.fn(async (_engine, candidate) =>
+      resultFor({ target: candidate, rows: [passing], eligible: passing }),
+    );
+
+    await main({
+      args: ['--walk-forward'],
+      candidateTargets: [target],
+      loadEngine: async () => ({ cleanup: async () => {} }),
+      evaluate,
+      writeReport: async (report) => {
+        writtenReport = report;
+        return path.join(os.tmpdir(), 'mock-walk-forward-report.json');
+      },
+      printResult: () => {},
+      log: () => {},
+    });
+
+    expect(evaluate.mock.calls[0]).toEqual([
+      expect.anything(),
+      target,
+      { walkForward: true },
+    ]);
+    expect(writtenReport.filters).toMatchObject({ walkForward: true });
   });
 
   it('includes validation evidence for passes and reasons for every rejection', () => {

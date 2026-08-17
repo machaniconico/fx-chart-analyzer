@@ -262,6 +262,7 @@ Options:
   --timeframe <timeframe[,timeframe...]> Filter timeframes (${TUNING_TIMEFRAMES.join(', ')})
   --deep-history                       Use the source with wider pre-registration coverage
   --session-variants                   Evaluate no-session, Tokyo, London, and New York variants
+  --walk-forward                       Check selected parameters across four time-based reference quarters
   --help, -h                            Show this help
 
 Each filter can be repeated. With no filters, the complete candidate matrix is evaluated.
@@ -293,12 +294,14 @@ export const parseCliArgs = (args) => {
   const filters = { pairs: [], entryTypes: [], timeframes: [] };
   let deepHistory = false;
   let sessionVariants = false;
+  let walkForward = false;
 
   if (args.some((argument) => argument === '--help' || argument === '-h')) {
     return {
       help: true,
       ...(args.includes('--deep-history') ? { deepHistory: true } : {}),
       ...(args.includes('--session-variants') ? { sessionVariants: true } : {}),
+      ...(args.includes('--walk-forward') ? { walkForward: true } : {}),
       ...filters,
     };
   }
@@ -311,6 +314,10 @@ export const parseCliArgs = (args) => {
     }
     if (argument === '--session-variants') {
       sessionVariants = true;
+      continue;
+    }
+    if (argument === '--walk-forward') {
+      walkForward = true;
       continue;
     }
     const equalsIndex = argument.indexOf('=');
@@ -342,6 +349,7 @@ export const parseCliArgs = (args) => {
     help: false,
     ...(deepHistory ? { deepHistory: true } : {}),
     ...(sessionVariants ? { sessionVariants: true } : {}),
+    ...(walkForward ? { walkForward: true } : {}),
     ...filters,
   };
 };
@@ -546,6 +554,38 @@ const barsWithin = (bars, segment) => {
   return bars.filter((bar) => bar.t >= firstTime && bar.t <= lastTime);
 };
 
+export const QUARTERLY_SEGMENT_COUNT = 4;
+export const QUARTERLY_STABILITY_MIN_POSITIVE_SEGMENTS = 3;
+
+export const splitBarsIntoQuarterlySegments = (bars) => {
+  const segments = Array.from({ length: QUARTERLY_SEGMENT_COUNT }, () => []);
+  if (!Array.isArray(bars) || bars.length === 0) {
+    return segments;
+  }
+
+  const firstTime = bars[0]?.t;
+  const lastTime = bars[bars.length - 1]?.t;
+  if (!Number.isFinite(firstTime) || !Number.isFinite(lastTime)) {
+    return segments;
+  }
+
+  const span = Math.max(0, lastTime - firstTime);
+  if (span === 0) {
+    segments[0] = [...bars];
+    return segments;
+  }
+
+  for (const bar of bars) {
+    if (!Number.isFinite(bar?.t)) {
+      continue;
+    }
+    const relativePosition = (bar.t - firstTime) / span;
+    const segmentIndex = Math.min(3, Math.max(0, Math.floor(relativePosition * 4)));
+    segments[segmentIndex].push(bar);
+  }
+  return segments;
+};
+
 const strategyWithCandidate = (strategy, parameters, sessionVariant) => {
   const candidate = cloneJson(strategy);
   candidate.exit = {
@@ -642,15 +682,43 @@ export const rankRows = (rows) =>
     return left.optimization.maxDrawdownYen - right.optimization.maxDrawdownYen;
   });
 
+export const positiveQuarterlySegmentCount = (quarterlyResults) =>
+  Array.isArray(quarterlyResults)
+    ? quarterlyResults.filter((quarter) => quarter?.netProfitYen > 0).length
+    : 0;
+
+export const isQuarterlyStable = (row) =>
+  Array.isArray(row?.quarterlyResults) &&
+  row.quarterlyResults.length === QUARTERLY_SEGMENT_COUNT &&
+  positiveQuarterlySegmentCount(row.quarterlyResults) >=
+    QUARTERLY_STABILITY_MIN_POSITIVE_SEGMENTS;
+
+export const quarterlyStabilityRejectionReasons = (row) => {
+  if (!row?.quarterlyStability || row.quarterlyStability.passed) {
+    return [];
+  }
+  const positiveSegments = row.quarterlyStability.positiveSegmentCount;
+  return [
+    rejectionReason(
+      'quarterly_stability_below_threshold',
+      `四半期安定性: 正のセグメントが${positiveSegments}/${QUARTERLY_SEGMENT_COUNT}件で${QUARTERLY_STABILITY_MIN_POSITIVE_SEGMENTS}件未満`,
+      positiveSegments,
+      '>=',
+      QUARTERLY_STABILITY_MIN_POSITIVE_SEGMENTS,
+    ),
+  ];
+};
+
 // Validation is only a pass/fail gate here, never a ranking key: the adopted row
 // must be profitable in-sample, hold up out-of-sample (>=10 trades, no overfit
 // warning, and keep at least 35% of the in-sample profit).
-export const isEligible = (row) =>
+export const isEligible = (row, { walkForward = false } = {}) =>
   row.optimization.netProfitYen > 0 &&
   row.validation.netProfitYen > 0 &&
   row.validation.tradeCount >= 10 &&
   !row.overfitWarning &&
-  row.validationToOptimizationRatio >= 0.35;
+  row.validationToOptimizationRatio >= 0.35 &&
+  (!walkForward || isQuarterlyStable(row));
 
 // Keep the historical PF prefilter separate from the validation gate above.
 // In normal score output a positive net profit implies PF >= 1, but preserving
@@ -658,7 +726,11 @@ export const isEligible = (row) =>
 export const rankSelectableRows = (rows) =>
   rankRows(rows).filter((row) => row.optimization.profitFactor >= 1);
 
-export const selectEligibleRow = (rows) => rankSelectableRows(rows).find(isEligible) ?? null;
+// 注意: walkForward オプションをここで true にしてはいけない。quarterlyResults は
+// selectedCandidate 確定後に evaluateQuarterlyStability が付与するため、選定段階の row には
+// 存在せず、常に null が返る(四半期ゲートは選定後の候補単位降格として別途適用される)。
+export const selectEligibleRow = (rows, { walkForward = false } = {}) =>
+  rankSelectableRows(rows).find((row) => isEligible(row, { walkForward })) ?? null;
 
 export const SELECTION_POLICY = Object.freeze({
   ranking: Object.freeze([
@@ -788,6 +860,45 @@ export const selectionEvidence = (row) => ({
   },
 });
 
+const strategyWithSelectedRow = (strategy, row) => {
+  const candidate = strategyWithCandidate(strategy, row.parameters, null);
+  if (row.sessionFilter) {
+    candidate.sessionFilter = cloneJson(row.sessionFilter);
+  }
+  return candidate;
+};
+
+const evaluateQuarterlyStability = (engine, strategy, pair, referenceBars, usdJpyReferenceBars, row) => {
+  const candidate = strategyWithSelectedRow(strategy, row);
+  const quarterlyResults = splitBarsIntoQuarterlySegments(referenceBars).map((segment) => {
+    const options = pair.endsWith('JPY')
+      ? {}
+      : { usdJpyBars: barsWithin(usdJpyReferenceBars, segment) };
+    const metrics = engine.scoreBacktestResult(
+      engine.runBacktest(segment, candidate, pair, options),
+    );
+    return {
+      // 期間の同定情報: レポート読者が「負けた四半期」と「バー欠落の退化セグメント」を区別できるようにする
+      startTime: segment.length > 0 ? segment[0].t : null,
+      endTime: segment.length > 0 ? segment[segment.length - 1].t : null,
+      barCount: segment.length,
+      netProfitYen: metrics.netProfitYen,
+      profitFactor: metrics.profitFactor,
+      tradeCount: metrics.tradeCount,
+    };
+  });
+  const positiveSegmentCount = positiveQuarterlySegmentCount(quarterlyResults);
+  row.quarterlyResults = quarterlyResults;
+  row.quarterlyStability = {
+    mode: 'selected-parameter-quarterly-stability',
+    segmentCount: QUARTERLY_SEGMENT_COUNT,
+    positiveSegmentCount,
+    requiredPositiveSegmentCount: QUARTERLY_STABILITY_MIN_POSITIVE_SEGMENTS,
+    passed: positiveSegmentCount >= QUARTERLY_STABILITY_MIN_POSITIVE_SEGMENTS,
+  };
+  return row;
+};
+
 const loadTargetStrategy = async (target) => {
   if (target.strategy) {
     return cloneJson(target.strategy);
@@ -800,6 +911,7 @@ export const evaluateTarget = async (
   target,
   {
     deepHistory = false,
+    walkForward = false,
     deepHistoryDirectory = DEEP_HISTORY_DIRECTORY,
     dataDirectory = dataRoot,
   } = {},
@@ -902,6 +1014,22 @@ export const evaluateTarget = async (
   // full ranked set so the JSON report can explain every rejected combination.
   const evaluatedRows = rankRows(rows);
   const rankedRows = rankSelectableRows(rows);
+  const selectedCandidate = selectEligibleRow(rows);
+  if (walkForward && selectedCandidate) {
+    evaluateQuarterlyStability(
+      engine,
+      strategy,
+      pair,
+      referenceBars,
+      usdJpyReferenceBars,
+      selectedCandidate,
+    );
+  }
+  const eligible = walkForward
+    ? selectedCandidate && isEligible(selectedCandidate, { walkForward })
+      ? selectedCandidate
+      : null
+    : selectedCandidate;
   const result = {
     strategy,
     pair,
@@ -914,7 +1042,8 @@ export const evaluateTarget = async (
     validationSpanDays: spanDays(validationBars),
     evaluatedRows,
     rows: rankedRows,
-    eligible: selectEligibleRow(rows),
+    eligible,
+    ...(walkForward ? { selectedCandidate } : {}),
   };
   if (!deepHistory) {
     return result;
@@ -976,11 +1105,17 @@ const summarizeRejectionReasons = (combinations) => {
       if (current) {
         current.count += 1;
       } else {
-        summaries.set(reason.code, {
+        const summary = {
           code: reason.code,
           message: reason.message,
           count: 1,
-        });
+        };
+        if (reason.code === 'quarterly_stability_below_threshold') {
+          summary.actual = reason.actual;
+          summary.operator = reason.operator;
+          summary.threshold = reason.threshold;
+        }
+        summaries.set(reason.code, summary);
       }
     }
   }
@@ -991,6 +1126,7 @@ const reportCombination = (row, rank, selected) => {
   const rejectionReasons = [
     ...eligibilityRejectionReasons(row),
     ...selectionPoolRejectionReasons(row),
+    ...quarterlyStabilityRejectionReasons(row),
   ];
   return {
     rank,
@@ -1003,6 +1139,8 @@ const reportCombination = (row, rank, selected) => {
     validationMetrics: row.validation,
     selectionEvidence: selectionEvidence(row),
     rejectionReasons,
+    ...(row.quarterlyResults ? { quarterlyResults: row.quarterlyResults } : {}),
+    ...(row.quarterlyStability ? { quarterlyStability: row.quarterlyStability } : {}),
   };
 };
 
@@ -1119,8 +1257,9 @@ const reportCandidate = (result) => {
   }
 
   const rows = result.evaluatedRows ?? rankRows(result.rows);
+  const selectedRow = result.selectedCandidate ?? result.eligible;
   const combinations = rows.map((row, index) =>
-    reportCombination(row, index + 1, row === result.eligible),
+    reportCombination(row, index + 1, row === selectedRow),
   );
   const selectedCandidate = combinations.find((combination) => combination.selected) ?? null;
   const rejectionReasons = result.eligible ? [] : summarizeRejectionReasons(combinations);
@@ -1192,6 +1331,7 @@ export const createTuningReport = (
       timeframes: [...(filters.timeframes ?? [])],
       ...(deepHistoryRequested ? { deepHistory: true } : {}),
       ...(filters.sessionVariants ? { sessionVariants: true } : {}),
+      ...(filters.walkForward ? { walkForward: true } : {}),
     },
     ...(deepHistoryRequested ? { provenance: { deepHistory: true } } : {}),
     matrix: {
@@ -1309,12 +1449,19 @@ export const main = async ({
     for (const target of selectedTargets) {
       let result;
       try {
-        result = filters.deepHistory
-          ? await evaluate(engine, target, {
-              deepHistory: true,
-              deepHistoryDirectory,
-            })
-          : await evaluate(engine, target);
+        if (filters.deepHistory || filters.walkForward) {
+          result = await evaluate(engine, target, {
+            ...(filters.deepHistory
+              ? {
+                  deepHistory: true,
+                  deepHistoryDirectory,
+                }
+              : {}),
+            ...(filters.walkForward ? { walkForward: true } : {}),
+          });
+        } else {
+          result = await evaluate(engine, target);
+        }
       } catch (error) {
         result = {
           strategy: target.strategy,
