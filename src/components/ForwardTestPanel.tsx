@@ -496,7 +496,11 @@ function RetiredStrategyArchive({ strategies }: { strategies: RetiredForwardStra
                 </div>
                 <div>
                   <dt>最終PF</dt>
-                  <dd>{formatProfitFactor(finalSnapshot.profitFactor)}</dd>
+                  <dd>
+                    {finalSnapshot.tradeCount === 0
+                      ? '—（取引なし）'
+                      : formatProfitFactor(finalSnapshot.profitFactor)}
+                  </dd>
                 </div>
               </dl>
 
