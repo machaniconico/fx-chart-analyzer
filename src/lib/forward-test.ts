@@ -32,6 +32,31 @@ export interface ForwardMetrics {
   maxConsecutiveLosses: number;
 }
 
+export interface MonthlySummaryMetrics {
+  netProfitYen: number;
+  netPips: number;
+  tradeCount: number;
+}
+
+export interface MonthlyStrategySummary extends MonthlySummaryMetrics {
+  id: string;
+  name: string;
+  confirmedDays: number;
+  retired: boolean;
+}
+
+export interface MonthlySummaryMonth {
+  month: string;
+  total: MonthlySummaryMetrics;
+  strategies: MonthlyStrategySummary[];
+  confirmedDays: number;
+  complete: boolean;
+}
+
+export interface MonthlySummary {
+  months: MonthlySummaryMonth[];
+}
+
 export interface QuarterlyStability {
   positive: number;
   total: number;
@@ -42,6 +67,7 @@ export interface SelectionEvidence {
   reportId: string;
   reportLabel?: string;
   candidatePool: number;
+  passedCount?: number;
   inSampleRank?: number;
   rankNote?: string;
   optimization: {
@@ -73,6 +99,7 @@ export interface ForwardStrategyResult {
 export interface ForwardResultsFile {
   schemaVersion: number;
   computedAt: string;
+  monthlySummary?: MonthlySummary;
   strategies: ForwardStrategyResult[];
 }
 
@@ -118,6 +145,100 @@ const isNonEmptyString = (value: unknown): value is string =>
 const isDateOnly = (value: unknown): value is string =>
   typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
+const isMonthKey = (value: unknown): value is string => {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  return match !== null && Number(match[2]) >= 1 && Number(match[2]) <= 12;
+};
+
+const parseMonthlyMetrics = (value: unknown): MonthlySummaryMetrics | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  if (
+    !isFiniteNumber(value.netProfitYen)
+    || !isFiniteNumber(value.netPips)
+    || !isNonNegativeInteger(value.tradeCount)
+  ) {
+    return undefined;
+  }
+  return {
+    netProfitYen: value.netProfitYen,
+    netPips: value.netPips,
+    tradeCount: value.tradeCount,
+  };
+};
+
+/** Parse the optional monthly section without making the whole results file unusable. */
+export const parseMonthlySummary = (value: unknown): MonthlySummary | undefined => {
+  if (!isRecord(value) || !Array.isArray(value.months)) {
+    return undefined;
+  }
+
+  const months: MonthlySummaryMonth[] = [];
+  const seenMonths = new Set<string>();
+  for (const monthValue of value.months) {
+    if (!isRecord(monthValue) || !isMonthKey(monthValue.month)) {
+      return undefined;
+    }
+    if (seenMonths.has(monthValue.month)) {
+      return undefined;
+    }
+    seenMonths.add(monthValue.month);
+
+    const total = parseMonthlyMetrics(monthValue.total);
+    if (
+      total === undefined
+      || !Array.isArray(monthValue.strategies)
+      || !isNonNegativeInteger(monthValue.confirmedDays)
+      || typeof monthValue.complete !== 'boolean'
+    ) {
+      return undefined;
+    }
+
+    const strategies: MonthlyStrategySummary[] = [];
+    const seenStrategies = new Set<string>();
+    for (const strategyValue of monthValue.strategies) {
+      if (
+        !isRecord(strategyValue)
+        || !isNonEmptyString(strategyValue.id)
+        || !isNonEmptyString(strategyValue.name)
+        || !isNonNegativeInteger(strategyValue.confirmedDays)
+        || typeof strategyValue.retired !== 'boolean'
+      ) {
+        return undefined;
+      }
+      if (seenStrategies.has(strategyValue.id)) {
+        return undefined;
+      }
+      seenStrategies.add(strategyValue.id);
+      const metrics = parseMonthlyMetrics(strategyValue);
+      if (metrics === undefined) {
+        return undefined;
+      }
+      strategies.push({
+        id: strategyValue.id,
+        name: strategyValue.name,
+        ...metrics,
+        confirmedDays: strategyValue.confirmedDays,
+        retired: strategyValue.retired,
+      });
+    }
+
+    months.push({
+      month: monthValue.month,
+      total,
+      strategies,
+      confirmedDays: monthValue.confirmedDays,
+      complete: monthValue.complete,
+    });
+  }
+
+  return { months };
+};
+
 export const formatQuarterlyStability = (quarterlyStability: QuarterlyStability | null): string => {
   if (quarterlyStability === null) {
     return '未検査';
@@ -127,6 +248,27 @@ export const formatQuarterlyStability = (quarterlyStability: QuarterlyStability 
     return `${positive}/${total}全四半期プラス`;
   }
   return `${positive}/${total}四半期プラス(${total - positive}四半期マイナス)`;
+};
+
+const rankNumberFormatter = new Intl.NumberFormat('ja-JP');
+
+// 順位の分母は「合格件数」(ランキングは合格候補内で付く)。passedCount がある場合は
+// 「96候補中2位」と誤読されない語順で分母を明示する。
+export const selectionRankLabel = (evidence: {
+  candidatePool: number;
+  passedCount?: number;
+  inSampleRank?: number;
+}): string => {
+  const pool = `${rankNumberFormatter.format(evidence.candidatePool)}候補`;
+  if (evidence.passedCount === undefined) {
+    return evidence.inSampleRank === undefined
+      ? pool
+      : `${pool}中 in-sample ${rankNumberFormatter.format(evidence.inSampleRank)}位`;
+  }
+  const passed = `合格${rankNumberFormatter.format(evidence.passedCount)}件`;
+  return evidence.inSampleRank === undefined
+    ? `${pool}(${passed})`
+    : `${pool}中の${passed}で in-sample ${rankNumberFormatter.format(evidence.inSampleRank)}位`;
 };
 
 // selectionEvidence のフィールドを追加・変更するときは、scripts/run-forward-test.mjs の検証と
@@ -141,6 +283,13 @@ export const parseSelectionEvidence = (value: unknown): SelectionEvidence | unde
   const candidatePool = value.candidatePool;
   if (!isDateOnly(adoptedAt) || !isNonEmptyString(reportId) || !isPositiveInteger(candidatePool)) {
     return undefined;
+  }
+  let passedCount: number | undefined;
+  if (hasOwn(value, 'passedCount')) {
+    if (!isNonNegativeInteger(value.passedCount) || value.passedCount > candidatePool) {
+      return undefined;
+    }
+    passedCount = value.passedCount;
   }
   let reportLabel: string | undefined;
   if (hasOwn(value, 'reportLabel')) {
@@ -234,6 +383,9 @@ export const parseSelectionEvidence = (value: unknown): SelectionEvidence | unde
     quarterlyStability,
     reservations,
   };
+  if (passedCount !== undefined) {
+    selectionEvidence.passedCount = passedCount;
+  }
   if (reportLabel !== undefined) {
     selectionEvidence.reportLabel = reportLabel;
   }
@@ -304,20 +456,25 @@ const isForwardResultsFile = (value: unknown): value is ForwardResultsFile =>
       && isRecord(strategy.forward),
   );
 
-const normalizeForwardResults = (payload: ForwardResultsFile): ForwardResultsFile => ({
-  ...payload,
-  strategies: payload.strategies.map((strategy) => {
-    const selectionEvidence = parseSelectionEvidence(strategy.selectionEvidence);
-    if (selectionEvidence === undefined) {
-      if (!hasOwn(strategy, 'selectionEvidence')) {
-        return strategy;
+const normalizeForwardResults = (payload: ForwardResultsFile): ForwardResultsFile => {
+  const monthlySummary = parseMonthlySummary(payload.monthlySummary);
+  const { monthlySummary: _ignoredMonthlySummary, ...payloadWithoutMonthlySummary } = payload;
+  return {
+    ...payloadWithoutMonthlySummary,
+    ...(monthlySummary === undefined ? {} : { monthlySummary }),
+    strategies: payload.strategies.map((strategy) => {
+      const selectionEvidence = parseSelectionEvidence(strategy.selectionEvidence);
+      if (selectionEvidence === undefined) {
+        if (!hasOwn(strategy, 'selectionEvidence')) {
+          return strategy;
+        }
+        const { selectionEvidence: _ignored, ...legacyStrategy } = strategy;
+        return legacyStrategy;
       }
-      const { selectionEvidence: _ignored, ...legacyStrategy } = strategy;
-      return legacyStrategy;
-    }
-    return { ...strategy, selectionEvidence };
-  }),
-});
+      return { ...strategy, selectionEvidence };
+    }),
+  };
+};
 
 export const hasOperationStatus = (
   strategy: ForwardStrategyResult,

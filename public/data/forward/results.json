@@ -1,6 +1,88 @@
 {
   "schemaVersion": 3,
-  "computedAt": "2026-08-17T21:39:20.966Z",
+  "computedAt": "2026-08-17T23:35:09.659Z",
+  "monthlySummary": {
+    "months": [
+      {
+        "month": "2026-07",
+        "total": {
+          "netProfitYen": 110783,
+          "netPips": 44,
+          "tradeCount": 46
+        },
+        "strategies": [
+          {
+            "id": "break-bb-gbpjpy-v1",
+            "name": "ポンド円BBブレイク順張り",
+            "netProfitYen": 22396,
+            "netPips": 47.6,
+            "tradeCount": 14,
+            "confirmedDays": 30,
+            "retired": true
+          },
+          {
+            "id": "day-rsi-bb-eurusd-v1",
+            "name": "デイトレ逆張り(RSI+BB)",
+            "netProfitYen": 99814,
+            "netPips": 84.3,
+            "tradeCount": 30,
+            "confirmedDays": 30,
+            "retired": false
+          },
+          {
+            "id": "swing-sma-usdjpy-v1",
+            "name": "スイング順張り(SMAクロス)",
+            "netProfitYen": -11427,
+            "netPips": -87.9,
+            "tradeCount": 2,
+            "confirmedDays": 30,
+            "retired": false
+          }
+        ],
+        "confirmedDays": 30,
+        "complete": true
+      },
+      {
+        "month": "2026-08",
+        "total": {
+          "netProfitYen": -16119,
+          "netPips": -83.6,
+          "tradeCount": 16
+        },
+        "strategies": [
+          {
+            "id": "break-bb-gbpjpy-v1",
+            "name": "ポンド円BBブレイク順張り",
+            "netProfitYen": -70218,
+            "netPips": -116.2,
+            "tradeCount": 7,
+            "confirmedDays": 13,
+            "retired": true
+          },
+          {
+            "id": "day-rsi-bb-eurusd-v1",
+            "name": "デイトレ逆張り(RSI+BB)",
+            "netProfitYen": 55646,
+            "netPips": 44.5,
+            "tradeCount": 8,
+            "confirmedDays": 16,
+            "retired": false
+          },
+          {
+            "id": "swing-sma-usdjpy-v1",
+            "name": "スイング順張り(SMAクロス)",
+            "netProfitYen": -1547,
+            "netPips": -11.9,
+            "tradeCount": 1,
+            "confirmedDays": 16,
+            "retired": false
+          }
+        ],
+        "confirmedDays": 16,
+        "complete": false
+      }
+    ]
+  },
   "strategies": [
     {
       "meta": {
@@ -10,6 +92,29 @@
         "pair": "USDJPY",
         "timeframe": "h1",
         "registeredAt": 1786983187
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-17",
+        "reportId": "tune-virtual-strategies-2026-08-17T16-11-14-568Z",
+        "reportLabel": "改善ウェーブ2・48候補深履歴ラン",
+        "candidatePool": 48,
+        "rankNote": "検証+30.6万円/166取引=当時の全候補中最大サンプル",
+        "optimization": {
+          "netProfitYen": 240449,
+          "profitFactor": 1.07,
+          "tradeCount": 563
+        },
+        "validation": {
+          "netProfitYen": 306474,
+          "profitFactor": 1.34
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "四半期安定性は後日の追検査による"
+        ]
       },
       "operationStatus": {
         "status": "active",
@@ -1249,6 +1354,30 @@
         "timeframe": "h1",
         "registeredAt": 1787002740
       },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-18",
+        "reportId": "tune-virtual-strategies-2026-08-17T21-36-52-339Z",
+        "reportLabel": "改善ウェーブ6・96候補深履歴ラン",
+        "candidatePool": 96,
+        "passedCount": 27,
+        "inSampleRank": 2,
+        "optimization": {
+          "netProfitYen": 269980,
+          "profitFactor": 1.2,
+          "tradeCount": 171
+        },
+        "validation": {
+          "netProfitYen": 117940,
+          "profitFactor": 1.24
+        },
+        "quarterlyStability": {
+          "positive": 4,
+          "total": 4
+        },
+        "reservations": [
+          "一目均衡表型の2本目(いずれもh1)"
+        ]
+      },
       "operationStatus": {
         "status": "active",
         "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
@@ -1317,6 +1446,31 @@
         "pair": "USDJPY",
         "timeframe": "h1",
         "registeredAt": 1786996777
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-18",
+        "reportId": "tune-virtual-strategies-2026-08-17T19-57-25-508Z",
+        "reportLabel": "改善ウェーブ4・84候補深履歴ラン",
+        "candidatePool": 84,
+        "passedCount": 33,
+        "inSampleRank": 1,
+        "optimization": {
+          "netProfitYen": 325815,
+          "profitFactor": 1.32,
+          "tradeCount": 163
+        },
+        "validation": {
+          "netProfitYen": 178190,
+          "profitFactor": 1.57
+        },
+        "quarterlyStability": {
+          "positive": 4,
+          "total": 4
+        },
+        "reservations": [
+          "USDJPY集中(採用時3/6)",
+          "四半期安定性は同日後続の追検査(walk-forwardラン)による"
+        ]
       },
       "operationStatus": {
         "status": "active",
@@ -1387,6 +1541,31 @@
         "timeframe": "h4",
         "registeredAt": 1786983187
       },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-17",
+        "reportId": "tune-virtual-strategies-2026-08-17T16-11-14-568Z",
+        "reportLabel": "改善ウェーブ2・48候補深履歴ラン(第2世代SL20/TP78)",
+        "candidatePool": 48,
+        "rankNote": "深窓48候補の上位合格(第2世代)",
+        "optimization": {
+          "netProfitYen": 202278,
+          "profitFactor": 1.17,
+          "tradeCount": 157
+        },
+        "validation": {
+          "netProfitYen": 133232,
+          "profitFactor": 1.33
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "低頻度(20取引到達≈149日)",
+          "深窓で最適SLが32→20と判明し確定0日で世代交代した経緯あり",
+          "四半期安定性は後日の追検査による"
+        ]
+      },
       "operationStatus": {
         "status": "active",
         "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
@@ -1455,6 +1634,30 @@
         "pair": "EURJPY",
         "timeframe": "m30",
         "registeredAt": 1786986277
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-17",
+        "reportId": "tune-virtual-strategies-2026-08-17T17-02-26-043Z",
+        "reportLabel": "改善ウェーブ3・72候補深履歴ラン",
+        "candidatePool": 72,
+        "rankNote": "新アーキタイプ合格9件中の in-sample 1位",
+        "optimization": {
+          "netProfitYen": 168220,
+          "profitFactor": 1.06,
+          "tradeCount": 593
+        },
+        "validation": {
+          "netProfitYen": 81738,
+          "profitFactor": 1.11
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "PF1.06の薄いエッジ=593取引の統計量頼み",
+          "四半期安定性は後日の追検査による"
+        ]
       },
       "operationStatus": {
         "status": "active",
