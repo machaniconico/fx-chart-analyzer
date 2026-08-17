@@ -1,7 +1,76 @@
 {
   "schemaVersion": 3,
-  "computedAt": "2026-08-17T13:41:17.567Z",
+  "computedAt": "2026-08-17T16:13:07.616Z",
   "strategies": [
+    {
+      "meta": {
+        "id": "bb-break-usdjpy-v1",
+        "name": "ドル円BBブレイク順張り",
+        "version": 1,
+        "pair": "USDJPY",
+        "timeframe": "h1",
+        "registeredAt": 1786983187
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.9,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.9,
+        "winRate": 47.88732394366197,
+        "profitFactor": 1.001140286477452,
+        "maxDrawdownPips": 280.8,
+        "maxDrawdownYen": 72510,
+        "maxDrawdownPct": 6.924681317589916,
+        "tradeCount": 71,
+        "netPips": 15.9,
+        "netProfitYen": 438,
+        "grossProfitPips": 1499.4,
+        "grossLossPips": -1483.5,
+        "grossProfitYen": 384552,
+        "grossLossYen": -384114,
+        "riskRewardRatio": 1.0894761941078153,
+        "averageWinYen": 11310,
+        "averageLossYen": -10381,
+        "maxConsecutiveWins": 5,
+        "maxConsecutiveLosses": 5
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776776400,
+        "lastBarAt": 1786737600,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
     {
       "meta": {
         "id": "day-rsi-bb-eurusd-v1",
@@ -1169,7 +1238,7 @@
         "version": 1,
         "pair": "AUDJPY",
         "timeframe": "h4",
-        "registeredAt": 1786974074
+        "registeredAt": 1786983187
       },
       "operationStatus": {
         "status": "active",
@@ -1205,23 +1274,23 @@
       },
       "backtestReference": {
         "spreadPips": 1.2,
-        "winRate": 40.15748031496063,
-        "profitFactor": 1.4816352303643354,
-        "maxDrawdownPips": 353.3,
-        "maxDrawdownYen": 111192,
-        "maxDrawdownPct": 10.153528376679164,
-        "tradeCount": 127,
-        "netPips": 1141,
-        "netProfitYen": 390532,
-        "grossProfitPips": 3507.9,
-        "grossLossPips": -2366.9,
-        "grossProfitYen": 1201378,
-        "grossLossYen": -810846,
-        "riskRewardRatio": 2.2079270099546964,
-        "averageWinYen": 23556,
-        "averageLossYen": -10669,
-        "maxConsecutiveWins": 8,
-        "maxConsecutiveLosses": 11
+        "winRate": 29.629629629629626,
+        "profitFactor": 1.4101752590926915,
+        "maxDrawdownPips": 344.4,
+        "maxDrawdownYen": 160349,
+        "maxDrawdownPct": 15.123098165411047,
+        "tradeCount": 135,
+        "netPips": 813.6,
+        "netProfitYen": 425741,
+        "grossProfitPips": 2794.3,
+        "grossLossPips": -1980.7,
+        "grossProfitYen": 1463690,
+        "grossLossYen": -1037949,
+        "riskRewardRatio": 3.3491662403451423,
+        "averageWinYen": 36592,
+        "averageLossYen": -10926,
+        "maxConsecutiveWins": 3,
+        "maxConsecutiveLosses": 12
       },
       "backtestReferenceCoverage": {
         "source": "current-window",

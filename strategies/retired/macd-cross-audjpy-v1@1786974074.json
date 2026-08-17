@@ -5,11 +5,11 @@
     "version": 1,
     "pair": "AUDJPY",
     "timeframe": "h4",
-    "registeredAt": 1786983187
+    "registeredAt": 1786974074
   },
   "id": "macd-cross-audjpy-v1",
   "name": "豪ドル円MACDクロス順張り",
-  "description": "MACD(12,26,9)のシグナルクロスを両方向で追随し、反対シグナルで撤退します。2026-08-17の深履歴チューニング(737日窓・検証55取引・PF1.33)で選定した第2世代(SL20/TP78)。",
+  "description": "MACD(12,26,9)のシグナルクロスを買い・売りの両方向で追随し、反対シグナルで撤退します。2026-08-17の候補マトリクスチューニング(48候補)で誠実ゲート合格候補から選定。",
   "direction": "long",
   "entryDirections": [
     "long",
@@ -24,7 +24,7 @@
     }
   ],
   "exit": {
-    "stopLossPips": 20,
+    "stopLossPips": 32,
     "takeProfitPips": 78,
     "trailingStopPips": null,
     "closeOnOppositeSignal": true
@@ -47,5 +47,5 @@
     "riskPercent": 1,
     "maxLot": 100
   },
-  "magicNumber": 1786983188
+  "magicNumber": 1786974075
 }
