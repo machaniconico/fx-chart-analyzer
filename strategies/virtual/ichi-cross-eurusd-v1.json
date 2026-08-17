@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "id": "ichi-cross-eurusd-v1",
+    "name": "ユーロドル一目クロス順張り",
+    "version": 1,
+    "pair": "EURUSD",
+    "timeframe": "h1",
+    "registeredAt": 1787002740
+  },
+  "id": "ichi-cross-eurusd-v1",
+  "name": "ユーロドル一目クロス順張り",
+  "description": "一目均衡表(9,26,52)の転換線/基準線クロスを雲フィルタ付きで両方向に追随します。2026-08-18の深履歴チューニング(737日窓・96候補)で最適化期間利益2位(+269,980円/PF1.20/171取引、検証+117,940円/PF1.24)かつ四半期安定性4/4全プラス(取引も55〜62件/四半期と均等)として選定(SL20/TP54)。",
+  "direction": "long",
+  "entryDirections": [
+    "long",
+    "short"
+  ],
+  "entryConditions": [
+    {
+      "type": "ichimokuCross",
+      "conversionPeriod": 9,
+      "basePeriod": 26,
+      "spanBPeriod": 52,
+      "displacement": 26,
+      "requireCloudFilter": true
+    }
+  ],
+  "exit": {
+    "stopLossPips": 20,
+    "takeProfitPips": 54,
+    "trailingStopPips": null,
+    "closeOnOppositeSignal": true
+  },
+  "sessionFilter": {
+    "enabled": false,
+    "start": "00:00",
+    "end": "23:59",
+    "serverUtcOffsetMinutes": 0
+  },
+  "newsFilter": {
+    "enabled": false,
+    "blockMinutes": 30
+  },
+  "lotSize": 0.1,
+  "moneyManagement": {
+    "initialBalanceYen": 1000000,
+    "lotSizingMode": "fixedRisk",
+    "fixedLot": 0.1,
+    "riskPercent": 1,
+    "maxLot": 100
+  },
+  "magicNumber": 1787002741
+}
