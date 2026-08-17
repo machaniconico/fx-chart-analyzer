@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "id": "macd-cross-audjpy-v1",
+    "name": "豪ドル円MACDクロス順張り",
+    "version": 1,
+    "pair": "AUDJPY",
+    "timeframe": "h4",
+    "registeredAt": 1786974074
+  },
+  "id": "macd-cross-audjpy-v1",
+  "name": "豪ドル円MACDクロス順張り",
+  "description": "MACD(12,26,9)のシグナルクロスを買い・売りの両方向で追随し、反対シグナルで撤退します。2026-08-17の候補マトリクスチューニング(48候補)で誠実ゲート合格候補から選定。",
+  "direction": "long",
+  "entryDirections": [
+    "long",
+    "short"
+  ],
+  "entryConditions": [
+    {
+      "type": "macdCross",
+      "fastPeriod": 12,
+      "slowPeriod": 26,
+      "signalPeriod": 9
+    }
+  ],
+  "exit": {
+    "stopLossPips": 32,
+    "takeProfitPips": 78,
+    "trailingStopPips": null,
+    "closeOnOppositeSignal": true
+  },
+  "sessionFilter": {
+    "enabled": false,
+    "start": "00:00",
+    "end": "23:59",
+    "serverUtcOffsetMinutes": 0
+  },
+  "newsFilter": {
+    "enabled": false,
+    "blockMinutes": 30
+  },
+  "lotSize": 0.1,
+  "moneyManagement": {
+    "initialBalanceYen": 1000000,
+    "lotSizingMode": "fixedRisk",
+    "fixedLot": 0.1,
+    "riskPercent": 1,
+    "maxLot": 100
+  },
+  "magicNumber": 1786974075
+}

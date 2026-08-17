@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "strategies": {
+    "break-bb-gbpjpy-v1@1782996300": {
+      "strategyId": "break-bb-gbpjpy-v1",
+      "meta": {
+        "id": "break-bb-gbpjpy-v1",
+        "name": "ポンド円BBブレイク順張り",
+        "version": 1,
+        "pair": "GBPJPY",
+        "timeframe": "h1",
+        "registeredAt": 1782996300
+      },
+      "retiredAt": "2026-08-17T13:40:55.005Z",
+      "reason": "フォワード確定実績43日・21取引でPF0.76・勝率9.5%(退役基準: 取引20件以上かつPF0.9未満に該当)。2026-08-17のEA再設計ウェーブで退役",
+      "finalSnapshot": {
+        "tradeCount": 21,
+        "profitFactor": 0.7589252407118012,
+        "cumulativeProfitYen": -47822,
+        "operationPeriod": {
+          "registeredAt": 1782996300,
+          "firstConfirmedDate": "2026-07-02",
+          "confirmedThrough": "2026-08-13",
+          "confirmedDayCount": 43
+        }
+      }
+    }
+  }
+}

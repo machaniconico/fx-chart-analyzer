@@ -246,7 +246,8 @@ describe('forward test runner', () => {
         version: 1,
         pair: expect.any(String),
         timeframe: expect.any(String),
-        registeredAt,
+        // EAごとに登録日は異なる(入れ替えで新規登録が入る)ため固定値を断言しない
+        registeredAt: expect.any(Number),
       });
       expect(item.forward.metrics.tradeCount).toEqual(expect.any(Number));
       expect(Array.isArray(item.forward.trades)).toBe(true);
