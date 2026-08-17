@@ -5,7 +5,9 @@ import {
   isRetiredForwardStrategy,
   loadForwardResults,
   loadRetiredForwardStrategies,
+  parseMonthlySummary,
   parseSelectionEvidence,
+  selectionRankLabel,
   type ForwardResultsFile,
   type ForwardStrategyResult,
   type RetiredForwardStrategy,
@@ -66,6 +68,7 @@ const selectionEvidence = {
   adoptedAt: '2026-08-18',
   reportId: 'selection-report-v1',
   candidatePool: 96,
+  passedCount: 27,
   inSampleRank: 2,
   optimization: {
     netProfitYen: 269980,
@@ -432,6 +435,12 @@ describe('parseSelectionEvidence', () => {
     expect(parseSelectionEvidence(evidence)).toEqual(evidence);
   });
 
+  it('accepts legacy evidence without the optional passed count', () => {
+    const { passedCount: _passedCount, ...legacyEvidence } = selectionEvidence;
+
+    expect(parseSelectionEvidence(legacyEvidence)).toEqual(legacyEvidence);
+  });
+
   it.each([
     { name: 'missing evidence', value: undefined },
     {
@@ -447,6 +456,14 @@ describe('parseSelectionEvidence', () => {
       value: { ...selectionEvidence, reportLabel: 123 },
     },
     {
+      name: 'wrong passed count type',
+      value: { ...selectionEvidence, passedCount: '27' },
+    },
+    {
+      name: 'passed count exceeds candidate pool',
+      value: { ...selectionEvidence, passedCount: 97 },
+    },
+    {
       name: 'wrong nested metric type',
       value: {
         ...selectionEvidence,
@@ -455,6 +472,60 @@ describe('parseSelectionEvidence', () => {
     },
   ])('returns undefined for $name', ({ value }) => {
     expect(parseSelectionEvidence(value)).toBeUndefined();
+  });
+});
+
+describe('parseMonthlySummary', () => {
+  const summary = {
+    months: [
+      {
+        month: '2026-07',
+        total: { netProfitYen: 12_345, netPips: 6.7, tradeCount: 4 },
+        strategies: [
+          {
+            id: 'retired-v1',
+            name: '退役EA',
+            netProfitYen: -100,
+            netPips: -1.2,
+            tradeCount: 1,
+            confirmedDays: 1,
+            retired: true,
+          },
+        ],
+        confirmedDays: 2,
+        complete: true,
+      },
+    ],
+  };
+
+  it('accepts a valid optional summary', () => {
+    expect(parseMonthlySummary(summary)).toEqual(summary);
+  });
+
+  it.each([
+    { name: 'missing value', value: undefined },
+    { name: 'null value', value: null },
+    { name: 'missing months', value: {} },
+    { name: 'invalid month', value: { ...summary, months: [{ ...summary.months[0], month: '2026-13' }] } },
+    {
+      name: 'invalid total metric',
+      value: {
+        ...summary,
+        months: [{ ...summary.months[0], total: { ...summary.months[0].total, tradeCount: '4' } }],
+      },
+    },
+    {
+      name: 'invalid strategy retired flag',
+      value: {
+        ...summary,
+        months: [{
+          ...summary.months[0],
+          strategies: [{ ...summary.months[0].strategies[0], retired: 'true' }],
+        }],
+      },
+    },
+  ])('returns undefined for $name', ({ value }) => {
+    expect(parseMonthlySummary(value)).toBeUndefined();
   });
 });
 
@@ -469,6 +540,22 @@ describe('formatQuarterlyStability', () => {
 
   it('marks a missing quarterly check as untested', () => {
     expect(formatQuarterlyStability(null)).toBe('未検査');
+  });
+});
+
+describe('selectionRankLabel', () => {
+  it('makes the rank denominator explicit when passedCount is present', () => {
+    expect(selectionRankLabel({ candidatePool: 96, passedCount: 27, inSampleRank: 2 })).toBe(
+      '96候補中の合格27件で in-sample 2位',
+    );
+  });
+
+  it('keeps legacy labels when passedCount is absent', () => {
+    expect(selectionRankLabel({ candidatePool: 96, inSampleRank: 2 })).toBe(
+      '96候補中 in-sample 2位',
+    );
+    expect(selectionRankLabel({ candidatePool: 72 })).toBe('72候補');
+    expect(selectionRankLabel({ candidatePool: 72, passedCount: 9 })).toBe('72候補(合格9件)');
   });
 });
 
@@ -493,6 +580,43 @@ describe('loadForwardResults', () => {
     stubFetch(responseWithJson(fixture));
 
     await expect(loadForwardResults()).resolves.toEqual(fixture);
+  });
+
+  it('preserves a valid monthly summary', async () => {
+    const fixture = validResults();
+    const monthlySummary = {
+      months: [{
+        month: '2026-08',
+        total: { netProfitYen: 100, netPips: 1.2, tradeCount: 1 },
+        strategies: [{
+          id: fixture.strategies[0].meta.id,
+          name: fixture.strategies[0].meta.name,
+          netProfitYen: 100,
+          netPips: 1.2,
+          tradeCount: 1,
+          confirmedDays: 1,
+          retired: false,
+        }],
+        confirmedDays: 1,
+        complete: false,
+      }],
+    };
+    const payload = { ...fixture, monthlySummary };
+    stubFetch(responseWithJson(payload));
+
+    await expect(loadForwardResults()).resolves.toEqual(payload);
+  });
+
+  it('drops malformed monthly summary while keeping the result usable', async () => {
+    const fixture = validResults();
+    (fixture as unknown as Record<string, unknown>).monthlySummary = {
+      months: [{ month: '2026-08', complete: 'false' }],
+    };
+    stubFetch(responseWithJson(fixture));
+
+    const loaded = await loadForwardResults();
+
+    expect(Object.prototype.hasOwnProperty.call(loaded, 'monthlySummary')).toBe(false);
   });
 
   it('drops malformed optional selection evidence while keeping the result usable', async () => {

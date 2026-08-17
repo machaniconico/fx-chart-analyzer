@@ -10,11 +10,13 @@ import { formatPrice } from '../lib/chart-data';
 import {
   hasOperationStatus,
   formatQuarterlyStability,
+  selectionRankLabel,
   loadForwardResults,
   loadRetiredForwardStrategies,
   type ForwardMetrics,
   type ForwardResultsFile,
   type ForwardStrategyResult,
+  type MonthlySummary,
   type RetiredForwardStrategy,
   type SelectionEvidence,
 } from '../lib/forward-test';
@@ -238,9 +240,7 @@ function MetricComparison({
 }
 
 function SelectionEvidenceDetails({ evidence }: { evidence: SelectionEvidence }) {
-  const rankLabel = evidence.inSampleRank === undefined
-    ? `${numberFormatter.format(evidence.candidatePool)}候補`
-    : `${numberFormatter.format(evidence.candidatePool)}候補中 in-sample ${numberFormatter.format(evidence.inSampleRank)}位`;
+  const rankLabel = selectionRankLabel(evidence);
 
   return (
     <details className="forward-operation-details forward-selection-evidence-details">
@@ -314,6 +314,101 @@ function SelectionEvidenceDetails({ evidence }: { evidence: SelectionEvidence })
         </p>
       </div>
     </details>
+  );
+}
+
+function MonthlySummarySection({ summary }: { summary: MonthlySummary }) {
+  return (
+    <section className="forward-monthly-summary" aria-labelledby="forward-monthly-title">
+      <header className="forward-monthly-heading">
+        <div>
+          <p className="eyebrow">確定日次の月別集計</p>
+          <h2 id="forward-monthly-title">月次実績(確定分のみ)</h2>
+        </div>
+        <p>退役EAを含む全ストラテジーの確定実績を月別に集計し、合算とEA別の内訳を追えます。</p>
+      </header>
+
+      {summary.months.length === 0 ? (
+        <p className="empty-copy">確定日次がある月はまだありません。</p>
+      ) : (
+        <div className="forward-monthly-list">
+          {summary.months.map((month) => (
+            <article
+              className={`forward-monthly-row${month.complete ? '' : ' forward-monthly-row-pending'}`}
+              key={month.month}
+            >
+              <div className="forward-monthly-month">
+                <span>月</span>
+                <strong>{month.month}</strong>
+                <span className={`forward-monthly-status${month.complete ? '' : ' forward-monthly-status-pending'}`}>
+                  {month.complete ? '確定' : '集計中'}
+                </span>
+              </div>
+              <div className="forward-monthly-metric">
+                <span>合算損益</span>
+                <strong className={month.total.netProfitYen >= 0 ? 'metric-up' : 'metric-down'}>
+                  {formatYen(month.total.netProfitYen)}
+                </strong>
+              </div>
+              <div className="forward-monthly-metric">
+                <span>取引数</span>
+                <strong>{numberFormatter.format(month.total.tradeCount)}件</strong>
+              </div>
+              <div className="forward-monthly-metric">
+                <span>確定日数</span>
+                <strong>{numberFormatter.format(month.confirmedDays)}日</strong>
+              </div>
+              <details className="forward-monthly-details">
+                <summary>EA別内訳（{numberFormatter.format(month.strategies.length)}EA）</summary>
+                {month.strategies.length === 0 ? (
+                  <p className="empty-copy">この月のEA別確定実績はありません。</p>
+                ) : (
+                  <div className="forward-monthly-strategy-list">
+                    {month.strategies.map((strategy) => (
+                      <div className="forward-monthly-strategy-row" key={strategy.id}>
+                        <div className="forward-monthly-strategy-name">
+                          <strong>{strategy.name}</strong>
+                          <small>{strategy.id}</small>
+                        </div>
+                        <span className="forward-monthly-retired-slot">
+                          {strategy.retired ? (
+                            <span className="forward-monthly-retired-badge">退役済み</span>
+                          ) : null}
+                        </span>
+                        <div className="forward-monthly-strategy-metric">
+                          <span>損益</span>
+                          <strong className={strategy.netProfitYen >= 0 ? 'metric-up' : 'metric-down'}>
+                            {formatYen(strategy.netProfitYen)}
+                          </strong>
+                        </div>
+                        <div className="forward-monthly-strategy-metric">
+                          <span>pips</span>
+                          <strong className={strategy.netPips >= 0 ? 'metric-up' : 'metric-down'}>
+                            {formatPips(strategy.netPips)}
+                          </strong>
+                        </div>
+                        <div className="forward-monthly-strategy-metric">
+                          <span>取引</span>
+                          <strong>{numberFormatter.format(strategy.tradeCount)}件</strong>
+                        </div>
+                        <div className="forward-monthly-strategy-metric">
+                          <span>確定日数</span>
+                          <strong>{numberFormatter.format(strategy.confirmedDays)}日</strong>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </details>
+            </article>
+          ))}
+        </div>
+      )}
+
+      <p className="forward-monthly-note" role="note">
+        確定した日次のみの集計です。取引中ポジションの含み損益は含みません。過去に運用し退役したEAの実績も含みます。内訳には確定日次があるEAのみ表示されます。
+      </p>
+    </section>
   );
 }
 
@@ -708,6 +803,8 @@ export function ForwardTestPanel({ now }: ForwardTestPanelProps) {
           <small>最終計算: {new Date(results.computedAt).toLocaleString('ja-JP')}</small>
         </div>
       </section>
+
+      {results.monthlySummary && <MonthlySummarySection summary={results.monthlySummary} />}
 
       <div className="forward-strategy-grid">
         {results.strategies.map((strategy) => (

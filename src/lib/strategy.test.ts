@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Bar } from '../types';
+import * as indicators from './indicators';
 import {
   conditionLabel,
   createStrategyEvaluator,
@@ -100,6 +101,37 @@ describe('strategy evaluator', () => {
 
     const withFuture = [...longBars, bar(3, 1_000, -1_000, 500)];
     expect(createStrategyEvaluator(withFuture).isEntrySignal(strategyFor(condition), 2)).toBe(true);
+  });
+
+  it('memoizes ATR by period across Keltner conditions', () => {
+    const atrSpy = vi.spyOn(indicators, 'atr');
+    const firstCondition = {
+      type: 'keltnerBreak' as const,
+      emaPeriod: 2,
+      atrPeriod: 2,
+      multiplier: 0.1,
+    };
+    const secondCondition = {
+      ...firstCondition,
+      emaPeriod: 3,
+      multiplier: 0.2,
+    };
+    const strategy = {
+      ...strategyFor(firstCondition),
+      entryConditions: [firstCondition, secondCondition],
+    };
+    const bars = [
+      bar(0, 10.5, 9.5, 10),
+      bar(1, 10.5, 9.5, 10),
+      bar(2, 20, 20, 20),
+    ];
+
+    try {
+      expect(createStrategyEvaluator(bars).isEntrySignal(strategy, 2)).toBe(true);
+      expect(atrSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it('accepts exact Keltner band touches while ATR is positive (>= / <= inclusivity)', () => {

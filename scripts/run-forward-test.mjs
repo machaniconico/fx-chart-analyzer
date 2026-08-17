@@ -111,6 +111,12 @@ export const assertSelectionEvidence = (value, context = 'selectionEvidence') =>
   if (!positiveInteger(value.candidatePool)) {
     throw new Error(`${context}.candidatePool must be a positive integer`);
   }
+  if (
+    Object.hasOwn(value, 'passedCount')
+    && (!nonNegativeInteger(value.passedCount) || value.passedCount > value.candidatePool)
+  ) {
+    throw new Error(`${context}.passedCount must be a non-negative integer not greater than candidatePool`);
+  }
 
   const hasInSampleRank = Object.hasOwn(value, 'inSampleRank');
   const hasRankNote = Object.hasOwn(value, 'rankNote');
@@ -119,6 +125,16 @@ export const assertSelectionEvidence = (value, context = 'selectionEvidence') =>
   }
   if (hasInSampleRank && !positiveInteger(value.inSampleRank)) {
     throw new Error(`${context}.inSampleRank must be a positive integer`);
+  }
+  // 順位は合格候補内で付くので、合格件数を超える順位は矛盾。
+  if (
+    hasInSampleRank
+    && Object.hasOwn(value, 'passedCount')
+    && positiveInteger(value.inSampleRank)
+    && nonNegativeInteger(value.passedCount)
+    && value.inSampleRank > value.passedCount
+  ) {
+    throw new Error(`${context}.inSampleRank cannot exceed passedCount`);
   }
   if (hasRankNote && !nonEmptyString(value.rankNote)) {
     throw new Error(`${context}.rankNote must be a non-empty string`);
@@ -452,6 +468,117 @@ const assertForwardHistoryIntegrity = (history, context = 'forward history') => 
       }
     }
   }
+};
+
+const createMonthlyMetrics = () => ({
+  netProfitYen: 0,
+  netPips: 0,
+  tradeCount: 0,
+});
+
+const hasRetiredGeneration = (retiredLedger, strategyHistory) => Object.entries(
+  retiredLedger.strategies,
+).some(([ledgerKey, entry]) =>
+  entry.strategyId === strategyHistory.meta.id
+    && retiredEntryRegisteredAt(ledgerKey, entry) === strategyHistory.meta.registeredAt,
+);
+
+/**
+ * Aggregate immutable confirmed daily history by UTC calendar month.
+ * The input days are already final; this function intentionally only sums the
+ * persisted daily P/L and trade counts and never recalculates trades.
+ */
+export const buildMonthlySummary = ({
+  history,
+  activeStrategyIds = [],
+  retiredLedger = { schemaVersion: 1, strategies: {} },
+  computedAt = new Date().toISOString(),
+}) => {
+  assertForwardHistory(history, 'forward history for monthly summary');
+  assertRetiredLedger(retiredLedger, 'retired ledger for monthly summary');
+
+  const computedDate = new Date(computedAt);
+  if (!Number.isFinite(computedDate.getTime())) {
+    throw new Error('monthly summary computedAt must be a valid date');
+  }
+  const currentUtcMonth = computedDate.toISOString().slice(0, 7);
+  const activeIds = new Set(activeStrategyIds);
+  const monthAggregates = new Map();
+
+  for (const [strategyId, strategyHistory] of Object.entries(history.strategies)) {
+    const isActive = activeIds.has(strategyId);
+    const retired = !isActive;
+    if (retired && !hasRetiredGeneration(retiredLedger, strategyHistory)) {
+      throw new Error(
+        `Forward history integrity error: ${strategyId}@${strategyHistory.meta.registeredAt} `
+        + 'is not present in strategies/virtual and is not recorded in '
+        + 'public/data/forward/retired.json.',
+      );
+    }
+
+    for (const [date, day] of Object.entries(strategyHistory.days)) {
+      const month = date.slice(0, 7);
+      if (!monthAggregates.has(month)) {
+        monthAggregates.set(month, {
+          total: createMonthlyMetrics(),
+          confirmedDates: new Set(),
+          strategies: new Map(),
+        });
+      }
+      const monthAggregate = monthAggregates.get(month);
+      monthAggregate.confirmedDates.add(date);
+
+      if (!monthAggregate.strategies.has(strategyId)) {
+        monthAggregate.strategies.set(strategyId, {
+          id: strategyId,
+          name: strategyHistory.meta.name,
+          ...createMonthlyMetrics(),
+          confirmedDays: 0,
+          retired,
+        });
+      }
+      const strategyAggregate = monthAggregate.strategies.get(strategyId);
+      const tradeCount = day.trades.length;
+      strategyAggregate.netProfitYen += day.pnl.netProfitYen;
+      strategyAggregate.netPips += day.pnl.netPips;
+      strategyAggregate.tradeCount += tradeCount;
+      strategyAggregate.confirmedDays += 1;
+      monthAggregate.total.netProfitYen += day.pnl.netProfitYen;
+      monthAggregate.total.netPips += day.pnl.netPips;
+      monthAggregate.total.tradeCount += tradeCount;
+    }
+  }
+
+  // 「確定」は暦月が過ぎただけでは足りない: 日次確定は最新バー日の前日までしか
+  // 進まないため、翌月頭が週末だと前月の最終営業日が未確定のまま残る。
+  // 後続月に確定日次が1日でもあれば、その月の確定はもう増えない=閉じたと言い切れる。
+  const monthsWithConfirmedDays = [...monthAggregates.entries()]
+    .filter(([, aggregate]) => aggregate.confirmedDates.size > 0)
+    .map(([month]) => month);
+  const hasLaterConfirmedMonth = (month) =>
+    monthsWithConfirmedDays.some((candidate) => candidate > month);
+
+  return {
+    months: [...monthAggregates.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([month, aggregate]) => ({
+        month,
+        total: {
+          netProfitYen: roundYen(aggregate.total.netProfitYen),
+          netPips: roundPips(aggregate.total.netPips),
+          tradeCount: aggregate.total.tradeCount,
+        },
+        strategies: [...aggregate.strategies.values()]
+          .sort((left, right) => left.id.localeCompare(right.id))
+          .map((strategy) => ({
+            ...strategy,
+            netProfitYen: roundYen(strategy.netProfitYen),
+            netPips: roundPips(strategy.netPips),
+          })),
+        confirmedDays: aggregate.confirmedDates.size,
+        complete: month < currentUtcMonth && hasLaterConfirmedMonth(month),
+      })),
+  };
 };
 
 /**
@@ -1051,6 +1178,12 @@ export const buildForwardArtifacts = async ({
   const results = {
     schemaVersion: FORWARD_RESULTS_SCHEMA_VERSION,
     computedAt,
+    monthlySummary: buildMonthlySummary({
+      history,
+      activeStrategyIds: strategies.map((strategy) => strategy.meta.id),
+      retiredLedger: effectiveRetiredLedger,
+      computedAt,
+    }),
     strategies: reports.map((report) => {
       const forward = buildForwardFromHistory(history.strategies[report.meta.id]);
       return {

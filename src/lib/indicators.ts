@@ -217,26 +217,24 @@ export const atr = (
   return smaFromNullable(trueRanges, period);
 };
 
-export const keltnerChannel = (
-  highs: readonly number[],
-  lows: readonly number[],
-  closes: readonly number[],
-  emaPeriod: number,
-  atrPeriod: number,
-  multiplier = 2,
+// バンド式の単一定義。keltnerChannel と strategy 側のメモ化評価器の両方がここを
+// 通ることで、middle ± multiplier*ATR の式が二重実装ドリフトしないようにする。
+export const keltnerBandsFrom = (
+  middle: readonly IndicatorPoint[],
+  atrValues: readonly IndicatorPoint[],
+  multiplier: number,
 ): KeltnerChannel => {
-  const middle = ema(closes, emaPeriod);
-  const volatility = atr(highs, lows, closes, atrPeriod);
-  const upper: IndicatorPoint[] = Array(closes.length).fill(null);
-  const lower: IndicatorPoint[] = Array(closes.length).fill(null);
+  const length = middle.length;
+  const upper: IndicatorPoint[] = Array(length).fill(null);
+  const lower: IndicatorPoint[] = Array(length).fill(null);
 
   if (!Number.isFinite(multiplier)) {
-    return { middle, upper, lower };
+    return { middle: [...middle], upper, lower };
   }
 
-  for (let i = 0; i < closes.length; i += 1) {
+  for (let i = 0; i < length; i += 1) {
     const middleValue = middle[i];
-    const atrValue = volatility[i];
+    const atrValue = atrValues[i];
     if (
       typeof middleValue !== 'number' ||
       !Number.isFinite(middleValue) ||
@@ -249,7 +247,20 @@ export const keltnerChannel = (
     lower[i] = middleValue - multiplier * atrValue;
   }
 
-  return { middle, upper, lower };
+  return { middle: [...middle], upper, lower };
+};
+
+export const keltnerChannel = (
+  highs: readonly number[],
+  lows: readonly number[],
+  closes: readonly number[],
+  emaPeriod: number,
+  atrPeriod: number,
+  multiplier = 2,
+): KeltnerChannel => {
+  const middle = ema(closes, emaPeriod);
+  const volatility = atr(highs, lows, closes, atrPeriod);
+  return keltnerBandsFrom(middle, volatility, multiplier);
 };
 
 export const rsi = (values: readonly number[], period = 14): IndicatorPoint[] => {

@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildMonthlySummary,
   buildConfirmedHistoryDays,
   buildForwardArtifacts,
   buildStrategyReport,
@@ -80,6 +81,7 @@ const selectionEvidence = {
   adoptedAt: '2026-08-18',
   reportId: 'selection-report-v1',
   candidatePool: 96,
+  passedCount: 27,
   inSampleRank: 2,
   optimization: {
     netProfitYen: 269980,
@@ -244,6 +246,21 @@ describe('forward test runner', () => {
       expected: /selectionEvidence\.reportLabel must be a non-empty string/,
     },
     {
+      name: 'wrong passed count type',
+      selectionEvidence: { ...selectionEvidence, passedCount: '27' },
+      expected: /selectionEvidence\.passedCount must be a non-negative integer/,
+    },
+    {
+      name: 'passed count exceeds candidate pool',
+      selectionEvidence: { ...selectionEvidence, passedCount: 97 },
+      expected: /selectionEvidence\.passedCount must be a non-negative integer not greater than candidatePool/,
+    },
+    {
+      name: 'in-sample rank exceeds passed count',
+      selectionEvidence: { ...selectionEvidence, passedCount: 1, inSampleRank: 2 },
+      expected: /selectionEvidence\.inSampleRank cannot exceed passedCount/,
+    },
+    {
       name: 'wrong optimization trade count type',
       selectionEvidence: {
         ...selectionEvidence,
@@ -258,6 +275,32 @@ describe('forward test runner', () => {
       usdJpyBars: [bar(registeredAt)],
       runBacktest: emptyBacktestResult,
     })).toThrow(expected);
+  });
+
+  it('keeps selection evidence without the optional passed count valid', () => {
+    const { passedCount: _passedCount, ...legacyEvidence } = selectionEvidence;
+
+    expect(() => buildStrategyReport({
+      strategy: { ...strategy, selectionEvidence: legacyEvidence },
+      bars: [bar(registeredAt)],
+      usdJpyBars: [bar(registeredAt)],
+      runBacktest: emptyBacktestResult,
+    })).not.toThrow();
+  });
+
+  it('accepts boundary passed counts (zero without rank, equal to candidate pool)', () => {
+    const { inSampleRank: _rank, ...noRankEvidence } = selectionEvidence;
+    for (const evidence of [
+      { ...noRankEvidence, rankNote: '合格ゼロ回のラン(境界検証用)', passedCount: 0 },
+      { ...selectionEvidence, passedCount: selectionEvidence.candidatePool },
+    ]) {
+      expect(() => buildStrategyReport({
+        strategy: { ...strategy, selectionEvidence: evidence },
+        bars: [bar(registeredAt)],
+        usdJpyBars: [bar(registeredAt)],
+        runBacktest: emptyBacktestResult,
+      })).not.toThrow();
+    }
   });
 
   it('rejects invalid virtual strategy JSON before running backtests', () => {
@@ -378,6 +421,7 @@ describe('forward test runner', () => {
 
     expect(typeof payload.computedAt).toBe('string');
     expect(Array.isArray(payload.strategies)).toBe(true);
+    expect(payload.monthlySummary).toEqual({ months: expect.any(Array) });
 
     for (const item of payload.strategies) {
       expect(item.meta).toEqual({
@@ -679,6 +723,131 @@ describe('forward test runner', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+const monthlyMeta = (id, name, registeredAt) => ({
+  id,
+  name,
+  version: 1,
+  pair: 'USDJPY',
+  timeframe: 'h1',
+  registeredAt,
+});
+
+const monthlyDay = (netProfitYen, netPips, tradeCount) => ({
+  pnl: { netProfitYen, netPips },
+  trades: Array.from({ length: tradeCount }, () => ({ id: 1 })),
+});
+
+describe('monthly forward summary', () => {
+  it('aggregates UTC months, merges retired history, and marks the current month incomplete', () => {
+    const activeMeta = monthlyMeta('active-v1', '現行EA', 1_700_000_000);
+    const retiredMeta = monthlyMeta('retired-v1', '退役EA', 1_700_000_100);
+    const summary = buildMonthlySummary({
+      history: {
+        schemaVersion: FORWARD_HISTORY_SCHEMA_VERSION,
+        strategies: {
+          [activeMeta.id]: {
+            meta: activeMeta,
+            days: {
+              '2026-08-01': monthlyDay(300, 3.3, 2),
+              '2026-07-31': monthlyDay(100, 1.1, 1),
+            },
+          },
+          [retiredMeta.id]: {
+            meta: retiredMeta,
+            days: {
+              '2026-07-31': monthlyDay(-50, -0.5, 1),
+            },
+          },
+        },
+      },
+      activeStrategyIds: [activeMeta.id],
+      retiredLedger: {
+        schemaVersion: 1,
+        strategies: {
+          [`${retiredMeta.id}@${retiredMeta.registeredAt}`]: {
+            strategyId: retiredMeta.id,
+            meta: retiredMeta,
+          },
+        },
+      },
+      computedAt: '2026-08-18T00:00:00.000Z',
+    });
+
+    expect(summary).toEqual({
+      months: [
+        {
+          month: '2026-07',
+          total: { netProfitYen: 50, netPips: 0.6, tradeCount: 2 },
+          strategies: [
+            {
+              id: 'active-v1',
+              name: '現行EA',
+              netProfitYen: 100,
+              netPips: 1.1,
+              tradeCount: 1,
+              confirmedDays: 1,
+              retired: false,
+            },
+            {
+              id: 'retired-v1',
+              name: '退役EA',
+              netProfitYen: -50,
+              netPips: -0.5,
+              tradeCount: 1,
+              confirmedDays: 1,
+              retired: true,
+            },
+          ],
+          confirmedDays: 1,
+          complete: true,
+        },
+        {
+          month: '2026-08',
+          total: { netProfitYen: 300, netPips: 3.3, tradeCount: 2 },
+          strategies: [
+            {
+              id: 'active-v1',
+              name: '現行EA',
+              netProfitYen: 300,
+              netPips: 3.3,
+              tradeCount: 2,
+              confirmedDays: 1,
+              retired: false,
+            },
+          ],
+          confirmedDays: 1,
+          complete: false,
+        },
+      ],
+    });
+  });
+
+  it('returns no months for an empty history', () => {
+    expect(buildMonthlySummary({
+      history: { schemaVersion: FORWARD_HISTORY_SCHEMA_VERSION, strategies: {} },
+      activeStrategyIds: [],
+      retiredLedger: { schemaVersion: 1, strategies: {} },
+      computedAt: '2026-08-18T00:00:00.000Z',
+    })).toEqual({ months: [] });
+  });
+
+  it('throws when history contains a non-active strategy absent from the retired ledger', () => {
+    const meta = monthlyMeta('missing-ledger-v1', '台帳なしEA', 1_700_000_000);
+
+    expect(() => buildMonthlySummary({
+      history: {
+        schemaVersion: FORWARD_HISTORY_SCHEMA_VERSION,
+        strategies: {
+          [meta.id]: { meta, days: {} },
+        },
+      },
+      activeStrategyIds: [],
+      retiredLedger: { schemaVersion: 1, strategies: {} },
+      computedAt: '2026-08-18T00:00:00.000Z',
+    })).toThrow(/not recorded in public\/data\/forward\/retired\.json/);
   });
 });
 

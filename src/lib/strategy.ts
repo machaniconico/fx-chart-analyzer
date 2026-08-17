@@ -4,7 +4,7 @@ import {
   donchian,
   ema,
   ichimoku,
-  keltnerChannel,
+  keltnerBandsFrom,
   macd,
   rsi,
   sma,
@@ -300,6 +300,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const lows = bars.map((bar) => bar.l);
   const maCache = new Map<string, IndicatorPoint[]>();
   const rsiCache = new Map<number, IndicatorPoint[]>();
+  const atrCache = new Map<number, IndicatorPoint[]>();
   const bbCache = new Map<string, BollingerBands>();
   const macdCache = new Map<string, MacdResult>();
   const ichimokuCache = new Map<string, IchimokuResult>();
@@ -327,6 +328,17 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     }
     const values = rsi(closes, normalizedPeriod);
     rsiCache.set(normalizedPeriod, values);
+    return values;
+  };
+
+  const getAtr = (period: number): IndicatorPoint[] => {
+    const normalizedPeriod = normalizePeriod(period);
+    const cached = atrCache.get(normalizedPeriod);
+    if (cached) {
+      return cached;
+    }
+    const values = atr(highs, lows, closes, normalizedPeriod);
+    atrCache.set(normalizedPeriod, values);
     return values;
   };
 
@@ -413,16 +425,14 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     if (cached) {
       return cached;
     }
+    // keltnerChannel() recalculates ATR internally; build the bands from the
+    // shared period caches so multiple Keltner conditions scan ATR only once.
+    // バンド式そのものは keltnerBandsFrom(indicators.ts)の単一定義を使う。
+    const middle = getMa('ema', normalizedEmaPeriod);
+    const atrValues = getAtr(normalizedAtrPeriod);
     const values = {
-      channel: keltnerChannel(
-        highs,
-        lows,
-        closes,
-        normalizedEmaPeriod,
-        normalizedAtrPeriod,
-        multiplier,
-      ),
-      atrValues: atr(highs, lows, closes, normalizedAtrPeriod),
+      channel: keltnerBandsFrom(middle, atrValues, multiplier),
+      atrValues,
     };
     keltnerCache.set(key, values);
     return values;
