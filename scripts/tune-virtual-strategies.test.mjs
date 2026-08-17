@@ -7,6 +7,7 @@ import {
   DATA_SOURCE_DEEP_HISTORY,
   DATA_SOURCE_PUBLIC_DATA,
   ENTRY_TYPE_PROFILES,
+  REJECTION_CODES,
   REFERENCE_SPAN_TARGET_DAYS,
   SESSION_VARIANTS,
   TUNING_ENTRY_TYPES,
@@ -21,6 +22,7 @@ import {
   loadBarsForTuning,
   main,
   parseCliArgs,
+  printTargetResult,
   rankRows,
   selectEligibleRow,
   splitBarsIntoQuarterlySegments,
@@ -67,6 +69,14 @@ const row = ({
 const legacyEntryTypeExpectations = [
   {
     entryType: 'maCross',
+    entryCondition: {
+      type: 'maCross',
+      fastType: 'ema',
+      fastPeriod: 20,
+      slowType: 'ema',
+      slowPeriod: 50,
+    },
+    exit: { stopLossPips: 30, takeProfitPips: 60, closeOnOppositeSignal: true },
     timeframes: ['h1', 'h4'],
     parameterRanges: {
       stopLossPips: { min: 20, max: 80, step: 12 },
@@ -76,6 +86,8 @@ const legacyEntryTypeExpectations = [
   },
   {
     entryType: 'rsi',
+    entryCondition: { type: 'rsi', period: 14, threshold: 30, comparison: 'below' },
+    exit: { stopLossPips: 25, takeProfitPips: 35, closeOnOppositeSignal: false },
     timeframes: ['m30', 'h1'],
     parameterRanges: {
       stopLossPips: { min: 10, max: 50, step: 8 },
@@ -85,6 +97,14 @@ const legacyEntryTypeExpectations = [
   },
   {
     entryType: 'bollinger',
+    entryCondition: {
+      type: 'bollinger',
+      period: 20,
+      multiplier: 2,
+      mode: 'break',
+      band: 'upper',
+    },
+    exit: { stopLossPips: 25, takeProfitPips: 50, closeOnOppositeSignal: false },
     timeframes: ['m30', 'h1'],
     parameterRanges: {
       stopLossPips: { min: 15, max: 75, step: 12 },
@@ -94,6 +114,8 @@ const legacyEntryTypeExpectations = [
   },
   {
     entryType: 'macdCross',
+    entryCondition: { type: 'macdCross', fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+    exit: { stopLossPips: 30, takeProfitPips: 60, closeOnOppositeSignal: true },
     timeframes: ['h1', 'h4'],
     parameterRanges: {
       stopLossPips: { min: 20, max: 80, step: 12 },
@@ -103,6 +125,8 @@ const legacyEntryTypeExpectations = [
   },
   {
     entryType: 'donchianBreak',
+    entryCondition: { type: 'donchianBreak', period: 20 },
+    exit: { stopLossPips: 30, takeProfitPips: 60, closeOnOppositeSignal: false },
     timeframes: ['h1', 'h4'],
     parameterRanges: {
       stopLossPips: { min: 20, max: 80, step: 12 },
@@ -112,12 +136,39 @@ const legacyEntryTypeExpectations = [
   },
   {
     entryType: 'stochastic',
+    entryCondition: {
+      type: 'stochastic',
+      kPeriod: 14,
+      dPeriod: 3,
+      smoothing: 3,
+      threshold: 20,
+      comparison: 'crossAbove',
+    },
+    exit: { stopLossPips: 25, takeProfitPips: 40, closeOnOppositeSignal: false },
     timeframes: ['m30', 'h1'],
     parameterRanges: {
       stopLossPips: { min: 15, max: 60, step: 9 },
       takeProfitPips: { min: 20, max: 100, step: 16 },
     },
     trailingStopPips: [null, 15],
+  },
+  {
+    entryType: 'ichimokuCross',
+    entryCondition: {
+      type: 'ichimokuCross',
+      conversionPeriod: 9,
+      basePeriod: 26,
+      spanBPeriod: 52,
+      displacement: 26,
+      requireCloudFilter: true,
+    },
+    exit: { stopLossPips: 30, takeProfitPips: 60, closeOnOppositeSignal: true },
+    timeframes: ['h1', 'h4'],
+    parameterRanges: {
+      stopLossPips: { min: 20, max: 80, step: 12 },
+      takeProfitPips: { min: 30, max: 150, step: 24 },
+    },
+    trailingStopPips: [null, 20],
   },
 ];
 
@@ -149,6 +200,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       'donchianBreak',
       'stochastic',
       'ichimokuCross',
+      'keltnerBreak',
     ]);
     expect(ENTRY_TYPE_PROFILES.rsi.timeframes).toEqual(['m30', 'h1']);
     expect(ENTRY_TYPE_PROFILES.donchianBreak).toEqual({
@@ -198,6 +250,22 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       },
       trailingStopPips: [null, 20],
     });
+    expect(ENTRY_TYPE_PROFILES.keltnerBreak).toEqual({
+      label: 'ケルトナーブレイク順張り',
+      timeframes: ['h1', 'h4'],
+      entryCondition: {
+        type: 'keltnerBreak',
+        emaPeriod: 20,
+        atrPeriod: 10,
+        multiplier: 2.0,
+      },
+      exit: { stopLossPips: 25, takeProfitPips: 50, closeOnOppositeSignal: false },
+      parameterRanges: {
+        stopLossPips: { min: 15, max: 75, step: 12 },
+        takeProfitPips: { min: 25, max: 125, step: 20 },
+      },
+      trailingStopPips: [null, 20],
+    });
   });
 
   it('covers every pair, entry type, and suitable timeframe exactly once', () => {
@@ -213,8 +281,8 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
         `${target.strategy.meta.pair}:${target.entryType}:${target.strategy.meta.timeframe}`,
     );
 
-    expect(expectedCount).toBe(84);
-    expect(matrix).toHaveLength(84);
+    expect(expectedCount).toBe(96);
+    expect(matrix).toHaveLength(96);
     expect(new Set(triples).size).toBe(expectedCount);
     expect(new Set(matrix.map((target) => target.id)).size).toBe(expectedCount);
     expect(matrix.every((target) => target.strategy.meta.registeredAt === TUNING_REGISTERED_AT)).toBe(
@@ -262,6 +330,8 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
             entryType: expectation.entryType,
             strategy: {
               magicNumber: 1783100000 + pairIndex * 100 + entryTypeIndex * 10 + timeframeIndex,
+              entryConditions: [expectation.entryCondition],
+              exit: expectation.exit,
             },
             parameterRanges: expectation.parameterRanges,
             trailingStopPips: expectation.trailingStopPips,
@@ -269,6 +339,27 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
         }
       }
     }
+  });
+
+  it('assigns Keltner candidates to entry-type index 7 without collisions', () => {
+    const matrix = buildCandidateMatrix();
+    const keltnerCandidates = matrix.filter((target) => target.entryType === 'keltnerBreak');
+
+    expect(keltnerCandidates.map((target) => target.strategy.magicNumber)).toEqual([
+      1783100070,
+      1783100071,
+      1783100170,
+      1783100171,
+      1783100270,
+      1783100271,
+      1783100370,
+      1783100371,
+      1783100470,
+      1783100471,
+      1783100570,
+      1783100571,
+    ]);
+    expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(matrix.length);
   });
 
   it('parses repeated and comma-separated filters and applies them together', () => {
@@ -303,13 +394,14 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('supports each filter independently', () => {
     const matrix = buildCandidateMatrix();
 
-    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(14);
+    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(16);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'rsi']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'donchianBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'stochastic']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'ichimokuCross']))).toHaveLength(12);
+    expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'keltnerBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'm30']))).toHaveLength(18);
-    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(42);
+    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(48);
     expect(() => parseCliArgs(['--timeframe', 'm15'])).toThrow(/Invalid value for --timeframe/);
   });
 
@@ -319,6 +411,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(CLI_USAGE).toContain('donchianBreak');
     expect(CLI_USAGE).toContain('stochastic');
     expect(CLI_USAGE).toContain('ichimokuCross');
+    expect(CLI_USAGE).toContain('keltnerBreak');
     expect(
       filterTargets(matrix, parseCliArgs(['--entry-type', 'DONCHIANBREAK'])),
     ).toEqual(
@@ -333,6 +426,11 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       filterTargets(matrix, parseCliArgs(['--entry-type', 'ICHIMOKUCROSS'])),
     ).toEqual(
       matrix.filter((target) => target.entryType === 'ichimokuCross'),
+    );
+    expect(
+      filterTargets(matrix, parseCliArgs(['--entry-type', 'KELTNERBREAK'])),
+    ).toEqual(
+      matrix.filter((target) => target.entryType === 'keltnerBreak'),
     );
   });
 
@@ -944,6 +1042,7 @@ describe('tune-virtual-strategies quarterly stability mode', () => {
             requiredPositiveSegmentCount: 3,
             passed: true,
           },
+          quarterlyChecked: true,
         },
       });
       expect(report).toMatchObject({
@@ -952,6 +1051,7 @@ describe('tune-virtual-strategies quarterly stability mode', () => {
           {
             status: 'passed',
             selectedCandidate: {
+              quarterlyChecked: true,
               quarterlyResults: expect.any(Array),
               quarterlyStability: { positiveSegmentCount: 3, passed: true },
             },
@@ -986,23 +1086,145 @@ describe('tune-virtual-strategies quarterly stability mode', () => {
       expect(isEligible(result.selectedCandidate, { walkForward: true })).toBe(false);
       expect(report.candidates[0]).toMatchObject({
         status: 'rejected',
-        selectedCandidate: {
-          selected: true,
-          quarterlyResults: expect.any(Array),
-          rejectionReasons: [
-            {
-              code: 'quarterly_stability_below_threshold',
-              actual: 2,
-              operator: '>=',
-              threshold: 3,
-            },
-          ],
-        },
+        selectedCandidate: null,
+        combinations: [
+          {
+            selected: false,
+            quarterlyChecked: true,
+            rejectionReasons: [
+              {
+                code: 'quarterly_stability_below_threshold',
+                actual: 2,
+                operator: '>=',
+                threshold: 3,
+              },
+            ],
+          },
+        ],
         rejectionReasons: [{ code: 'quarterly_stability_below_threshold', actual: 2, count: 1 }],
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
+  });
+
+  it('does not promote the next row after the leading row is quarterly-demoted', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-quarterly-no-promotion-'));
+    const dataDirectory = path.join(tempRoot, 'data');
+    const target = makeTarget();
+    let backtestIndex = 0;
+    const runBacktest = vi.fn(() => ({ backtestIndex: backtestIndex++ }));
+    const baseMetrics = [
+      { netProfitYen: 200_000, profitFactor: 2, tradeCount: 40 },
+      { netProfitYen: 100_000, profitFactor: 1.5, tradeCount: 20 },
+      { netProfitYen: 100_000, profitFactor: 1.5, tradeCount: 40 },
+      { netProfitYen: 60_000, profitFactor: 1.5, tradeCount: 20 },
+    ];
+    const quarterlyNetProfits = [-1, -1, -1, 100];
+    const engine = {
+      generateParameterCombinations: () => [
+        { stopLossPips: 30, takeProfitPips: 60 },
+        { stopLossPips: 40, takeProfitPips: 80 },
+      ],
+      splitOptimizationBars: (bars) => {
+        const splitAt = Math.floor(bars.length * 0.7);
+        return { optimizationBars: bars.slice(0, splitAt), validationBars: bars.slice(splitAt) };
+      },
+      runBacktest,
+      scoreBacktestResult: ({ backtestIndex: index }) => {
+        if (index < baseMetrics.length) {
+          return {
+            ...baseMetrics[index],
+            maxDrawdownYen: 0,
+          };
+        }
+        const netProfitYen = index < 8
+          ? quarterlyNetProfits[index - 4]
+          : 100;
+        return {
+          netProfitYen,
+          profitFactor: netProfitYen > 0 ? 1.5 : 0.5,
+          maxDrawdownYen: 0,
+          tradeCount: netProfitYen > 0 ? 5 : 1,
+        };
+      },
+      validationToOptimizationRatio: () => 0.6,
+      isOverfitSuspect: () => false,
+    };
+
+    try {
+      await writeBarCache(dataDirectory, target, makeReferenceBars(target.strategy.meta.registeredAt));
+      const result = await evaluateTarget(engine, target, {
+        dataDirectory,
+        walkForward: true,
+      });
+      const report = createTuningReport([result], {
+        filters: { pairs: [], entryTypes: [], timeframes: [], walkForward: true },
+      });
+      const [leadingCombination, nextCombination] = report.candidates[0].combinations;
+
+      expect(runBacktest).toHaveBeenCalledTimes(8);
+      expect(result.eligible).toBeNull();
+      expect(result.selectedCandidate).toMatchObject({ quarterlyChecked: true });
+      expect(report.candidates[0]).toMatchObject({
+        status: 'rejected',
+        selectedCandidate: null,
+      });
+      expect(leadingCombination).toMatchObject({
+        status: 'rejected',
+        selected: false,
+        quarterlyChecked: true,
+        rejectionReasons: [
+          // 定数でなくワイヤ値そのものを断言する(定数の値が変わった時にテストが黙って追随しないため)
+          { code: 'quarterly_stability_below_threshold' },
+        ],
+      });
+      expect(nextCombination).toMatchObject({ status: 'passed', selected: false });
+      expect(nextCombination).not.toHaveProperty('quarterlyChecked');
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('prints one quarterly summary line only for walk-forward results', () => {
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const [target] = buildCandidateMatrix();
+    const passing = row({ optNet: 100_000, valNet: 60_000, ratio: 0.6 });
+    const walkForwardResult = resultFor({ target, rows: [passing], eligible: passing });
+    walkForwardResult.selectedCandidate = {
+      ...passing,
+      quarterlyResults: [
+        { netProfitYen: 12_345, profitFactor: 1.2, tradeCount: 34, barCount: 1200 },
+        { netProfitYen: -6_789, profitFactor: 0.8, tradeCount: 12, barCount: 1180 },
+        { netProfitYen: 0, profitFactor: Number.NaN, tradeCount: 0, barCount: 1 },
+      ],
+    };
+
+    try {
+      printTargetResult(walkForwardResult);
+      printTargetResult(resultFor({ target, rows: [passing], eligible: passing }));
+
+      const quarterlyLines = consoleLog.mock.calls
+        .map(([message]) => message)
+        .filter((message) => message.startsWith('四半期:'));
+      expect(quarterlyLines).toEqual([
+        '四半期: Q1 +12,345円(PF1.20/34件/1200本) | Q2 -6,789円(PF0.80/12件/1180本) | Q3 0円(PF-/0件/1本)',
+      ]);
+    } finally {
+      consoleLog.mockRestore();
+    }
+  });
+
+  it('keeps quarterlyChecked out of the default report shape', () => {
+    const [target] = buildCandidateMatrix();
+    const passing = row({ optNet: 100_000, valNet: 60_000, ratio: 0.6 });
+    const report = createTuningReport([
+      resultFor({ target, rows: [passing], eligible: passing }),
+    ]);
+
+    expect(JSON.stringify(report)).not.toContain('quarterlyChecked');
+    expect(report.filters).not.toHaveProperty('walkForward');
+    expect(report.candidates[0].combinations[0]).not.toHaveProperty('quarterlyChecked');
   });
 });
 
@@ -1209,7 +1431,7 @@ describe('tune-virtual-strategies JSON report', () => {
     expect(evaluatedIds).toEqual(['tune-rsi-eurusd-h1-v1']);
     expect(results).toHaveLength(1);
     expect(cleanupCalled).toBe(true);
-    expect(logs[0]).toBe('チューニング候補: 1/84件');
+    expect(logs[0]).toBe('チューニング候補: 1/96件');
     expect(writtenReport).toMatchObject({
       filters: { pairs: ['EURUSD'], entryTypes: ['rsi'], timeframes: ['h1'] },
       summary: { candidateCount: 1 },

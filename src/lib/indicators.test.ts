@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  atr,
   bollingerBands,
   donchian,
   ema,
   ichimoku,
+  keltnerChannel,
   macd,
   rsi,
   sma,
@@ -40,6 +42,32 @@ describe('indicators', () => {
     expectNullableCloseTo(bands.lower[2], 2 - deviation);
     expectNullableCloseTo(bands.upper[4], 4 + deviation);
     expectNullableCloseTo(bands.lower[4], 4 - deviation);
+  });
+
+  it('calculates MT4/MT5-compatible ATR as a trailing SMA of True Range', () => {
+    const highs = [11, 14, 13, 18, 16];
+    const lows = [9, 11, 10, 13, 12];
+    const closes = [10, 12, 11, 15, 14];
+    const values = atr(highs, lows, closes, 3);
+
+    expect(values.slice(0, 3)).toEqual([null, null, null]);
+    expectNullableCloseTo(values[3], (4 + 3 + 7) / 3);
+    expectNullableCloseTo(values[4], (3 + 7 + 4) / 3);
+  });
+
+  it('builds Keltner channels from the existing EMA and ATR implementations', () => {
+    const highs = [11, 14, 13, 18, 16];
+    const lows = [9, 11, 10, 13, 12];
+    const closes = [10, 12, 11, 15, 14];
+    const channel = keltnerChannel(highs, lows, closes, 3, 3, 2);
+
+    expect(channel.middle.slice(0, 2)).toEqual([null, null]);
+    expectNullableCloseTo(channel.middle[2], 11);
+    expectNullableCloseTo(channel.middle[3], 13);
+    expectNullableCloseTo(channel.upper[3], 13 + (14 / 3) * 2);
+    expectNullableCloseTo(channel.lower[3], 13 - (14 / 3) * 2);
+    expectNullableCloseTo(channel.upper[4], 13.5 + (14 / 3) * 2);
+    expectNullableCloseTo(channel.lower[4], 13.5 - (14 / 3) * 2);
   });
 
   it('calculates Wilder RSI against published worksheet values', () => {
