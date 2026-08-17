@@ -13,6 +13,7 @@ import {
   type ForwardResultsFile,
   type ForwardStrategyResult,
 } from '../lib/forward-test';
+import { evaluateForwardStatus } from '../lib/forwardStatus';
 import type { BacktestTrade } from '../lib/backtest';
 import {
   timeframeLabels,
@@ -67,13 +68,6 @@ const registeredDayLabel = (registeredAt: number, now: number): string => {
     return '登録前';
   }
   return `${Math.floor((now - registeredAt) / 86_400) + 1}日目`;
-};
-
-const statusLabel = (strategy: ForwardStrategyResultWithHistory): string => {
-  if (strategy.forward.metrics.tradeCount === 0) {
-    return 'シグナル待ち';
-  }
-  return (strategy.forward.metrics.netProfitYen ?? 0) >= 0 ? '累積プラス' : '累積マイナス';
 };
 
 const isConfirmedHistory = (
@@ -223,6 +217,7 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResultWithHi
   const hasNoTrades = forward.metrics.tradeCount === 0;
   const confirmed = isConfirmedHistory(forward);
   const actualLabel = confirmed ? '確定実績' : '再計算値';
+  const forwardStatus = evaluateForwardStatus(forward.metrics);
   const referenceAvailable = !strategy.backtestReferenceCoverage
     || strategy.backtestReferenceCoverage.barsEvaluated > 0;
   const tradeCountFormatter = (value: number | null): string =>
@@ -236,14 +231,17 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResultWithHi
           <h3>{meta.name}</h3>
         </div>
         <div className="forward-status-block">
-          <span>
+          <span className="forward-status-period">
             {confirmed
               ? forward.confirmedThrough === null
                 ? '確定待ち'
                 : `${forward.confirmedThrough}まで確定`
               : registeredDayLabel(meta.registeredAt, now)}
           </span>
-          <strong>{statusLabel(strategy)}</strong>
+          <strong className={`forward-status-badge forward-status-${forwardStatus.tone}`}>
+            {forwardStatus.label}
+          </strong>
+          <small className="forward-status-detail">{forwardStatus.detail}</small>
         </div>
       </header>
 
