@@ -1,4 +1,5 @@
 import type { BacktestTrade, EquityPoint } from './backtest';
+import type { ForwardOperationStatusResult } from './forwardRetirement';
 import type { Pair, Timeframe } from '../types';
 
 export interface ForwardStrategyMeta {
@@ -33,6 +34,7 @@ export interface ForwardMetrics {
 
 export interface ForwardStrategyResult {
   meta: ForwardStrategyMeta;
+  operationStatus?: ForwardOperationStatusResult;
   forward: {
     metrics: ForwardMetrics;
     trades: BacktestTrade[];
@@ -43,9 +45,26 @@ export interface ForwardStrategyResult {
 }
 
 export interface ForwardResultsFile {
+  schemaVersion: number;
   computedAt: string;
   strategies: ForwardStrategyResult[];
 }
+
+export const hasOperationStatus = (
+  strategy: ForwardStrategyResult,
+): strategy is ForwardStrategyResult & { operationStatus: ForwardOperationStatusResult } => {
+  const operationStatus = strategy.operationStatus as Partial<ForwardOperationStatusResult>
+    | null
+    | undefined;
+  return operationStatus !== null
+    && operationStatus !== undefined
+    && (
+      operationStatus.status === 'active'
+      || operationStatus.status === 'probation'
+      || operationStatus.status === 'retire_candidate'
+    )
+    && typeof operationStatus.reason === 'string';
+};
 
 export const loadForwardResults = async (): Promise<ForwardResultsFile> => {
   const response = await fetch('/data/forward/results.json', { cache: 'no-cache' });

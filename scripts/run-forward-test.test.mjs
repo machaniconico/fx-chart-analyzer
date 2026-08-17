@@ -1,7 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import {
+  buildForwardArtifacts,
   buildStrategyReport,
+  FORWARD_RESULTS_SCHEMA_VERSION,
   splitBarsByRegistration,
   TWO_YEARS_SECONDS,
 } from './run-forward-test.mjs';
@@ -241,6 +243,26 @@ describe('forward test runner', () => {
       expect(item.backtestReference.tradeCount).toEqual(expect.any(Number));
       expect(item.barsEvaluated).toEqual(expect.any(Number));
       expect(item.forward.trades.every((trade) => trade.entryTime >= registeredAt)).toBe(true);
+    }
+  });
+
+  it('builds schema v3 results with an operation status for every EA', async () => {
+    const { results } = await buildForwardArtifacts({
+      computedAt: '2026-08-17T00:00:00.000Z',
+      runBacktest: emptyBacktestResult,
+    });
+
+    expect(FORWARD_RESULTS_SCHEMA_VERSION).toBe(3);
+    expect(results.schemaVersion).toBe(3);
+    expect(results.strategies).toHaveLength(3);
+    for (const item of results.strategies) {
+      expect(item.operationStatus).toEqual({
+        status: 'active',
+        reason: expect.stringContaining('サンプル不足'),
+      });
+      expect(item.operationStatus.reason).toContain('PF=0.00');
+      expect(item.operationStatus.reason).toContain('取引数=0件');
+      expect(item.operationStatus.reason).toContain('確定日数=');
     }
   });
 });

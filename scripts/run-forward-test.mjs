@@ -12,17 +12,56 @@ const dataRoot = path.join(projectRoot, 'public/data');
 const strategiesRoot = path.join(projectRoot, 'strategies/virtual');
 const outputPath = path.join(dataRoot, 'forward/results.json');
 const historyPath = path.join(dataRoot, 'forward/history.json');
+const retirementEnginePath = path.join(projectRoot, 'src/lib/forwardRetirement.ts');
 const knownEntryConditionTypes = new Set(['maCross', 'rsi', 'bollinger', 'macdCross']);
 
 export const TWO_YEARS_SECONDS = 365 * 2 * 24 * 60 * 60;
 export const FORWARD_HISTORY_SCHEMA_VERSION = 1;
-export const FORWARD_RESULTS_SCHEMA_VERSION = 2;
+export const FORWARD_RESULTS_SCHEMA_VERSION = 3;
 export const VIRTUAL_PAIRS = ['USDJPY', 'EURUSD', 'GBPJPY', 'EURJPY', 'AUDJPY', 'GBPUSD'];
 export const VIRTUAL_TIMEFRAMES = ['m15', 'm30', 'h1', 'h4', 'd1'];
 
 const UTC_DAY_SECONDS = 24 * 60 * 60;
 
 const readJson = async (filePath) => JSON.parse(await readFile(filePath, 'utf8'));
+
+let forwardRetirementEvaluatorPromise;
+
+/**
+ * Bundle the shared TypeScript policy so future relative imports resolve while
+ * this .mjs runner remains executable on the Node 20 production workflow.
+ */
+export const loadForwardRetirementEvaluator = async () => {
+  if (!forwardRetirementEvaluatorPromise) {
+    forwardRetirementEvaluatorPromise = (async () => {
+      const esbuild = loadEsbuild();
+      const tempDir = await mkdtemp(path.join(os.tmpdir(), 'fx-forward-retirement-'));
+      const outfile = path.join(tempDir, 'forward-retirement-bundle.mjs');
+      try {
+        await esbuild.build({
+          entryPoints: [retirementEnginePath],
+          bundle: true,
+          platform: 'node',
+          format: 'esm',
+          target: 'node20',
+          outfile,
+          logLevel: 'silent',
+        });
+        const module = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`);
+        if (typeof module.evaluateForwardRetirement !== 'function') {
+          throw new Error('Forward retirement engine does not export evaluateForwardRetirement');
+        }
+        return module.evaluateForwardRetirement;
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    })().catch((error) => {
+      forwardRetirementEvaluatorPromise = undefined;
+      throw error;
+    });
+  }
+  return forwardRetirementEvaluatorPromise;
+};
 
 const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -757,6 +796,7 @@ export const buildForwardArtifacts = async ({
   existingHistory = createEmptyForwardHistory(),
 }) => {
   assertForwardHistoryIntegrity(existingHistory, 'existing forward history');
+  const evaluateForwardRetirement = await loadForwardRetirementEvaluator();
   const strategies = await loadVirtualStrategies();
   const reports = [];
   const dataCache = new Map();
@@ -798,14 +838,23 @@ export const buildForwardArtifacts = async ({
   const results = {
     schemaVersion: FORWARD_RESULTS_SCHEMA_VERSION,
     computedAt,
-    strategies: reports.map((report) => ({
-      meta: report.meta,
-      forward: buildForwardFromHistory(history.strategies[report.meta.id]),
-      backtestReference: report.backtestReference,
-      backtestReferenceCoverage: report.backtestReferenceCoverage,
-      // Retained for compatibility with the original results schema.
-      barsEvaluated: report.barsEvaluated,
-    })),
+    strategies: reports.map((report) => {
+      const forward = buildForwardFromHistory(history.strategies[report.meta.id]);
+      return {
+        meta: report.meta,
+        operationStatus: evaluateForwardRetirement({
+          profitFactor: forward.metrics.profitFactor,
+          tradeCount: forward.metrics.tradeCount,
+          confirmedDayCount: forward.confirmedDayCount,
+          netProfitYen: forward.metrics.netProfitYen,
+        }),
+        forward,
+        backtestReference: report.backtestReference,
+        backtestReferenceCoverage: report.backtestReferenceCoverage,
+        // Retained for compatibility with the original results schema.
+        barsEvaluated: report.barsEvaluated,
+      };
+    }),
   };
 
   return { results, history, rebaselined };
