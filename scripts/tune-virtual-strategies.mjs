@@ -11,7 +11,13 @@ const projectRoot = path.resolve(__dirname, '..');
 const dataRoot = path.join(projectRoot, 'public/data');
 const strategiesRoot = path.join(projectRoot, 'strategies/virtual');
 const reportsRoot = path.join(projectRoot, 'reports');
+export const DEEP_HISTORY_DIRECTORY = path.join(projectRoot, '.deep-history');
 export const REFERENCE_SPAN_TARGET_DAYS = 730;
+export const DEEP_HISTORY_MARGIN_DAYS = 7;
+export const DEEP_HISTORY_LOOKBACK_DAYS =
+  REFERENCE_SPAN_TARGET_DAYS + DEEP_HISTORY_MARGIN_DAYS;
+export const DATA_SOURCE_PUBLIC_DATA = 'public-data';
+export const DATA_SOURCE_DEEP_HISTORY = 'deep-history';
 
 const oneDecimal = (value) => Math.round(value * 10) / 10;
 
@@ -21,7 +27,7 @@ const rangeWithSteps = (min, max, steps) => ({
   step: (max - min) / Math.max(1, steps - 1),
 });
 
-const registeredAt = 1782996300;
+export const TUNING_REGISTERED_AT = 1782996300;
 const disabledSessionFilter = {
   enabled: false,
   start: '00:00',
@@ -135,7 +141,7 @@ export const buildCandidateMatrix = () => {
           id,
           entryType,
           strategy: {
-            meta: { id, name, version: 1, pair, timeframe, registeredAt },
+            meta: { id, name, version: 1, pair, timeframe, registeredAt: TUNING_REGISTERED_AT },
             id,
             name,
             description: `${pair} ${timeframe}の${profile.label}を買い・売りの両方向で検証します。`,
@@ -173,9 +179,11 @@ Options:
   --pair <pair[,pair...]>              Filter pairs (${TUNING_PAIRS.join(', ')})
   --entry-type <type[,type...]>        Filter entry types (${TUNING_ENTRY_TYPES.join(', ')})
   --timeframe <timeframe[,timeframe...]> Filter timeframes (${TUNING_TIMEFRAMES.join(', ')})
-  --help                               Show this help
+  --deep-history                       Use the source with wider pre-registration coverage
+  --help, -h                            Show this help
 
-Each filter can be repeated. With no filters, the complete candidate matrix is evaluated.`;
+Each filter can be repeated. With no filters, the complete candidate matrix is evaluated.
+Rank population note: the console ranks the legacy PF >= 1 subset; the JSON report ranks all evaluated combinations.`;
 
 const filterDefinitions = new Map([
   ['--pair', { key: 'pairs', values: TUNING_PAIRS, normalize: (value) => value.toUpperCase() }],
@@ -201,12 +209,20 @@ const canonicalFilterValue = (rawValue, definition, flag) => {
 
 export const parseCliArgs = (args) => {
   const filters = { pairs: [], entryTypes: [], timeframes: [] };
-  let help = false;
+  let deepHistory = false;
+
+  if (args.some((argument) => argument === '--help' || argument === '-h')) {
+    return {
+      help: true,
+      ...(args.includes('--deep-history') ? { deepHistory: true } : {}),
+      ...filters,
+    };
+  }
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument === '--help' || argument === '-h') {
-      help = true;
+    if (argument === '--deep-history') {
+      deepHistory = true;
       continue;
     }
     const equalsIndex = argument.indexOf('=');
@@ -234,7 +250,11 @@ export const parseCliArgs = (args) => {
     }
   }
 
-  return { help, ...filters };
+  return {
+    help: false,
+    ...(deepHistory ? { deepHistory: true } : {}),
+    ...filters,
+  };
 };
 
 export const filterTargets = (candidateTargets, filters) =>
@@ -307,9 +327,125 @@ const sevenPointRange = (baseValue) => {
 
 const cloneJson = (value) => JSON.parse(JSON.stringify(value));
 
-const loadBars = async (pair, timeframe) => {
-  const payload = await readJson(path.join(dataRoot, pair, `${timeframe}.json`));
-  return payload.bars;
+const spanDays = (segment) =>
+  segment.length > 1 ? (segment[segment.length - 1].t - segment[0].t) / 86400 : 0;
+
+const referenceBarsForTuning = (bars, registeredAt, useDeepHistoryWindow) => {
+  if (!useDeepHistoryWindow) {
+    return splitBarsByRegistration(bars, registeredAt).referenceBars;
+  }
+  const referenceStart = registeredAt - DEEP_HISTORY_LOOKBACK_DAYS * 86400;
+  return bars.filter(
+    (bar) => Number.isFinite(bar?.t) && bar.t < registeredAt && bar.t >= referenceStart,
+  );
+};
+
+const barsCoverageBeforeRegistration = (bars, registeredAt) => {
+  const eligibleBars = bars.filter(
+    (bar) => Number.isFinite(bar?.t) && (!Number.isFinite(registeredAt) || bar.t < registeredAt),
+  );
+  if (eligibleBars.length === 0) {
+    return { barsBeforeRegistration: 0, coverageBeforeRegistrationDays: 0 };
+  }
+  let earliest = Number.POSITIVE_INFINITY;
+  let latest = Number.NEGATIVE_INFINITY;
+  for (const bar of eligibleBars) {
+    earliest = Math.min(earliest, bar.t);
+    latest = Math.max(latest, bar.t);
+  }
+  return {
+    barsBeforeRegistration: eligibleBars.length,
+    coverageBeforeRegistrationDays: eligibleBars.length > 1 ? (latest - earliest) / 86400 : 0,
+  };
+};
+
+const readBarsCandidate = async (
+  source,
+  filePath,
+  pair,
+  timeframe,
+  registeredAt,
+) => {
+  let payload;
+  try {
+    payload = await readJson(filePath);
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
+  if (!Array.isArray(payload?.bars)) {
+    throw new Error(`${filePath}: bars must be an array`);
+  }
+  return {
+    bars: payload.bars,
+    source,
+    pair,
+    timeframe,
+    payloadSource: typeof payload.source === 'string' ? payload.source : null,
+    ...barsCoverageBeforeRegistration(payload.bars, registeredAt),
+  };
+};
+
+const chooseWidestCoverage = (candidates) =>
+  [...candidates].sort((left, right) => {
+    const spanDifference =
+      right.coverageBeforeRegistrationDays - left.coverageBeforeRegistrationDays;
+    if (spanDifference !== 0) {
+      return spanDifference;
+    }
+    const countDifference = right.barsBeforeRegistration - left.barsBeforeRegistration;
+    if (countDifference !== 0) {
+      return countDifference;
+    }
+    return left.source === DATA_SOURCE_PUBLIC_DATA ? -1 : 1;
+  })[0];
+
+export const loadBarsForTuning = async (
+  pair,
+  timeframe,
+  {
+    deepHistory = false,
+    deepHistoryDirectory = DEEP_HISTORY_DIRECTORY,
+    dataDirectory = dataRoot,
+    registeredAt,
+    preferredSource,
+    includeProvenance = false,
+  } = {},
+) => {
+  const publicPath = path.join(dataDirectory, pair, `${timeframe}.json`);
+  const publicCandidate = await readBarsCandidate(
+    DATA_SOURCE_PUBLIC_DATA,
+    publicPath,
+    pair,
+    timeframe,
+    registeredAt,
+  );
+  const deepCandidate = deepHistory
+    ? await readBarsCandidate(
+        DATA_SOURCE_DEEP_HISTORY,
+        path.join(deepHistoryDirectory, pair, `${timeframe}.json`),
+        pair,
+        timeframe,
+        registeredAt,
+      )
+    : null;
+  const candidates = [publicCandidate, deepCandidate].filter(Boolean);
+  if (candidates.length === 0) {
+    const error = new Error(`No tuning bars found for ${pair} ${timeframe}`);
+    error.code = 'ENOENT';
+    error.path = publicPath;
+    throw error;
+  }
+  const preferredCandidate = preferredSource
+    ? candidates.find(
+        (candidate) =>
+          candidate.source === preferredSource && candidate.barsBeforeRegistration > 0,
+      )
+    : null;
+  const selected = preferredCandidate ?? chooseWidestCoverage(candidates);
+  return includeProvenance ? selected : selected.bars;
 };
 
 const barsWithin = (bars, segment) => {
@@ -570,15 +706,65 @@ const loadTargetStrategy = async (target) => {
   return readJson(path.join(strategiesRoot, `${target.id}.json`));
 };
 
-const evaluateTarget = async (engine, target) => {
+export const evaluateTarget = async (
+  engine,
+  target,
+  {
+    deepHistory = false,
+    deepHistoryDirectory = DEEP_HISTORY_DIRECTORY,
+    dataDirectory = dataRoot,
+  } = {},
+) => {
   const strategy = await loadTargetStrategy(target);
   const { pair, timeframe, registeredAt } = strategy.meta;
-  const bars = await loadBars(pair, timeframe);
-  const referenceBars = splitBarsByRegistration(bars, registeredAt).referenceBars;
+  const priceBarsResolution = await loadBarsForTuning(pair, timeframe, {
+    deepHistory,
+    deepHistoryDirectory,
+    dataDirectory,
+    registeredAt,
+    includeProvenance: true,
+  });
+  const bars = priceBarsResolution.bars;
+  const referenceBars = referenceBarsForTuning(
+    bars,
+    registeredAt,
+    deepHistory && priceBarsResolution.source === DATA_SOURCE_DEEP_HISTORY,
+  );
   const { optimizationBars, validationBars } = engine.splitOptimizationBars(referenceBars, 0.7);
-  const usdJpyReferenceBars = pair.endsWith('JPY')
-    ? []
-    : splitBarsByRegistration(await loadBars('USDJPY', timeframe), registeredAt).referenceBars;
+  const usdJpyBarsResolution = pair.endsWith('JPY')
+    ? null
+    : await loadBarsForTuning('USDJPY', timeframe, {
+        deepHistory,
+        deepHistoryDirectory,
+        dataDirectory,
+        registeredAt,
+        preferredSource: priceBarsResolution.source,
+        includeProvenance: true,
+  });
+  const usdJpyReferenceBars = usdJpyBarsResolution
+    ? referenceBarsForTuning(
+        usdJpyBarsResolution.bars,
+        registeredAt,
+        deepHistory && usdJpyBarsResolution.source === DATA_SOURCE_DEEP_HISTORY,
+      )
+    : [];
+  const usedFallbackUsdJpyRate = Boolean(
+    usdJpyBarsResolution && usdJpyBarsResolution.source !== priceBarsResolution.source,
+  );
+  const usdJpyReferenceSpanDays = usdJpyBarsResolution
+    ? spanDays(usdJpyReferenceBars)
+    : null;
+  const usdJpyUncoveredReferenceSpanRatio = usedFallbackUsdJpyRate &&
+    Number.isFinite(usdJpyReferenceSpanDays)
+    ? Math.max(
+        0,
+        Math.min(
+          1,
+          (REFERENCE_SPAN_TARGET_DAYS - usdJpyReferenceSpanDays) /
+            REFERENCE_SPAN_TARGET_DAYS,
+        ),
+      )
+    : null;
   const optimizationOptions = pair.endsWith('JPY')
     ? {}
     : { usdJpyBars: barsWithin(usdJpyReferenceBars, optimizationBars) };
@@ -627,9 +813,7 @@ const evaluateTarget = async (engine, target) => {
   // full ranked set so the JSON report can explain every rejected combination.
   const evaluatedRows = rankRows(rows);
   const rankedRows = rankSelectableRows(rows);
-  const spanDays = (segment) =>
-    segment.length > 1 ? (segment[segment.length - 1].t - segment[0].t) / 86400 : 0;
-  return {
+  const result = {
     strategy,
     pair,
     entryType: target.entryType ?? strategy.entryConditions[0]?.type ?? 'unknown',
@@ -642,6 +826,33 @@ const evaluateTarget = async (engine, target) => {
     evaluatedRows,
     rows: rankedRows,
     eligible: selectEligibleRow(rows),
+  };
+  if (!deepHistory) {
+    return result;
+  }
+  const provenanceFor = (resolution) =>
+    resolution
+      ? {
+          source: resolution.source,
+          pair: resolution.pair,
+          timeframe: resolution.timeframe,
+          payloadSource: resolution.payloadSource,
+          barsBeforeRegistration: resolution.barsBeforeRegistration,
+          coverageBeforeRegistrationDays: resolution.coverageBeforeRegistrationDays,
+        }
+      : null;
+  return {
+    ...result,
+    dataSource: priceBarsResolution.source,
+    usdJpyDataSource: usdJpyBarsResolution?.source ?? null,
+    usedFallbackUsdJpyRate,
+    usdJpyReferenceSpanDays,
+    usdJpyUncoveredReferenceSpanRatio,
+    dataProvenance: {
+      priceBars: provenanceFor(priceBarsResolution),
+      usdJpyBars: provenanceFor(usdJpyBarsResolution),
+      usedFallbackUsdJpyRate,
+    },
   };
 };
 
@@ -717,6 +928,59 @@ const referenceSpanWarnings = (referenceSpanDays) =>
       ]
     : [];
 
+const fallbackCoverageRatio = (result) => {
+  const directRatio = result.usdJpyUncoveredReferenceSpanRatio;
+  if (Number.isFinite(directRatio)) {
+    return Math.max(0, Math.min(1, directRatio));
+  }
+  const coverageDays =
+    result.usdJpyReferenceSpanDays ??
+    result.dataProvenance?.usdJpyBars?.coverageBeforeRegistrationDays;
+  if (!Number.isFinite(coverageDays)) {
+    return null;
+  }
+  return Math.max(
+    0,
+    Math.min(1, (REFERENCE_SPAN_TARGET_DAYS - coverageDays) / REFERENCE_SPAN_TARGET_DAYS),
+  );
+};
+
+const dataSourceWarnings = (result) => {
+  if (!result.usedFallbackUsdJpyRate) {
+    return [];
+  }
+  const uncoveredReferenceSpanRatio = fallbackCoverageRatio(result);
+  return [
+    {
+      code: 'usd_jpy_rate_source_fallback',
+      expectedSource: result.dataSource ?? null,
+      actualSource: result.usdJpyDataSource ?? null,
+      uncoveredReferenceSpanRatio,
+      message: `USDJPYソースが参照窓をカバーしない割合(日数比): ${
+        Number.isFinite(uncoveredReferenceSpanRatio)
+          ? uncoveredReferenceSpanRatio.toFixed(6)
+          : '不明'
+      }`,
+    },
+  ];
+};
+
+const candidateWarnings = (result) => [
+  ...referenceSpanWarnings(result.referenceSpanDays),
+  ...dataSourceWarnings(result),
+];
+
+const reportProvenance = (result) =>
+  result.dataProvenance
+    ? {
+        dataSource: result.dataSource ?? null,
+        usdJpyDataSource: result.usdJpyDataSource ?? null,
+        usedFallbackUsdJpyRate: Boolean(result.usedFallbackUsdJpyRate),
+        priceBars: result.dataProvenance.priceBars ?? null,
+        usdJpyBars: result.dataProvenance.usdJpyBars ?? null,
+      }
+    : null;
+
 const finiteNumberOrNull = (value) => (Number.isFinite(value) ? value : null);
 
 const reportDataWindow = (result) => {
@@ -742,6 +1006,7 @@ const evaluationErrorMessage = (error) => {
 };
 
 const reportCandidate = (result) => {
+  const provenance = reportProvenance(result);
   if (hasEvaluationError(result)) {
     return {
       id: result.strategy.meta.id,
@@ -750,7 +1015,8 @@ const reportCandidate = (result) => {
       timeframe: result.timeframe,
       status: 'rejected',
       dataWindow: reportDataWindow(result),
-      warnings: referenceSpanWarnings(result.referenceSpanDays),
+      warnings: candidateWarnings(result),
+      ...(provenance ? { provenance } : {}),
       selectedCandidate: null,
       rejectionReasons: [
         {
@@ -769,7 +1035,7 @@ const reportCandidate = (result) => {
   );
   const selectedCandidate = combinations.find((combination) => combination.selected) ?? null;
   const rejectionReasons = result.eligible ? [] : summarizeRejectionReasons(combinations);
-  const warnings = referenceSpanWarnings(result.referenceSpanDays);
+  const warnings = candidateWarnings(result);
   if (!result.eligible && rejectionReasons.length === 0) {
     rejectionReasons.push({
       code: 'no_evaluated_combinations',
@@ -786,6 +1052,7 @@ const reportCandidate = (result) => {
     status: result.eligible ? 'passed' : 'rejected',
     dataWindow: reportDataWindow(result),
     warnings,
+    ...(provenance ? { provenance } : {}),
     selectedCandidate,
     rejectionReasons,
     combinations,
@@ -800,6 +1067,21 @@ export const createTuningReport = (
   } = {},
 ) => {
   const candidates = results.map(reportCandidate);
+  const usdJpyFallbackRatios = candidates
+    .flatMap((candidate) => candidate.warnings)
+    .filter((warning) => warning.code === 'usd_jpy_rate_source_fallback')
+    .map((warning) => warning.uncoveredReferenceSpanRatio)
+    .filter(Number.isFinite);
+  const usdJpyFallbackRatioSum = usdJpyFallbackRatios.reduce(
+    (sum, ratio) => sum + ratio,
+    0,
+  );
+  const usdJpyFallbackRatioAverage = usdJpyFallbackRatios.length
+    ? usdJpyFallbackRatioSum / usdJpyFallbackRatios.length
+    : null;
+  const usdJpyFallbackRatioMax = usdJpyFallbackRatios.length
+    ? Math.max(...usdJpyFallbackRatios)
+    : null;
   const combinationCount = candidates.reduce(
     (count, candidate) => count + candidate.combinations.length,
     0,
@@ -809,6 +1091,7 @@ export const createTuningReport = (
       count + candidate.combinations.filter((combination) => combination.status === 'passed').length,
     0,
   );
+  const deepHistoryRequested = filters.deepHistory === true;
   return jsonSafeValue({
     schemaVersion: TUNING_REPORT_SCHEMA_VERSION,
     generatedAt:
@@ -818,7 +1101,9 @@ export const createTuningReport = (
       pairs: [...(filters.pairs ?? [])],
       entryTypes: [...(filters.entryTypes ?? [])],
       timeframes: [...(filters.timeframes ?? [])],
+      ...(deepHistoryRequested ? { deepHistory: true } : {}),
     },
+    ...(deepHistoryRequested ? { provenance: { deepHistory: true } } : {}),
     matrix: {
       pairs: [...TUNING_PAIRS],
       entryTypeTimeframes: Object.fromEntries(
@@ -840,6 +1125,16 @@ export const createTuningReport = (
       combinationCount,
       passedCombinationCount,
       rejectedCombinationCount: combinationCount - passedCombinationCount,
+      ...(deepHistoryRequested
+        ? {
+            usedFallbackUsdJpyRateCount: candidates.filter(
+              (candidate) => candidate.provenance?.usedFallbackUsdJpyRate,
+            ).length,
+            usdJpyFallbackUncoveredReferenceSpanRatioSum: usdJpyFallbackRatioSum,
+            usdJpyFallbackUncoveredReferenceSpanRatioAverage: usdJpyFallbackRatioAverage,
+            usdJpyFallbackUncoveredReferenceSpanRatioMax: usdJpyFallbackRatioMax,
+          }
+        : {}),
     },
     candidates,
   });
@@ -889,6 +1184,7 @@ const printTargetResult = (result) => {
 export const main = async ({
   args = process.argv.slice(2),
   reportDirectory = reportsRoot,
+  deepHistoryDirectory = DEEP_HISTORY_DIRECTORY,
   generatedAt = new Date(),
   candidateTargets = targets,
   loadEngine = loadTuningEngine,
@@ -908,13 +1204,24 @@ export const main = async ({
   }
 
   log(`チューニング候補: ${selectedTargets.length}/${candidateTargets.length}件`);
+  if (filters.deepHistory) {
+    log(
+      `深履歴キャッシュ: ${path.relative(projectRoot, deepHistoryDirectory)} ` +
+        '(登録日前coverageが広いソースを候補ごとに選択)',
+    );
+  }
   const engine = await loadEngine();
   try {
     const results = [];
     for (const target of selectedTargets) {
       let result;
       try {
-        result = await evaluate(engine, target);
+        result = filters.deepHistory
+          ? await evaluate(engine, target, {
+              deepHistory: true,
+              deepHistoryDirectory,
+            })
+          : await evaluate(engine, target);
       } catch (error) {
         result = {
           strategy: target.strategy,
@@ -922,9 +1229,29 @@ export const main = async ({
           entryType: target.entryType,
           timeframe: target.strategy.meta.timeframe,
           evaluationError: evaluationErrorMessage(error),
+          ...(filters.deepHistory
+            ? {
+                dataSource: null,
+                usdJpyDataSource: null,
+                usedFallbackUsdJpyRate: false,
+                dataProvenance: {
+                  priceBars: null,
+                  usdJpyBars: null,
+                  usedFallbackUsdJpyRate: false,
+                },
+              }
+            : {}),
         };
       }
       results.push(result);
+      if (filters.deepHistory) {
+        const usdJpySource = result.usdJpyDataSource ?? 'not-required/unresolved';
+        const fallback = result.usedFallbackUsdJpyRate ? ' (fallback)' : '';
+        log(
+          `data source ${target.id}: price=${result.dataSource ?? 'unresolved'}, ` +
+            `USDJPY=${usdJpySource}${fallback}`,
+        );
+      }
       printResult(result);
     }
     const report = createTuningReport(results, { generatedAt, filters });

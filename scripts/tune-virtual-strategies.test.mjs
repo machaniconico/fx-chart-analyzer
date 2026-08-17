@@ -1,16 +1,23 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  CLI_USAGE,
+  DATA_SOURCE_DEEP_HISTORY,
+  DATA_SOURCE_PUBLIC_DATA,
   ENTRY_TYPE_PROFILES,
+  REFERENCE_SPAN_TARGET_DAYS,
   TUNING_ENTRY_TYPES,
   TUNING_PAIRS,
+  TUNING_REGISTERED_AT,
   buildCandidateMatrix,
   createTuningReport,
   eligibilityRejectionReasons,
+  evaluateTarget,
   filterTargets,
   isEligible,
+  loadBarsForTuning,
   main,
   parseCliArgs,
   rankRows,
@@ -90,6 +97,9 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(matrix).toHaveLength(expectedCount);
     expect(new Set(triples).size).toBe(expectedCount);
     expect(new Set(matrix.map((target) => target.id)).size).toBe(expectedCount);
+    expect(matrix.every((target) => target.strategy.meta.registeredAt === TUNING_REGISTERED_AT)).toBe(
+      true,
+    );
 
     for (const pair of TUNING_PAIRS) {
       for (const entryType of TUNING_ENTRY_TYPES) {
@@ -160,6 +170,389 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
 
     const incompatible = parseCliArgs(['--entry-type', 'rsi', '--timeframe', 'h4']);
     expect(filterTargets(buildCandidateMatrix(), incompatible)).toEqual([]);
+  });
+
+  it('supports deep-history mode and documents all CLI and rank-population details', () => {
+    expect(parseCliArgs([])).toEqual({
+      help: false,
+      pairs: [],
+      entryTypes: [],
+      timeframes: [],
+    });
+    expect(parseCliArgs(['--deep-history']).deepHistory).toBe(true);
+    expect(CLI_USAGE).toContain('--deep-history');
+    expect(CLI_USAGE).toContain('--help, -h');
+    expect(CLI_USAGE).toMatch(/console.*PF.*JSON report.*all evaluated combinations/i);
+  });
+
+  it('shows usage instead of throwing when help and an unknown option coexist', async () => {
+    const logs = [];
+    const loadEngine = vi.fn();
+
+    await expect(
+      main({
+        args: ['--unknown', '--help'],
+        loadEngine,
+        log: (message) => logs.push(message),
+      }),
+    ).resolves.toEqual([]);
+
+    expect(loadEngine).not.toHaveBeenCalled();
+    expect(logs).toEqual([CLI_USAGE]);
+
+    expect(parseCliArgs(['--unknown', '-h'])).toEqual({
+      help: true,
+      pairs: [],
+      entryTypes: [],
+      timeframes: [],
+    });
+  });
+});
+
+describe('tune-virtual-strategies deep-history cache', () => {
+  const daySeconds = 24 * 60 * 60;
+  const barsBeforeRegistration = (registeredAt, days) =>
+    Array.from({ length: days }, (_, index) => ({
+      t: registeredAt - (days - index) * daySeconds,
+      o: 150,
+      h: 151,
+      l: 149,
+      c: 150.5,
+      v: 1,
+    }));
+
+  const writeBarCache = async (root, pair, timeframe, bars) => {
+    await mkdir(path.join(root, pair), { recursive: true });
+    await writeFile(
+      path.join(root, pair, `${timeframe}.json`),
+      `${JSON.stringify({ source: 'dukascopy', bars })}\n`,
+    );
+  };
+
+  const engine = {
+    generateParameterCombinations: () => [{ stopLossPips: 30, takeProfitPips: 60 }],
+    splitOptimizationBars: (bars) => {
+      const splitAt = Math.floor(bars.length * 0.7);
+      return { optimizationBars: bars.slice(0, splitAt), validationBars: bars.slice(splitAt) };
+    },
+    runBacktest: () => ({}),
+    scoreBacktestResult: () => ({
+      netProfitYen: 1,
+      profitFactor: 1,
+      maxDrawdownYen: 0,
+      tradeCount: 10,
+    }),
+    validationToOptimizationRatio: () => 1,
+    isOverfitSuspect: () => false,
+  };
+
+  it('uses a present deep cache and increases referenceSpanDays only when enabled', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-deep-history-'));
+    const dataDirectory = path.join(tempRoot, 'data');
+    const deepHistoryDirectory = path.join(tempRoot, 'deep-history');
+    const target = {
+      ...buildCandidateMatrix()[0],
+      trailingStopPips: [null],
+    };
+    const { pair, timeframe, registeredAt } = target.strategy.meta;
+    const shallowBars = barsBeforeRegistration(registeredAt, 31);
+    const deepBars = barsBeforeRegistration(registeredAt, 731);
+    await mkdir(path.join(dataDirectory, pair), { recursive: true });
+    await mkdir(path.join(deepHistoryDirectory, pair), { recursive: true });
+    await writeFile(
+      path.join(dataDirectory, pair, `${timeframe}.json`),
+      `${JSON.stringify({ bars: shallowBars })}\n`,
+    );
+    await writeFile(
+      path.join(deepHistoryDirectory, pair, `${timeframe}.json`),
+      `${JSON.stringify({ bars: deepBars })}\n`,
+    );
+
+    try {
+      const withoutFlag = await evaluateTarget(engine, target, {
+        dataDirectory,
+        deepHistoryDirectory,
+      });
+      const withFlag = await evaluateTarget(engine, target, {
+        deepHistory: true,
+        dataDirectory,
+        deepHistoryDirectory,
+      });
+
+      expect(withoutFlag.referenceSpanDays).toBe(30);
+      expect(withFlag.referenceSpanDays).toBe(REFERENCE_SPAN_TARGET_DAYS);
+      expect(withFlag.referenceSpanDays).toBeGreaterThanOrEqual(REFERENCE_SPAN_TARGET_DAYS);
+      expect(withFlag.referenceSpanDays).toBeGreaterThan(withoutFlag.referenceSpanDays);
+      expect(withFlag).toMatchObject({
+        dataSource: DATA_SOURCE_DEEP_HISTORY,
+        dataProvenance: {
+          priceBars: { source: DATA_SOURCE_DEEP_HISTORY },
+          usdJpyBars: null,
+          usedFallbackUsdJpyRate: false,
+        },
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back per timeframe when the requested deep cache file is absent', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-deep-fallback-'));
+    const dataDirectory = path.join(tempRoot, 'data');
+    const deepHistoryDirectory = path.join(tempRoot, 'deep-history');
+    const fallbackBars = [{ t: 123, o: 1, h: 1, l: 1, c: 1, v: 0 }];
+    await mkdir(path.join(dataDirectory, 'USDJPY'), { recursive: true });
+    await writeFile(
+      path.join(dataDirectory, 'USDJPY', 'h4.json'),
+      `${JSON.stringify({ bars: fallbackBars })}\n`,
+    );
+
+    try {
+      await expect(
+        loadBarsForTuning('USDJPY', 'h4', {
+          deepHistory: true,
+          dataDirectory,
+          deepHistoryDirectory,
+        }),
+      ).resolves.toEqual(fallbackBars);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('chooses public data when its pre-registration coverage exceeds the deep cache', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-coverage-choice-'));
+    const dataDirectory = path.join(tempRoot, 'data');
+    const deepHistoryDirectory = path.join(tempRoot, 'deep-history');
+    const registeredAt = Date.parse('2024-02-10T12:00:00.000Z') / 1_000;
+    const publicBars = barsBeforeRegistration(registeredAt, 2_335);
+    const deepBars = barsBeforeRegistration(registeredAt, 751);
+    await mkdir(path.join(dataDirectory, 'USDJPY'), { recursive: true });
+    await mkdir(path.join(deepHistoryDirectory, 'USDJPY'), { recursive: true });
+    await writeFile(
+      path.join(dataDirectory, 'USDJPY', 'd1.json'),
+      `${JSON.stringify({ source: 'dukascopy', bars: publicBars })}\n`,
+    );
+    await writeFile(
+      path.join(deepHistoryDirectory, 'USDJPY', 'd1.json'),
+      `${JSON.stringify({ source: 'dukascopy', bars: deepBars })}\n`,
+    );
+
+    try {
+      const resolved = await loadBarsForTuning('USDJPY', 'd1', {
+        deepHistory: true,
+        registeredAt,
+        includeProvenance: true,
+        dataDirectory,
+        deepHistoryDirectory,
+      });
+
+      expect(resolved.bars).toEqual(publicBars);
+      expect(resolved).toMatchObject({
+        source: DATA_SOURCE_PUBLIC_DATA,
+        barsBeforeRegistration: 2_335,
+        coverageBeforeRegistrationDays: 2_334,
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('records an explicit USDJPY fallback when a deep target lacks matching conversion data', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-usdjpy-fallback-'));
+    const dataDirectory = path.join(tempRoot, 'data');
+    const deepHistoryDirectory = path.join(tempRoot, 'deep-history');
+    const target = {
+      ...buildCandidateMatrix().find(
+        (candidate) =>
+          candidate.strategy.meta.pair === 'EURUSD' &&
+          candidate.strategy.meta.timeframe === 'h1',
+      ),
+      trailingStopPips: [null],
+    };
+    const { pair, timeframe, registeredAt } = target.strategy.meta;
+    await writeBarCache(
+      dataDirectory,
+      pair,
+      timeframe,
+      barsBeforeRegistration(registeredAt, 31),
+    );
+    await writeBarCache(
+      deepHistoryDirectory,
+      pair,
+      timeframe,
+      barsBeforeRegistration(registeredAt, 731),
+    );
+    await writeBarCache(
+      dataDirectory,
+      'USDJPY',
+      timeframe,
+      barsBeforeRegistration(registeredAt, 31),
+    );
+
+    try {
+      const result = await evaluateTarget(engine, target, {
+        deepHistory: true,
+        dataDirectory,
+        deepHistoryDirectory,
+      });
+      const report = createTuningReport([result], {
+        filters: { pairs: [], entryTypes: [], timeframes: [], deepHistory: true },
+      });
+
+      expect(result).toMatchObject({
+        dataSource: DATA_SOURCE_DEEP_HISTORY,
+        usdJpyDataSource: DATA_SOURCE_PUBLIC_DATA,
+        usedFallbackUsdJpyRate: true,
+        dataProvenance: {
+          priceBars: { source: DATA_SOURCE_DEEP_HISTORY },
+          usdJpyBars: { source: DATA_SOURCE_PUBLIC_DATA },
+          usedFallbackUsdJpyRate: true,
+        },
+      });
+      expect(report).toMatchObject({
+        provenance: { deepHistory: true },
+        filters: { deepHistory: true },
+        summary: { usedFallbackUsdJpyRateCount: 1 },
+        candidates: [
+          {
+            provenance: {
+              dataSource: DATA_SOURCE_DEEP_HISTORY,
+              usdJpyDataSource: DATA_SOURCE_PUBLIC_DATA,
+              usedFallbackUsdJpyRate: true,
+            },
+          },
+        ],
+      });
+      expect(report.candidates[0].warnings).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'usd_jpy_rate_source_fallback',
+            uncoveredReferenceSpanRatio: 700 / REFERENCE_SPAN_TARGET_DAYS,
+            message: expect.stringContaining('USDJPYソースが参照窓をカバーしない割合(日数比)'),
+          }),
+        ]),
+      );
+      expect(report.summary).toMatchObject({
+        usdJpyFallbackUncoveredReferenceSpanRatioSum: 700 / REFERENCE_SPAN_TARGET_DAYS,
+        usdJpyFallbackUncoveredReferenceSpanRatioAverage: 700 / REFERENCE_SPAN_TARGET_DAYS,
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps USDJPY on the selected deep source when matching conversion data exists', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-usdjpy-same-source-'));
+    const dataDirectory = path.join(tempRoot, 'data');
+    const deepHistoryDirectory = path.join(tempRoot, 'deep-history');
+    const target = {
+      ...buildCandidateMatrix().find(
+        (candidate) =>
+          candidate.strategy.meta.pair === 'EURUSD' &&
+          candidate.strategy.meta.timeframe === 'h1',
+      ),
+      trailingStopPips: [null],
+    };
+    const { pair, timeframe, registeredAt } = target.strategy.meta;
+    await writeBarCache(
+      dataDirectory,
+      pair,
+      timeframe,
+      barsBeforeRegistration(registeredAt, 31),
+    );
+    await writeBarCache(
+      deepHistoryDirectory,
+      pair,
+      timeframe,
+      barsBeforeRegistration(registeredAt, 731),
+    );
+    await writeBarCache(
+      dataDirectory,
+      'USDJPY',
+      timeframe,
+      barsBeforeRegistration(registeredAt, 1_001),
+    );
+    await writeBarCache(
+      deepHistoryDirectory,
+      'USDJPY',
+      timeframe,
+      barsBeforeRegistration(registeredAt, 731),
+    );
+
+    try {
+      const result = await evaluateTarget(engine, target, {
+        deepHistory: true,
+        dataDirectory,
+        deepHistoryDirectory,
+      });
+
+      expect(result).toMatchObject({
+        dataSource: DATA_SOURCE_DEEP_HISTORY,
+        usdJpyDataSource: DATA_SOURCE_DEEP_HISTORY,
+        usedFallbackUsdJpyRate: false,
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('treats post-registration-only deep USDJPY data as unavailable and reports fallback', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-usdjpy-unusable-'));
+    const dataDirectory = path.join(tempRoot, 'data');
+    const deepHistoryDirectory = path.join(tempRoot, 'deep-history');
+    const target = {
+      ...buildCandidateMatrix().find(
+        (candidate) =>
+          candidate.strategy.meta.pair === 'EURUSD' &&
+          candidate.strategy.meta.timeframe === 'h1',
+      ),
+      trailingStopPips: [null],
+    };
+    const { pair, timeframe, registeredAt } = target.strategy.meta;
+    await writeBarCache(
+      dataDirectory,
+      pair,
+      timeframe,
+      barsBeforeRegistration(registeredAt, 31),
+    );
+    await writeBarCache(
+      deepHistoryDirectory,
+      pair,
+      timeframe,
+      barsBeforeRegistration(registeredAt, 731),
+    );
+    await writeBarCache(
+      dataDirectory,
+      'USDJPY',
+      timeframe,
+      barsBeforeRegistration(registeredAt, 731),
+    );
+    await writeBarCache(
+      deepHistoryDirectory,
+      'USDJPY',
+      timeframe,
+      barsBeforeRegistration(registeredAt, 10).map((bar, index) => ({
+        ...bar,
+        t: registeredAt + (index + 1) * daySeconds,
+      })),
+    );
+
+    try {
+      const result = await evaluateTarget(engine, target, {
+        deepHistory: true,
+        dataDirectory,
+        deepHistoryDirectory,
+      });
+
+      expect(result).toMatchObject({
+        dataSource: DATA_SOURCE_DEEP_HISTORY,
+        usdJpyDataSource: DATA_SOURCE_PUBLIC_DATA,
+        usedFallbackUsdJpyRate: true,
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -275,6 +668,65 @@ const resultFor = ({ target, rows, eligible, referenceSpanDays = 730 }) => ({
 });
 
 describe('tune-virtual-strategies JSON report', () => {
+  it('forwards deep-history mode while preserving the no-flag evaluate call', async () => {
+    const [target] = buildCandidateMatrix();
+    const passing = row({ optNet: 100_000, valNet: 60_000, ratio: 0.6 });
+    const evaluate = vi.fn(async (_engine, candidate, options) => ({
+      ...resultFor({ target: candidate, rows: [passing], eligible: passing }),
+      ...(options?.deepHistory
+        ? {
+            dataSource: DATA_SOURCE_DEEP_HISTORY,
+            usdJpyDataSource: null,
+            usedFallbackUsdJpyRate: false,
+            dataProvenance: {
+              priceBars: { source: DATA_SOURCE_DEEP_HISTORY },
+              usdJpyBars: null,
+              usedFallbackUsdJpyRate: false,
+            },
+          }
+        : {}),
+    }));
+    const logs = [];
+    const reports = [];
+    const common = {
+      candidateTargets: [target],
+      loadEngine: async () => ({ cleanup: async () => {} }),
+      evaluate,
+      writeReport: async (report) => {
+        reports.push(report);
+        return path.join(os.tmpdir(), 'mock-deep-history-report.json');
+      },
+      printResult: () => {},
+      log: (message) => logs.push(message),
+    };
+
+    await main({ ...common, args: [] });
+    expect(evaluate.mock.calls[0]).toHaveLength(2);
+    expect(reports[0]).not.toHaveProperty('provenance');
+    expect(reports[0].filters).not.toHaveProperty('deepHistory');
+
+    const deepHistoryDirectory = path.join(os.tmpdir(), 'mock-deep-history');
+    await main({ ...common, args: ['--deep-history'], deepHistoryDirectory });
+    expect(evaluate.mock.calls[1]).toEqual([
+      expect.anything(),
+      target,
+      { deepHistory: true, deepHistoryDirectory },
+    ]);
+    expect(reports[1]).toMatchObject({
+      provenance: { deepHistory: true },
+      filters: { deepHistory: true },
+      candidates: [
+        {
+          provenance: {
+            dataSource: DATA_SOURCE_DEEP_HISTORY,
+            usedFallbackUsdJpyRate: false,
+          },
+        },
+      ],
+    });
+    expect(logs.some((message) => /data source.*deep-history/i.test(message))).toBe(true);
+  });
+
   it('evaluates only CLI-filtered targets through the main orchestration path', async () => {
     const evaluatedIds = [];
     const logs = [];

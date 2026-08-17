@@ -4,6 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadEsbuild } from './lib/esbuild-loader.mjs';
+import {
+  assertRetiredLedger,
+  readRetiredLedger as readRetiredLedgerFile,
+  retiredEntryRegisteredAt,
+} from './lib/retired-ledger.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -179,62 +184,8 @@ export const fingerprintStrategyDefinition = (strategy) => createHash('sha256')
   })))
   .digest('hex');
 
-const retiredEntryRegisteredAt = (ledgerKey, entry) => {
-  const registeredAt = entry.meta?.registeredAt
-    ?? entry.finalSnapshot?.operationPeriod?.registeredAt;
-  if (Number.isInteger(registeredAt) && registeredAt > 0) {
-    return registeredAt;
-  }
-  const prefix = `${entry.strategyId}@`;
-  if (!ledgerKey.startsWith(prefix)) {
-    return null;
-  }
-  const keyRegisteredAt = Number(ledgerKey.slice(prefix.length));
-  return Number.isInteger(keyRegisteredAt) && keyRegisteredAt > 0
-    ? keyRegisteredAt
-    : null;
-};
-
-const createEmptyRetiredLedger = () => ({ schemaVersion: 1, strategies: {} });
-
-const assertRetiredLedger = (ledger, context = 'retired ledger') => {
-  if (!isObject(ledger)) {
-    throw new Error(`${context}: root must be an object`);
-  }
-  if (ledger.schemaVersion !== 1) {
-    throw new Error(`${context}: schemaVersion must be 1`);
-  }
-  if (!isObject(ledger.strategies)) {
-    throw new Error(`${context}: strategies must be an object`);
-  }
-  for (const [ledgerKey, entry] of Object.entries(ledger.strategies)) {
-    if (!isObject(entry) || typeof entry.strategyId !== 'string') {
-      throw new Error(`${context}: strategies.${ledgerKey}.strategyId is required`);
-    }
-    if (ledgerKey === entry.strategyId) {
-      continue;
-    }
-    const registeredAt = retiredEntryRegisteredAt(ledgerKey, entry);
-    if (registeredAt === null || ledgerKey !== `${entry.strategyId}@${registeredAt}`) {
-      throw new Error(
-        `${context}: strategies.${ledgerKey} must use strategyId@registeredAt as its key`,
-      );
-    }
-  }
-};
-
-export const readRetiredLedger = async (filePath = retiredLedgerPath) => {
-  try {
-    const ledger = await readJson(filePath);
-    assertRetiredLedger(ledger);
-    return ledger;
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return createEmptyRetiredLedger();
-    }
-    throw error;
-  }
-};
+export const readRetiredLedger = async (filePath = retiredLedgerPath) =>
+  readRetiredLedgerFile(filePath);
 
 export const assertNoRetiredStrategyConflicts = (strategies, retiredLedger) => {
   assertRetiredLedger(retiredLedger);

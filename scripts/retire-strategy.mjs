@@ -16,14 +16,23 @@ import {
   fingerprintStrategyDefinition,
   roundYen,
 } from './run-forward-test.mjs';
+import {
+  readRetiredLedger,
+  retiredEntryRegisteredAt,
+  retiredStrategyLedgerKey,
+  RETIRED_LEDGER_SCHEMA_VERSION,
+} from './lib/retired-ledger.mjs';
 
-export { fingerprintStrategyDefinition };
+export {
+  fingerprintStrategyDefinition,
+  retiredStrategyLedgerKey,
+  RETIRED_LEDGER_SCHEMA_VERSION,
+};
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const defaultProjectRoot = path.resolve(__dirname, '..');
 
-export const RETIRED_LEDGER_SCHEMA_VERSION = 1;
 export const CLI_USAGE = `Usage:
   npm run retire:strategy -- <strategy-id> --reason <retirement reason>
   npm run retire:strategy -- <strategy-id> <retirement reason>`;
@@ -41,76 +50,6 @@ const exists = async (filePath) => {
   } catch (error) {
     if (error?.code === 'ENOENT') {
       return false;
-    }
-    throw error;
-  }
-};
-
-const createEmptyRetiredLedger = () => ({
-  schemaVersion: RETIRED_LEDGER_SCHEMA_VERSION,
-  strategies: {},
-});
-
-export const retiredStrategyLedgerKey = (strategyId, registeredAt) =>
-  `${strategyId}@${registeredAt}`;
-
-const retiredEntryRegisteredAt = (ledgerKey, entry) => {
-  const registeredAt = entry.meta?.registeredAt
-    ?? entry.finalSnapshot?.operationPeriod?.registeredAt;
-  if (Number.isInteger(registeredAt) && registeredAt > 0) {
-    return registeredAt;
-  }
-  const prefix = `${entry.strategyId}@`;
-  if (!ledgerKey.startsWith(prefix)) {
-    return null;
-  }
-  const keyRegisteredAt = Number(ledgerKey.slice(prefix.length));
-  return Number.isInteger(keyRegisteredAt) && keyRegisteredAt > 0
-    ? keyRegisteredAt
-    : null;
-};
-
-const assertRetiredLedger = (ledger) => {
-  if (!isObject(ledger)) {
-    throw new Error('retired ledger: root must be an object');
-  }
-  if (ledger.schemaVersion !== RETIRED_LEDGER_SCHEMA_VERSION) {
-    throw new Error(
-      `retired ledger: schemaVersion must be ${RETIRED_LEDGER_SCHEMA_VERSION}`,
-    );
-  }
-  if (!isObject(ledger.strategies)) {
-    throw new Error('retired ledger: strategies must be an object');
-  }
-  for (const [ledgerKey, entry] of Object.entries(ledger.strategies)) {
-    if (!isObject(entry) || typeof entry.strategyId !== 'string') {
-      throw new Error(
-        `retired ledger: strategies.${ledgerKey}.strategyId is required`,
-      );
-    }
-    if (ledgerKey === entry.strategyId) {
-      continue;
-    }
-    const registeredAt = retiredEntryRegisteredAt(ledgerKey, entry);
-    if (
-      registeredAt === null
-      || ledgerKey !== retiredStrategyLedgerKey(entry.strategyId, registeredAt)
-    ) {
-      throw new Error(
-        `retired ledger: strategies.${ledgerKey} must use strategyId@registeredAt as its key`,
-      );
-    }
-  }
-};
-
-const readRetiredLedger = async (filePath) => {
-  try {
-    const ledger = await readJson(filePath);
-    assertRetiredLedger(ledger);
-    return ledger;
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return createEmptyRetiredLedger();
     }
     throw error;
   }

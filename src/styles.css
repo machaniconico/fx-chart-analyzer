@@ -1604,18 +1604,6 @@ input:disabled {
   color: #ff8b9e;
 }
 
-.forward-operation-reason-sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
 .forward-status-block .forward-status-positive {
   border-color: rgba(32, 201, 151, 0.58);
   background: rgba(32, 201, 151, 0.16);
@@ -1638,6 +1626,39 @@ input:disabled {
   color: #b9c2d0;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.forward-operation-details {
+  width: 100%;
+  border-top: 1px solid rgba(142, 155, 179, 0.18);
+  padding-top: 6px;
+  color: #b9c2d0;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.forward-operation-details summary {
+  border-radius: 3px;
+  color: #b9c2d0;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.forward-operation-details summary:hover,
+.forward-operation-details summary:focus-visible {
+  color: #ecf2ff;
+}
+
+.forward-operation-details summary:focus-visible {
+  outline: 2px solid rgba(89, 214, 255, 0.82);
+  outline-offset: 2px;
+}
+
+.forward-operation-details p {
+  margin: 6px 0 0;
+  color: #d8e0ee;
+  overflow-wrap: anywhere;
 }
 
 .forward-operation-alert {
