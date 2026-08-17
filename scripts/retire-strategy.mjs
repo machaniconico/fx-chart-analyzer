@@ -2,15 +2,22 @@ import {
   access,
   mkdir,
   open,
+  readdir,
   readFile,
   rename,
   rm,
   stat,
   writeFile,
 } from 'node:fs/promises';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  fingerprintStrategyDefinition,
+  roundYen,
+} from './run-forward-test.mjs';
+
+export { fingerprintStrategyDefinition };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,20 +31,6 @@ export const CLI_USAGE = `Usage:
 const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const cloneJson = (value) => JSON.parse(JSON.stringify(value));
-
-const canonicalize = (value) => {
-  if (Array.isArray(value)) {
-    return value.map(canonicalize);
-  }
-  if (isObject(value)) {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, canonicalize(item)]),
-    );
-  }
-  return value;
-};
 
 const readJson = async (filePath) => JSON.parse(await readFile(filePath, 'utf8'));
 
@@ -58,6 +51,25 @@ const createEmptyRetiredLedger = () => ({
   strategies: {},
 });
 
+export const retiredStrategyLedgerKey = (strategyId, registeredAt) =>
+  `${strategyId}@${registeredAt}`;
+
+const retiredEntryRegisteredAt = (ledgerKey, entry) => {
+  const registeredAt = entry.meta?.registeredAt
+    ?? entry.finalSnapshot?.operationPeriod?.registeredAt;
+  if (Number.isInteger(registeredAt) && registeredAt > 0) {
+    return registeredAt;
+  }
+  const prefix = `${entry.strategyId}@`;
+  if (!ledgerKey.startsWith(prefix)) {
+    return null;
+  }
+  const keyRegisteredAt = Number(ledgerKey.slice(prefix.length));
+  return Number.isInteger(keyRegisteredAt) && keyRegisteredAt > 0
+    ? keyRegisteredAt
+    : null;
+};
+
 const assertRetiredLedger = (ledger) => {
   if (!isObject(ledger)) {
     throw new Error('retired ledger: root must be an object');
@@ -70,10 +82,22 @@ const assertRetiredLedger = (ledger) => {
   if (!isObject(ledger.strategies)) {
     throw new Error('retired ledger: strategies must be an object');
   }
-  for (const [strategyId, entry] of Object.entries(ledger.strategies)) {
-    if (!isObject(entry) || entry.strategyId !== strategyId) {
+  for (const [ledgerKey, entry] of Object.entries(ledger.strategies)) {
+    if (!isObject(entry) || typeof entry.strategyId !== 'string') {
       throw new Error(
-        `retired ledger: strategies.${strategyId}.strategyId must match its key`,
+        `retired ledger: strategies.${ledgerKey}.strategyId is required`,
+      );
+    }
+    if (ledgerKey === entry.strategyId) {
+      continue;
+    }
+    const registeredAt = retiredEntryRegisteredAt(ledgerKey, entry);
+    if (
+      registeredAt === null
+      || ledgerKey !== retiredStrategyLedgerKey(entry.strategyId, registeredAt)
+    ) {
+      throw new Error(
+        `retired ledger: strategies.${ledgerKey} must use strategyId@registeredAt as its key`,
       );
     }
   }
@@ -211,23 +235,10 @@ const assertMatchingHistory = (strategyHistory, strategy) => {
   }
 };
 
-export const fingerprintStrategyDefinition = (strategy) => createHash('sha256')
-  .update(JSON.stringify(canonicalize({
-    pair: strategy.meta.pair,
-    timeframe: strategy.meta.timeframe,
-    registeredAt: strategy.meta.registeredAt,
-    direction: strategy.direction,
-    entryDirections: strategy.entryDirections,
-    entryConditions: strategy.entryConditions,
-    exit: strategy.exit,
-    sessionFilter: strategy.sessionFilter,
-    newsFilter: strategy.newsFilter,
-    lotSize: strategy.lotSize,
-    moneyManagement: strategy.moneyManagement,
-  })))
-  .digest('hex');
-
 const profitFactorFor = (trades) => {
+  if (trades.length === 0) {
+    return null;
+  }
   const grossProfitYen = trades.reduce(
     (total, trade) => total + (trade.netProfitYen > 0 ? trade.netProfitYen : 0),
     0,
@@ -265,10 +276,10 @@ export const buildFinalSnapshot = (strategy, strategyHistory) => {
   return {
     tradeCount: trades.length,
     profitFactor: profitFactorFor(trades),
-    cumulativeProfitYen: days.reduce(
+    cumulativeProfitYen: roundYen(days.reduce(
       (total, [, day]) => total + day.pnl.netProfitYen,
       0,
-    ),
+    )),
     operationPeriod: {
       registeredAt: strategy.meta.registeredAt,
       firstConfirmedDate: dates[0] ?? null,
@@ -278,9 +289,14 @@ export const buildFinalSnapshot = (strategy, strategyHistory) => {
   };
 };
 
-const strategyPaths = (projectRoot, strategyId) => ({
+const strategyPaths = (projectRoot, strategyId, registeredAt) => ({
   source: path.join(projectRoot, 'strategies/virtual', `${strategyId}.json`),
-  destination: path.join(projectRoot, 'strategies/retired', `${strategyId}.json`),
+  destination: path.join(
+    projectRoot,
+    'strategies/retired',
+    `${retiredStrategyLedgerKey(strategyId, registeredAt)}.json`,
+  ),
+  legacyDestination: path.join(projectRoot, 'strategies/retired', `${strategyId}.json`),
 });
 
 const moveStrategyDefinition = async ({ source, destination }) => {
@@ -300,6 +316,73 @@ const moveStrategyDefinition = async ({ source, destination }) => {
   return false;
 };
 
+const ledgerEntriesForStrategy = (ledger, strategyId) =>
+  Object.entries(ledger.strategies)
+    .filter(([, entry]) => entry.strategyId === strategyId);
+
+const latestLedgerEntry = (entries) => [...entries].sort((left, right) => {
+  const registeredAtDifference = (
+    retiredEntryRegisteredAt(left[0], left[1]) ?? Number.NEGATIVE_INFINITY
+  ) - (
+    retiredEntryRegisteredAt(right[0], right[1]) ?? Number.NEGATIVE_INFINITY
+  );
+  if (registeredAtDifference !== 0) {
+    return registeredAtDifference;
+  }
+  return String(left[1].retiredAt ?? '').localeCompare(String(right[1].retiredAt ?? ''));
+}).at(-1);
+
+const findArchiveForGeneration = async (root, strategyId, registeredAt) => {
+  const paths = strategyPaths(root, strategyId, registeredAt);
+  if (await exists(paths.destination)) {
+    return paths.destination;
+  }
+  if (await exists(paths.legacyDestination)) {
+    const legacyStrategy = await readJson(paths.legacyDestination);
+    if (legacyStrategy?.meta?.registeredAt === registeredAt) {
+      return paths.legacyDestination;
+    }
+  }
+  return null;
+};
+
+const findUnledgeredGenerationArchives = async (root, strategyId, ledgerEntries) => {
+  const directory = path.join(root, 'strategies/retired');
+  let filenames;
+  try {
+    filenames = await readdir(directory);
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+  const ledgerGenerations = new Set(
+    ledgerEntries
+      .map(([key, entry]) => retiredEntryRegisteredAt(key, entry))
+      .filter((registeredAt) => registeredAt !== null),
+  );
+  const candidates = [];
+  for (const filename of filenames
+    .filter((item) => item.startsWith(`${strategyId}@`) && item.endsWith('.json'))
+    .sort()) {
+    const definitionPath = path.join(directory, filename);
+    const candidateStrategy = await readJson(definitionPath);
+    assertStrategyDefinition(candidateStrategy, strategyId, definitionPath);
+    const registeredAt = candidateStrategy.meta.registeredAt;
+    const expectedFilename = `${retiredStrategyLedgerKey(strategyId, registeredAt)}.json`;
+    if (filename !== expectedFilename) {
+      throw new Error(
+        `${definitionPath}: filename must match strategyId@meta.registeredAt`,
+      );
+    }
+    if (!ledgerGenerations.has(registeredAt)) {
+      candidates.push({ definitionPath, strategy: candidateStrategy });
+    }
+  }
+  return candidates;
+};
+
 export const retireStrategy = async ({
   strategyId: rawStrategyId,
   reason: rawReason,
@@ -314,36 +397,80 @@ export const retireStrategy = async ({
   const ledgerPath = path.join(root, 'public/data/forward/retired.json');
   const historyPath = path.join(root, 'public/data/forward/history.json');
   const lockPath = path.join(root, 'strategies/.retire-strategy.lock');
-  const paths = strategyPaths(root, strategyId);
+  const sourcePath = path.join(root, 'strategies/virtual', `${strategyId}.json`);
+  const legacyDestinationPath = path.join(root, 'strategies/retired', `${strategyId}.json`);
   const releaseLock = await acquireFileLock(lockPath);
   try {
     const ledger = await readRetiredLedger(ledgerPath);
-    const existingEntry = Object.hasOwn(ledger.strategies, strategyId)
-      ? ledger.strategies[strategyId]
-      : undefined;
+    const entriesForStrategy = ledgerEntriesForStrategy(ledger, strategyId);
+    const sourceExists = await exists(sourcePath);
+    const unledgeredArchives = sourceExists
+      ? []
+      : await findUnledgeredGenerationArchives(root, strategyId, entriesForStrategy);
 
-    if (existingEntry) {
-      const moved = await moveStrategyDefinition(paths);
+    if (unledgeredArchives.length > 1) {
+      throw new Error(
+        `${strategyId}: multiple unledgered retired generations were found; recovery is ambiguous`,
+      );
+    }
+
+    if (!sourceExists && unledgeredArchives.length === 0 && entriesForStrategy.length > 0) {
+      const [existingKey, existingEntry] = latestLedgerEntry(entriesForStrategy);
+      const registeredAt = retiredEntryRegisteredAt(existingKey, existingEntry);
+      const strategyPath = registeredAt === null
+        ? ((await exists(legacyDestinationPath)) ? legacyDestinationPath : null)
+        : await findArchiveForGeneration(root, strategyId, registeredAt);
+      if (strategyPath === null) {
+        throw new Error(
+          `${strategyId}: retirement ledger entry exists, but its archived strategy definition was not found`,
+        );
+      }
+      return {
+        alreadyRetired: true,
+        moved: false,
+        entry: cloneJson(existingEntry),
+        ledgerPath,
+        strategyPath,
+      };
+    }
+
+    if (
+      !sourceExists
+      && unledgeredArchives.length === 0
+      && !(await exists(legacyDestinationPath))
+    ) {
+      throw new Error(`Strategy definition was not found: ${sourcePath}`);
+    }
+    const recoveryCandidate = unledgeredArchives[0];
+    const definitionPath = sourceExists
+      ? sourcePath
+      : recoveryCandidate?.definitionPath ?? legacyDestinationPath;
+    const strategy = recoveryCandidate?.strategy ?? await readJson(definitionPath);
+    assertStrategyDefinition(strategy, strategyId, definitionPath);
+    const paths = strategyPaths(root, strategyId, strategy.meta.registeredAt);
+    const ledgerKey = retiredStrategyLedgerKey(strategyId, strategy.meta.registeredAt);
+    const existingGeneration = entriesForStrategy.find(([key, entry]) =>
+      retiredEntryRegisteredAt(key, entry) === strategy.meta.registeredAt);
+
+    if (existingGeneration) {
+      const [, existingEntry] = existingGeneration;
+      const existingArchive = await findArchiveForGeneration(
+        root,
+        strategyId,
+        strategy.meta.registeredAt,
+      );
+      const moved = await moveStrategyDefinition({
+        source: paths.source,
+        destination: existingArchive ?? paths.destination,
+      });
       return {
         alreadyRetired: true,
         moved,
         entry: cloneJson(existingEntry),
         ledgerPath,
-        strategyPath: paths.destination,
+        strategyPath: existingArchive ?? paths.destination,
       };
     }
-
-    const sourceExists = await exists(paths.source);
-    const destinationExists = await exists(paths.destination);
-    if (sourceExists && destinationExists) {
-      throw new Error(`Refusing to overwrite existing retired strategy: ${paths.destination}`);
-    }
-    if (!sourceExists && !destinationExists) {
-      throw new Error(`Strategy definition was not found: ${paths.source}`);
-    }
-    const definitionPath = sourceExists ? paths.source : paths.destination;
-    const strategy = await readJson(definitionPath);
-    assertStrategyDefinition(strategy, strategyId, definitionPath);
 
     let history;
     try {
@@ -362,12 +489,24 @@ export const retireStrategy = async ({
       meta: cloneJson(strategy.meta),
       retiredAt: retiredAtIso,
       reason,
-      finalSnapshot: buildFinalSnapshot(strategy, history.strategies[strategyId]),
+      finalSnapshot: buildFinalSnapshot(
+        strategy,
+        Object.hasOwn(history.strategies, strategyId)
+          ? history.strategies[strategyId]
+          : undefined,
+      ),
     };
 
-    const moved = await moveStrategyDefinition(paths);
+    const moved = sourceExists
+      ? await moveStrategyDefinition(paths)
+      : false;
     const nextLedger = cloneJson(ledger);
-    nextLedger.strategies[strategyId] = entry;
+    Object.defineProperty(nextLedger.strategies, ledgerKey, {
+      value: entry,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
     try {
       await writeLedger(ledgerPath, nextLedger);
     } catch (error) {
@@ -389,7 +528,7 @@ export const retireStrategy = async ({
       moved,
       entry: cloneJson(entry),
       ledgerPath,
-      strategyPath: paths.destination,
+      strategyPath: sourceExists ? paths.destination : definitionPath,
     };
   } finally {
     await releaseLock();

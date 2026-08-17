@@ -13,3 +13,5 @@ reports/
 # two leaves the temp behind, and update-data.yml stages the whole directory — without this it
 # would be committed and served from the site forever, since nothing later removes it.
 public/data/*.tmp
+public/data/forward/*.json.tmp-*
+strategies/.retire-strategy.lock

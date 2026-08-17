@@ -1,16 +1,19 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  buildFinalSnapshot,
   RETIRED_LEDGER_SCHEMA_VERSION,
-  fingerprintStrategyDefinition,
   parseCliArgs,
+  retiredStrategyLedgerKey,
   retireStrategy,
 } from './retire-strategy.mjs';
+import { fingerprintStrategyDefinition } from './run-forward-test.mjs';
 
 const strategyId = 'retire-test-v1';
 const registeredAt = 1_700_000_000;
+const ledgerKey = retiredStrategyLedgerKey(strategyId, registeredAt);
 const strategy = {
   meta: {
     id: strategyId,
@@ -109,7 +112,7 @@ describe('retireStrategy', () => {
         retiredAt,
       });
       const sourcePath = path.join(root, 'strategies/virtual', `${strategyId}.json`);
-      const retiredPath = path.join(root, 'strategies/retired', `${strategyId}.json`);
+      const retiredPath = path.join(root, 'strategies/retired', `${ledgerKey}.json`);
       await expect(access(sourcePath)).rejects.toMatchObject({ code: 'ENOENT' });
       expect(JSON.parse(await readFile(retiredPath, 'utf8'))).toEqual(strategy);
 
@@ -120,7 +123,7 @@ describe('retireStrategy', () => {
       expect(ledgerAfterFirstRun.strategies['already-retired-v1']).toEqual(
         originalLedgerEntry,
       );
-      expect(ledgerAfterFirstRun.strategies[strategyId]).toEqual({
+      expect(ledgerAfterFirstRun.strategies[ledgerKey]).toEqual({
         strategyId,
         meta: strategy.meta,
         retiredAt,
@@ -153,11 +156,151 @@ describe('retireStrategy', () => {
       expect(await readFile(resultsPath, 'utf8')).toBe(resultsBytesBeforeRetirement);
       expect(Object.keys(JSON.parse(ledgerBytesAfterFirstRun).strategies)).toEqual([
         'already-retired-v1',
-        strategyId,
+        ledgerKey,
       ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it('retires a re-registered generation with the same ID into a separate ledger entry', async () => {
+    const root = await setupProject();
+    const nextRegisteredAt = registeredAt + 86_400;
+    const nextLedgerKey = retiredStrategyLedgerKey(strategyId, nextRegisteredAt);
+    const nextStrategy = JSON.parse(JSON.stringify({
+      ...strategy,
+      meta: {
+        ...strategy.meta,
+        registeredAt: nextRegisteredAt,
+      },
+    }));
+    const nextHistory = JSON.parse(JSON.stringify(history));
+    nextHistory.strategies[strategyId] = {
+      ...nextHistory.strategies[strategyId],
+      meta: nextStrategy.meta,
+      strategyFingerprint: fingerprintStrategyDefinition(nextStrategy),
+    };
+
+    try {
+      await retireStrategy({
+        projectRoot: root,
+        strategyId,
+        reason: 'first generation retirement',
+        retiredAt: '2026-08-17T00:00:00.000Z',
+      });
+      await writeJson(
+        path.join(root, 'strategies/virtual', `${strategyId}.json`),
+        nextStrategy,
+      );
+      await writeJson(
+        path.join(root, 'public/data/forward/history.json'),
+        nextHistory,
+      );
+
+      const second = await retireStrategy({
+        projectRoot: root,
+        strategyId,
+        reason: 'second generation retirement',
+        retiredAt: '2026-08-18T00:00:00.000Z',
+      });
+      const ledger = JSON.parse(
+        await readFile(path.join(root, 'public/data/forward/retired.json'), 'utf8'),
+      );
+
+      expect(second.alreadyRetired).toBe(false);
+      expect(second.moved).toBe(true);
+      expect(Object.keys(ledger.strategies)).toEqual([ledgerKey, nextLedgerKey]);
+      expect(ledger.strategies[ledgerKey].meta.registeredAt).toBe(registeredAt);
+      expect(ledger.strategies[nextLedgerKey]).toMatchObject({
+        strategyId,
+        meta: { registeredAt: nextRegisteredAt },
+        reason: 'second generation retirement',
+      });
+      expect(JSON.parse(await readFile(
+        path.join(root, 'strategies/retired', `${ledgerKey}.json`),
+        'utf8',
+      ))).toEqual(strategy);
+      expect(JSON.parse(await readFile(
+        path.join(root, 'strategies/retired', `${nextLedgerKey}.json`),
+        'utf8',
+      ))).toEqual(nextStrategy);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('recovers an unledgered compound archive for a later generation', async () => {
+    const root = await setupProject();
+    const nextRegisteredAt = registeredAt + 86_400;
+    const nextLedgerKey = retiredStrategyLedgerKey(strategyId, nextRegisteredAt);
+    const nextStrategy = JSON.parse(JSON.stringify({
+      ...strategy,
+      meta: { ...strategy.meta, registeredAt: nextRegisteredAt },
+    }));
+    const nextHistory = JSON.parse(JSON.stringify(history));
+    nextHistory.strategies[strategyId] = {
+      ...nextHistory.strategies[strategyId],
+      meta: nextStrategy.meta,
+      strategyFingerprint: fingerprintStrategyDefinition(nextStrategy),
+    };
+
+    try {
+      await retireStrategy({
+        projectRoot: root,
+        strategyId,
+        reason: 'first generation retirement',
+        retiredAt: '2026-08-17T00:00:00.000Z',
+      });
+      const nextSourcePath = path.join(root, 'strategies/virtual', `${strategyId}.json`);
+      const orphanedArchivePath = path.join(
+        root,
+        'strategies/retired',
+        `${nextLedgerKey}.json`,
+      );
+      await writeJson(nextSourcePath, nextStrategy);
+      await writeJson(path.join(root, 'public/data/forward/history.json'), nextHistory);
+      await rename(nextSourcePath, orphanedArchivePath);
+
+      const recovered = await retireStrategy({
+        projectRoot: root,
+        strategyId,
+        reason: 'resume interrupted second retirement',
+        retiredAt: '2026-08-18T00:00:00.000Z',
+      });
+      const ledger = JSON.parse(
+        await readFile(path.join(root, 'public/data/forward/retired.json'), 'utf8'),
+      );
+
+      expect(recovered.alreadyRetired).toBe(false);
+      expect(recovered.moved).toBe(false);
+      expect(recovered.strategyPath).toBe(orphanedArchivePath);
+      expect(Object.keys(ledger.strategies)).toEqual([ledgerKey, nextLedgerKey]);
+      expect(ledger.strategies[nextLedgerKey].reason).toBe(
+        'resume interrupted second retirement',
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rounds cumulative yen once and records a null profit factor for zero trades', () => {
+    const fractionalHistory = JSON.parse(JSON.stringify(history.strategies[strategyId]));
+    fractionalHistory.days['2023-11-15'].pnl.netProfitYen = 10.4;
+    fractionalHistory.days['2023-11-15'].trades = [trade(1, 10.4)];
+    fractionalHistory.days['2023-11-16'].pnl.netProfitYen = 10.4;
+    fractionalHistory.days['2023-11-16'].trades = [trade(2, 10.4)];
+    expect(buildFinalSnapshot(strategy, fractionalHistory).cumulativeProfitYen).toBe(21);
+
+    const zeroTradeHistory = JSON.parse(JSON.stringify(history.strategies[strategyId]));
+    for (const day of Object.values(zeroTradeHistory.days)) {
+      day.pnl.netProfitYen = 0;
+      day.trades = [];
+    }
+    expect(buildFinalSnapshot(strategy, zeroTradeHistory)).toMatchObject({
+      tradeCount: 0,
+      profitFactor: null,
+      cumulativeProfitYen: 0,
+    });
   });
 
   it('does not move an EA when no confirmed forward history exists', async () => {
@@ -216,7 +359,7 @@ describe('retireStrategy', () => {
         ),
       ).toEqual(strategy);
       await expect(
-        access(path.join(root, 'strategies/retired', `${strategyId}.json`)),
+        access(path.join(root, 'strategies/retired', `${ledgerKey}.json`)),
       ).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -293,7 +436,10 @@ describe('retireStrategy', () => {
         await readFile(path.join(root, 'public/data/forward/retired.json'), 'utf8'),
       );
       expect(writeCount).toBe(2);
-      expect(Object.keys(ledger.strategies)).toEqual([strategyId, secondStrategyId]);
+      expect(Object.keys(ledger.strategies)).toEqual([
+        ledgerKey,
+        retiredStrategyLedgerKey(secondStrategyId, registeredAt),
+      ]);
       await expect(
         access(path.join(root, 'strategies/.retire-strategy.lock')),
       ).rejects.toMatchObject({ code: 'ENOENT' });
@@ -306,7 +452,7 @@ describe('retireStrategy', () => {
   it('restores the active definition when persisting the ledger fails', async () => {
     const root = await setupProject();
     const sourcePath = path.join(root, 'strategies/virtual', `${strategyId}.json`);
-    const retiredPath = path.join(root, 'strategies/retired', `${strategyId}.json`);
+    const retiredPath = path.join(root, 'strategies/retired', `${ledgerKey}.json`);
 
     try {
       await expect(
@@ -383,8 +529,9 @@ describe('retireStrategy', () => {
       );
 
       expect(result.alreadyRetired).toBe(false);
-      expect(Object.hasOwn(ledger.strategies, reservedId)).toBe(true);
-      expect(ledger.strategies[reservedId].strategyId).toBe(reservedId);
+      const reservedLedgerKey = retiredStrategyLedgerKey(reservedId, registeredAt);
+      expect(Object.hasOwn(ledger.strategies, reservedLedgerKey)).toBe(true);
+      expect(ledger.strategies[reservedLedgerKey].strategyId).toBe(reservedId);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -1,17 +1,22 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  buildConfirmedHistoryDays,
   buildForwardArtifacts,
   buildStrategyReport,
+  fingerprintStrategyDefinition,
+  FORWARD_HISTORY_SCHEMA_VERSION,
   FORWARD_RESULTS_SCHEMA_VERSION,
+  mergeForwardHistory,
   splitBarsByRegistration,
   TWO_YEARS_SECONDS,
 } from './run-forward-test.mjs';
-import { retireStrategy } from './retire-strategy.mjs';
+import { retiredStrategyLedgerKey, retireStrategy } from './retire-strategy.mjs';
 
 const registeredAt = 1782996300;
+const UTC_DAY_SECONDS = 24 * 60 * 60;
 
 const bar = (time) => ({
   t: time,
@@ -135,6 +140,9 @@ describe('forward test runner', () => {
     expect(calls[0].every((item) => item.t >= registeredAt)).toBe(true);
     expect(calls[1].every((item) => item.t < registeredAt)).toBe(true);
     expect(report.barsEvaluated).toBe(2);
+    expect(report.historyCandidate.strategyFingerprint).toBe(
+      fingerprintStrategyDefinition(strategy),
+    );
   });
 
   it('keeps the expected zero-trade schema', () => {
@@ -272,6 +280,176 @@ describe('forward test runner', () => {
     }
   });
 
+  it('fails before backtesting when an active generation is already retired', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'fx-forward-retired-conflict-test-'));
+    const virtualDirectory = path.join(root, 'strategies/virtual');
+    const conflictKey = retiredStrategyLedgerKey(strategy.meta.id, strategy.meta.registeredAt);
+    const loadBarsFor = vi.fn(async () => [bar(registeredAt)]);
+    const runBacktest = vi.fn(emptyBacktestResult);
+    const evaluateRetirement = vi.fn(() => ({ status: 'active', reason: 'unused' }));
+
+    try {
+      await mkdir(virtualDirectory, { recursive: true });
+      await writeFile(
+        path.join(virtualDirectory, `${strategy.meta.id}.json`),
+        `${JSON.stringify(strategy, null, 2)}\n`,
+        'utf8',
+      );
+
+      await expect(buildForwardArtifacts({
+        strategiesDirectory: virtualDirectory,
+        loadBarsFor,
+        runBacktest,
+        evaluateRetirement,
+        retiredLedger: {
+          schemaVersion: 1,
+          strategies: {
+            [conflictKey]: {
+              strategyId: strategy.meta.id,
+              meta: strategy.meta,
+              retiredAt: '2026-08-17T00:00:00.000Z',
+            },
+          },
+        },
+      })).rejects.toThrow(
+        new RegExp(`strategies/virtual.*${strategy.meta.id}@${strategy.meta.registeredAt}.*retired\\.json`, 's'),
+      );
+      expect(loadBarsFor).not.toHaveBeenCalled();
+      expect(runBacktest).not.toHaveBeenCalled();
+      expect(evaluateRetirement).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('allows a re-registered ID when only an older generation is retired', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'fx-forward-new-generation-test-'));
+    const virtualDirectory = path.join(root, 'strategies/virtual');
+    const olderRegisteredAt = strategy.meta.registeredAt - UTC_DAY_SECONDS;
+    const olderDate = new Date(olderRegisteredAt * 1000).toISOString().slice(0, 10);
+    const olderStrategy = JSON.parse(JSON.stringify({
+      ...strategy,
+      meta: { ...strategy.meta, registeredAt: olderRegisteredAt },
+    }));
+    const existingHistory = {
+      schemaVersion: 1,
+      strategies: {
+        [strategy.meta.id]: {
+          meta: olderStrategy.meta,
+          strategyFingerprint: fingerprintStrategyDefinition(olderStrategy),
+          initialBalanceYen: 1_000_000,
+          spreadPips: 0.9,
+          days: {
+            [olderDate]: {
+              recordedAt: '2026-08-16T00:00:00.000Z',
+              firstBarAt: olderRegisteredAt,
+              lastBarAt: olderRegisteredAt,
+              barsEvaluated: 1,
+              pnl: { netPips: 5, netProfitYen: 500 },
+              trades: [{
+                id: 1,
+                entryTime: olderRegisteredAt - 3_600,
+                exitTime: olderRegisteredAt,
+                exitReason: 'takeProfit',
+                netPips: 5,
+                netProfitYen: 500,
+              }],
+              equity: null,
+            },
+          },
+        },
+      },
+    };
+    const forwardStartingBalances = [];
+    const runBacktest = (bars, currentStrategy, pair, options = {}) => {
+      if (options.moneyManagement) {
+        forwardStartingBalances.push(options.moneyManagement.initialBalanceYen);
+      }
+      return emptyBacktestResult(bars, currentStrategy, pair, options);
+    };
+
+    try {
+      await mkdir(virtualDirectory, { recursive: true });
+      await writeFile(
+        path.join(virtualDirectory, `${strategy.meta.id}.json`),
+        `${JSON.stringify(strategy, null, 2)}\n`,
+        'utf8',
+      );
+      const artifacts = await buildForwardArtifacts({
+        existingHistory,
+        strategiesDirectory: virtualDirectory,
+        loadBarsFor: async () => [
+          bar(registeredAt),
+          bar(registeredAt + UTC_DAY_SECONDS),
+          bar(registeredAt + (2 * UTC_DAY_SECONDS)),
+        ],
+        runBacktest,
+        evaluateRetirement: () => ({ status: 'active', reason: 'new generation' }),
+        retiredLedger: {
+          schemaVersion: 1,
+          strategies: {
+            [retiredStrategyLedgerKey(strategy.meta.id, olderRegisteredAt)]: {
+              strategyId: strategy.meta.id,
+              meta: { ...strategy.meta, registeredAt: olderRegisteredAt },
+            },
+          },
+        },
+      });
+
+      expect(artifacts.results.strategies.map((item) => item.meta.id)).toEqual([
+        strategy.meta.id,
+      ]);
+      expect(forwardStartingBalances).toEqual([1_000_000]);
+      expect(artifacts.rebaselined).toHaveLength(1);
+      expect(artifacts.history.strategies[strategy.meta.id].meta.registeredAt).toBe(
+        strategy.meta.registeredAt,
+      );
+      expect(Object.keys(artifacts.history.strategies[strategy.meta.id].days)).toHaveLength(2);
+      expect(artifacts.history.strategies[strategy.meta.id].days[olderDate]).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses to replace an unretired generation when registeredAt changes', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'fx-forward-unretired-generation-test-'));
+    const virtualDirectory = path.join(root, 'strategies/virtual');
+    const loadBarsFor = vi.fn(async () => [bar(registeredAt)]);
+
+    try {
+      await mkdir(virtualDirectory, { recursive: true });
+      await writeFile(
+        path.join(virtualDirectory, `${strategy.meta.id}.json`),
+        `${JSON.stringify(strategy, null, 2)}\n`,
+        'utf8',
+      );
+      await expect(buildForwardArtifacts({
+        existingHistory: {
+          schemaVersion: 1,
+          strategies: {
+            [strategy.meta.id]: {
+              meta: {
+                ...strategy.meta,
+                registeredAt: strategy.meta.registeredAt - UTC_DAY_SECONDS,
+              },
+              initialBalanceYen: 1_000_000,
+              spreadPips: 0.9,
+              days: {},
+            },
+          },
+        },
+        strategiesDirectory: virtualDirectory,
+        loadBarsFor,
+        runBacktest: emptyBacktestResult,
+        evaluateRetirement: () => ({ status: 'active', reason: 'unused' }),
+        retiredLedger: { schemaVersion: 1, strategies: {} },
+      })).rejects.toThrow(/not recorded in public\/data\/forward\/retired\.json/i);
+      expect(loadBarsFor).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('stops tracking a retired EA without changing any other EA history', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'fx-forward-retirement-test-'));
     const virtualDirectory = path.join(root, 'strategies/virtual');
@@ -304,7 +482,12 @@ describe('forward test runner', () => {
       computedAt: '2026-08-17T00:00:00.000Z',
       existingHistory,
       strategiesDirectory: virtualDirectory,
-      loadBarsFor: async () => [bar(registeredAt)],
+      retiredLedgerFile: path.join(root, 'public/data/forward/retired.json'),
+      loadBarsFor: async () => [
+        bar(registeredAt),
+        bar(registeredAt + UTC_DAY_SECONDS),
+        bar(registeredAt + (2 * UTC_DAY_SECONDS)),
+      ],
       runBacktest: emptyBacktestResult,
       evaluateRetirement: () => ({ status: 'active', reason: 'test fixture' }),
     });
@@ -320,6 +503,12 @@ describe('forward test runner', () => {
       );
       const baseline = await build({ schemaVersion: 1, strategies: {} });
       await writeJson(historyPath, baseline.history);
+      expect(Object.keys(
+        baseline.history.strategies[activeStrategy.meta.id].days,
+      )).toHaveLength(2);
+      expect(Object.keys(
+        baseline.history.strategies[retiringStrategy.meta.id].days,
+      )).toHaveLength(2);
       const activeHistoryBeforeRetirement = JSON.parse(JSON.stringify(
         baseline.history.strategies[activeStrategy.meta.id],
       ));
@@ -347,5 +536,154 @@ describe('forward test runner', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+const historyTestMeta = {
+  id: 'history-test-v1',
+  name: 'History test',
+  version: 1,
+  pair: 'USDJPY',
+  timeframe: 'h1',
+  registeredAt: 1_700_000_000,
+};
+
+const historyTestDay = (recordedAt) => ({
+  recordedAt,
+  firstBarAt: null,
+  lastBarAt: null,
+  barsEvaluated: 0,
+  pnl: { netPips: 0, netProfitYen: 0 },
+  trades: [],
+  equity: null,
+});
+
+const historyTestHistory = (days) => ({
+  schemaVersion: FORWARD_HISTORY_SCHEMA_VERSION,
+  strategies: {
+    [historyTestMeta.id]: {
+      meta: historyTestMeta,
+      initialBalanceYen: 1_000_000,
+      spreadPips: 0.9,
+      days,
+    },
+  },
+});
+
+describe('forward history persistence', () => {
+  it('appends missing UTC days without overwriting existing days or mutating inputs', () => {
+    const existing = historyTestHistory({
+      '2023-11-15': historyTestDay('2023-11-16T00:00:00Z'),
+    });
+    const candidate = historyTestHistory({
+      '2023-11-15': historyTestDay('2023-11-17T00:00:00Z'),
+      '2023-11-16': historyTestDay('2023-11-17T00:00:00Z'),
+    });
+    const existingSnapshot = JSON.parse(JSON.stringify(existing));
+    const candidateSnapshot = JSON.parse(JSON.stringify(candidate));
+
+    const merged = mergeForwardHistory(existing, candidate);
+
+    expect(merged.strategies[historyTestMeta.id].days['2023-11-15']).toEqual(
+      existing.strategies[historyTestMeta.id].days['2023-11-15'],
+    );
+    expect(merged.strategies[historyTestMeta.id].days['2023-11-16']).toEqual(
+      candidate.strategies[historyTestMeta.id].days['2023-11-16'],
+    );
+    expect(existing).toEqual(existingSnapshot);
+    expect(candidate).toEqual(candidateSnapshot);
+    expect(mergeForwardHistory(merged, candidate)).toEqual(merged);
+  });
+
+  it('keeps the newest UTC day and provisional end trade out of history', () => {
+    const firstDay = Date.parse('2026-07-01T12:00:00Z') / 1000;
+    const newestDay = Date.parse('2026-07-02T12:00:00Z') / 1000;
+    const days = buildConfirmedHistoryDays({
+      registeredAt: firstDay,
+      forwardBars: [{ t: firstDay }, { t: newestDay }],
+      recordedAt: '2026-07-03T00:00:00Z',
+      forwardResult: {
+        moneyManagement: { initialBalanceYen: 1_000_000 },
+        trades: [{ id: 1, exitTime: firstDay, exitReason: 'end' }],
+        equityCurve: [],
+      },
+    });
+
+    expect(Object.keys(days)).toEqual(['2026-07-01']);
+    expect(days['2026-07-01'].trades).toEqual([]);
+    expect(days['2026-07-02']).toBeUndefined();
+  });
+
+  it('appends confirmed days when the strategy fingerprint is unchanged', () => {
+    const fingerprint = 'c'.repeat(64);
+    const existing = historyTestHistory({
+      '2023-11-15': historyTestDay('2023-11-16T00:00:00Z'),
+    });
+    existing.strategies[historyTestMeta.id].strategyFingerprint = fingerprint;
+    const candidate = historyTestHistory({
+      '2023-11-15': historyTestDay('2023-11-17T00:00:00Z'),
+      '2023-11-16': historyTestDay('2023-11-17T00:00:00Z'),
+    });
+    candidate.strategies[historyTestMeta.id].strategyFingerprint = fingerprint;
+    const rebaselined = [];
+
+    const merged = mergeForwardHistory(existing, candidate, {
+      onRebaseline: (event) => rebaselined.push(event),
+    });
+
+    expect(rebaselined).toEqual([]);
+    expect(Object.keys(merged.strategies[historyTestMeta.id].days)).toEqual([
+      '2023-11-15',
+      '2023-11-16',
+    ]);
+    expect(merged.strategies[historyTestMeta.id].days['2023-11-15'].recordedAt).toBe(
+      '2023-11-16T00:00:00Z',
+    );
+  });
+
+  it('rebaselines confirmed history when the strategy fingerprint changes', () => {
+    const previousFingerprint = 'a'.repeat(64);
+    const nextFingerprint = 'b'.repeat(64);
+    const existing = historyTestHistory({
+      '2023-11-15': historyTestDay('2023-11-16T00:00:00Z'),
+      '2023-11-16': historyTestDay('2023-11-17T00:00:00Z'),
+    });
+    existing.strategies[historyTestMeta.id].strategyFingerprint = previousFingerprint;
+    const candidate = historyTestHistory({
+      '2023-11-20': historyTestDay('2023-11-21T00:00:00Z'),
+    });
+    candidate.strategies[historyTestMeta.id].strategyFingerprint = nextFingerprint;
+    const rebaselined = [];
+
+    const merged = mergeForwardHistory(existing, candidate, {
+      onRebaseline: (event) => rebaselined.push(event),
+    });
+
+    expect(rebaselined).toEqual([{
+      strategyId: historyTestMeta.id,
+      previousFingerprint,
+      nextFingerprint,
+      discardedDayCount: 2,
+    }]);
+    expect(Object.keys(merged.strategies[historyTestMeta.id].days)).toEqual(['2023-11-20']);
+    expect(merged.strategies[historyTestMeta.id].strategyFingerprint).toBe(nextFingerprint);
+  });
+
+  it('does not throw when re-selected rules also change balance or spread', () => {
+    const existing = historyTestHistory({
+      '2023-11-15': historyTestDay('2023-11-16T00:00:00Z'),
+    });
+    existing.strategies[historyTestMeta.id].strategyFingerprint = 'a'.repeat(64);
+    const candidate = historyTestHistory({
+      '2023-11-20': historyTestDay('2023-11-21T00:00:00Z'),
+    });
+    candidate.strategies[historyTestMeta.id].strategyFingerprint = 'b'.repeat(64);
+    candidate.strategies[historyTestMeta.id].initialBalanceYen = 2_000_000;
+    candidate.strategies[historyTestMeta.id].spreadPips = 1.5;
+
+    const merged = mergeForwardHistory(existing, candidate);
+
+    expect(merged.strategies[historyTestMeta.id].initialBalanceYen).toBe(2_000_000);
+    expect(merged.strategies[historyTestMeta.id].spreadPips).toBe(1.5);
   });
 });
