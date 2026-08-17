@@ -238,8 +238,8 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResultWithHi
     operationStatus = strategy.operationStatus;
   }
   // 「運用非推奨」の重複解消は、赤の運用非推奨ボックスが実際に出る
-  // retire_candidate のときだけ行う。probation では成績バッジ側の警告文言を
-  // 残さないと、PF0.9未満(取引10〜19件)の助言が従来より弱まる。
+  // retire_candidate のときだけ行う。現在成績は既定表示に残し、
+  // 運用状態の判定条件と根拠は折りたたみ内で補足する。
   const performanceStatusLabel = operationStatus?.status === 'retire_candidate'
     ? forwardStatus.label.replace('(この設定での運用は非推奨)', '')
     : forwardStatus.label;
@@ -272,13 +272,20 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResultWithHi
                 className={`forward-operation-badge forward-operation-${operationStatus.status}`}
               >
                 運用状態: {operationStatusLabels[operationStatus.status]}
-                <span className="forward-operation-reason-sr">
-                  。判定理由: {operationStatus.reason}
-                </span>
               </strong>
             )}
           </div>
-          <small className="forward-status-detail">{forwardStatus.detail}</small>
+          <small className="forward-status-detail">
+            現在成績: {forwardStatus.detail}
+          </small>
+          {operationStatus && (
+            <details className="forward-operation-details">
+              <summary title={`判定理由: ${operationStatus.reason}`}>
+                運用状態の判定根拠
+              </summary>
+              <p>{operationStatus.reason}</p>
+            </details>
+          )}
         </div>
       </header>
 
@@ -441,16 +448,31 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResultWithHi
 }
 
 const retiredDateLabel = (value: string | number): string => {
+  if (typeof value === 'string') {
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (dateOnly) {
+      return `${dateOnly[1]}/${dateOnly[2]}/${dateOnly[3]}`;
+    }
+  }
   const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
-  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('ja-JP');
+  // date-only経路(ゼロ埋め YYYY/MM/DD)と書式を揃える
+  return Number.isNaN(date.getTime())
+    ? '-'
+    : new Intl.DateTimeFormat('ja-JP', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
 };
 
 const retiredOperationPeriodLabel = (strategy: RetiredForwardStrategy): string => {
   const { operationPeriod } = strategy.finalSnapshot;
-  const start = operationPeriod.firstConfirmedDate
-    ?? retiredDateLabel(operationPeriod.registeredAt);
-  const end = operationPeriod.confirmedThrough
-    ?? retiredDateLabel(strategy.retiredAt);
+  const start = retiredDateLabel(
+    operationPeriod.firstConfirmedDate ?? operationPeriod.registeredAt,
+  );
+  const end = retiredDateLabel(
+    operationPeriod.confirmedThrough ?? strategy.retiredAt,
+  );
   return `${start}〜${end}（確定${operationPeriod.confirmedDayCount.toLocaleString('ja-JP')}日）`;
 };
 

@@ -74,7 +74,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isNullableString = (value: unknown): value is string | null =>
   value === null || typeof value === 'string';
 
-const isRetiredForwardStrategy = (value: unknown): value is RetiredForwardStrategy => {
+export const isRetiredForwardStrategy = (value: unknown): value is RetiredForwardStrategy => {
   if (!isRecord(value) || !isRecord(value.meta) || !isRecord(value.finalSnapshot)) {
     return false;
   }
