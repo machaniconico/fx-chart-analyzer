@@ -23,6 +23,7 @@ import {
   type DonchianBreakCondition,
   type EntryCondition,
   type IchimokuCrossCondition,
+  type KeltnerBreakCondition,
   type LotSizingMode,
   type MaCrossCondition,
   type MacdCrossCondition,
@@ -89,6 +90,13 @@ const defaultBollingerCondition = (): BollingerCondition => ({
   multiplier: 2,
   mode: 'touch',
   band: 'lower',
+});
+
+const defaultKeltnerCondition = (): KeltnerBreakCondition => ({
+  type: 'keltnerBreak',
+  emaPeriod: 20,
+  atrPeriod: 10,
+  multiplier: 2.0,
 });
 
 const defaultMacdCondition = (): MacdCrossCondition => ({
@@ -229,6 +237,17 @@ const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
     }
     if (condition.type === 'donchianBreak' && (!Number.isInteger(condition.period) || condition.period < 1)) {
       messages.push('ドンチアンブレイクの期間は1以上の整数にしてください。');
+    }
+    if (
+      condition.type === 'keltnerBreak' &&
+      (!Number.isInteger(condition.emaPeriod) ||
+        condition.emaPeriod < 1 ||
+        !Number.isInteger(condition.atrPeriod) ||
+        condition.atrPeriod < 1 ||
+        !Number.isFinite(condition.multiplier) ||
+        condition.multiplier <= 0)
+    ) {
+      messages.push('ケルトナーブレイクの期間は1以上の整数、倍率は0より大きい値にしてください。');
     }
     if (
       condition.type === 'stochastic' &&
@@ -431,6 +450,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const ichimokuCondition = getCondition('ichimokuCross');
   const donchianCondition = getCondition('donchianBreak');
   const stochasticCondition = getCondition('stochastic');
+  const keltnerCondition = getCondition('keltnerBreak');
 
   const updateMoneyManagement = (
     updater: (current: typeof moneyManagement) => typeof moneyManagement,
@@ -1183,6 +1203,71 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                       updateCondition('stochastic', defaultStochasticCondition, (condition) => ({
                         ...condition,
                         threshold: numericInput(event.target.value, condition.threshold, 20, 1, 99),
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('keltnerBreak')}
+                onChange={(event) =>
+                  toggleCondition('keltnerBreak', event.target.checked, defaultKeltnerCondition)
+                }
+              />
+              <span>ケルトナーチャネルブレイク</span>
+            </label>
+            {keltnerCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>EMA期間</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={keltnerCondition.emaPeriod}
+                    onChange={(event) =>
+                      updateCondition('keltnerBreak', defaultKeltnerCondition, (condition) => ({
+                        ...condition,
+                        emaPeriod: integerInput(event.target.value, condition.emaPeriod, 20, 1),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>ATR期間</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={keltnerCondition.atrPeriod}
+                    onChange={(event) =>
+                      updateCondition('keltnerBreak', defaultKeltnerCondition, (condition) => ({
+                        ...condition,
+                        atrPeriod: integerInput(event.target.value, condition.atrPeriod, 10, 1),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>倍率</span>
+                  <input
+                    min="0.1"
+                    step="0.1"
+                    type="number"
+                    value={keltnerCondition.multiplier}
+                    onChange={(event) =>
+                      updateCondition('keltnerBreak', defaultKeltnerCondition, (condition) => ({
+                        ...condition,
+                        multiplier: numericInput(
+                          event.target.value,
+                          condition.multiplier,
+                          2.0,
+                          0.1,
+                        ),
                       }))
                     }
                   />

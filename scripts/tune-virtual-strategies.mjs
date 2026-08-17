@@ -19,6 +19,23 @@ export const DEEP_HISTORY_LOOKBACK_DAYS =
 export const DATA_SOURCE_PUBLIC_DATA = 'public-data';
 export const DATA_SOURCE_DEEP_HISTORY = 'deep-history';
 
+export const REJECTION_CODES = Object.freeze({
+  OPTIMIZATION_NOT_PROFITABLE: 'optimization_not_profitable',
+  VALIDATION_NOT_PROFITABLE: 'validation_not_profitable',
+  INSUFFICIENT_VALIDATION_TRADES: 'insufficient_validation_trades',
+  OVERFIT_WARNING: 'overfit_warning',
+  VALIDATION_RETENTION_BELOW_THRESHOLD: 'validation_retention_below_threshold',
+  LEGACY_OPTIMIZATION_PROFIT_FACTOR_PREFILTER: 'legacy_optimization_profit_factor_prefilter',
+  QUARTERLY_STABILITY_BELOW_THRESHOLD: 'quarterly_stability_below_threshold',
+  EVALUATION_ERROR: 'evaluation_error',
+  NO_EVALUATED_COMBINATIONS: 'no_evaluated_combinations',
+});
+
+export const WARNING_CODES = Object.freeze({
+  REFERENCE_SPAN_BELOW_TARGET: 'reference_span_below_target',
+  USD_JPY_RATE_SOURCE_FALLBACK: 'usd_jpy_rate_source_fallback',
+});
+
 const oneDecimal = (value) => Math.round(value * 10) / 10;
 
 const rangeWithSteps = (min, max, steps) => ({
@@ -200,6 +217,22 @@ export const ENTRY_TYPE_PROFILES = Object.freeze({
     parameterRanges: Object.freeze({
       stopLossPips: Object.freeze(rangeWithSteps(20, 80, 6)),
       takeProfitPips: Object.freeze(rangeWithSteps(30, 150, 6)),
+    }),
+    trailingStopPips: Object.freeze([null, 20]),
+  }),
+  keltnerBreak: Object.freeze({
+    label: 'ケルトナーブレイク順張り',
+    timeframes: Object.freeze(['h1', 'h4']),
+    entryCondition: Object.freeze({
+      type: 'keltnerBreak',
+      emaPeriod: 20,
+      atrPeriod: 10,
+      multiplier: 2.0,
+    }),
+    exit: Object.freeze({ stopLossPips: 25, takeProfitPips: 50, closeOnOppositeSignal: false }),
+    parameterRanges: Object.freeze({
+      stopLossPips: Object.freeze(rangeWithSteps(15, 75, 6)),
+      takeProfitPips: Object.freeze(rangeWithSteps(25, 125, 6)),
     }),
     trailingStopPips: Object.freeze([null, 20]),
   }),
@@ -636,6 +669,16 @@ const formatPf = (value) => {
 
 const formatDd = (value) => `${Math.round(value).toLocaleString('ja-JP')}円`;
 
+// 取引0件の四半期は PF を '-' で示す(NaN を 0.0 と誤読させない)。バー本数も
+// 添えて、データ枯渇の縮退セグメントと本物のフラット四半期を区別できるようにする。
+const quarterlySummary = (quarterlyResults) =>
+  quarterlyResults
+    .map(
+      (quarter, index) =>
+        `Q${index + 1} ${formatYen(quarter.netProfitYen)}(PF${quarter.tradeCount === 0 ? '-' : formatPf(quarter.profitFactor)}/${quarter.tradeCount}件/${quarter.barCount}本)`,
+    )
+    .join(' | ');
+
 const markdownTable = (rows) => {
   const header = [
     '#',
@@ -700,7 +743,7 @@ export const quarterlyStabilityRejectionReasons = (row) => {
   const positiveSegments = row.quarterlyStability.positiveSegmentCount;
   return [
     rejectionReason(
-      'quarterly_stability_below_threshold',
+      REJECTION_CODES.QUARTERLY_STABILITY_BELOW_THRESHOLD,
       `四半期安定性: 正のセグメントが${positiveSegments}/${QUARTERLY_SEGMENT_COUNT}件で${QUARTERLY_STABILITY_MIN_POSITIVE_SEGMENTS}件未満`,
       positiveSegments,
       '>=',
@@ -764,7 +807,7 @@ export const eligibilityRejectionReasons = (row) => {
   if (!(row.optimization.netProfitYen > 0)) {
     reasons.push(
       rejectionReason(
-        'optimization_not_profitable',
+        REJECTION_CODES.OPTIMIZATION_NOT_PROFITABLE,
         'インサンプル損益が0円以下',
         row.optimization.netProfitYen,
         '>',
@@ -775,7 +818,7 @@ export const eligibilityRejectionReasons = (row) => {
   if (!(row.validation.netProfitYen > 0)) {
     reasons.push(
       rejectionReason(
-        'validation_not_profitable',
+        REJECTION_CODES.VALIDATION_NOT_PROFITABLE,
         'アウトオブサンプル損益が0円以下',
         row.validation.netProfitYen,
         '>',
@@ -786,7 +829,7 @@ export const eligibilityRejectionReasons = (row) => {
   if (!(row.validation.tradeCount >= 10)) {
     reasons.push(
       rejectionReason(
-        'insufficient_validation_trades',
+        REJECTION_CODES.INSUFFICIENT_VALIDATION_TRADES,
         'アウトオブサンプル取引が10件未満',
         row.validation.tradeCount,
         '>=',
@@ -797,7 +840,7 @@ export const eligibilityRejectionReasons = (row) => {
   if (row.overfitWarning) {
     reasons.push(
       rejectionReason(
-        'overfit_warning',
+        REJECTION_CODES.OVERFIT_WARNING,
         '過学習警告あり',
         row.overfitWarning,
         '===',
@@ -808,7 +851,7 @@ export const eligibilityRejectionReasons = (row) => {
   if (!(row.validationToOptimizationRatio >= 0.35)) {
     reasons.push(
       rejectionReason(
-        'validation_retention_below_threshold',
+        REJECTION_CODES.VALIDATION_RETENTION_BELOW_THRESHOLD,
         '検証保持率が0.35未満',
         row.validationToOptimizationRatio,
         '>=',
@@ -824,7 +867,7 @@ const selectionPoolRejectionReasons = (row) =>
     ? []
     : [
         rejectionReason(
-          'legacy_optimization_profit_factor_prefilter',
+          REJECTION_CODES.LEGACY_OPTIMIZATION_PROFIT_FACTOR_PREFILTER,
           '既存のインサンプルPF事前フィルターが1未満',
           row.optimization.profitFactor,
           '>=',
@@ -896,6 +939,7 @@ const evaluateQuarterlyStability = (engine, strategy, pair, referenceBars, usdJp
     requiredPositiveSegmentCount: QUARTERLY_STABILITY_MIN_POSITIVE_SEGMENTS,
     passed: positiveSegmentCount >= QUARTERLY_STABILITY_MIN_POSITIVE_SEGMENTS,
   };
+  row.quarterlyChecked = true;
   return row;
 };
 
@@ -1110,7 +1154,7 @@ const summarizeRejectionReasons = (combinations) => {
           message: reason.message,
           count: 1,
         };
-        if (reason.code === 'quarterly_stability_below_threshold') {
+        if (reason.code === REJECTION_CODES.QUARTERLY_STABILITY_BELOW_THRESHOLD) {
           summary.actual = reason.actual;
           summary.operator = reason.operator;
           summary.threshold = reason.threshold;
@@ -1139,6 +1183,7 @@ const reportCombination = (row, rank, selected) => {
     validationMetrics: row.validation,
     selectionEvidence: selectionEvidence(row),
     rejectionReasons,
+    ...(row.quarterlyChecked === true ? { quarterlyChecked: true } : {}),
     ...(row.quarterlyResults ? { quarterlyResults: row.quarterlyResults } : {}),
     ...(row.quarterlyStability ? { quarterlyStability: row.quarterlyStability } : {}),
   };
@@ -1148,7 +1193,7 @@ const referenceSpanWarnings = (referenceSpanDays) =>
   Number.isFinite(referenceSpanDays) && referenceSpanDays < REFERENCE_SPAN_TARGET_DAYS
     ? [
         {
-          code: 'reference_span_below_target',
+          code: WARNING_CODES.REFERENCE_SPAN_BELOW_TARGET,
           actual: referenceSpanDays,
           threshold: REFERENCE_SPAN_TARGET_DAYS,
         },
@@ -1179,7 +1224,7 @@ const dataSourceWarnings = (result) => {
   const uncoveredReferenceSpanRatio = fallbackCoverageRatio(result);
   return [
     {
-      code: 'usd_jpy_rate_source_fallback',
+      code: WARNING_CODES.USD_JPY_RATE_SOURCE_FALLBACK,
       expectedSource: result.dataSource ?? null,
       actualSource: result.usdJpyDataSource ?? null,
       uncoveredReferenceSpanRatio,
@@ -1247,7 +1292,7 @@ const reportCandidate = (result) => {
       selectedCandidate: null,
       rejectionReasons: [
         {
-          code: 'evaluation_error',
+          code: REJECTION_CODES.EVALUATION_ERROR,
           message: evaluationErrorMessage(result.evaluationError),
           count: 1,
         },
@@ -1257,7 +1302,10 @@ const reportCandidate = (result) => {
   }
 
   const rows = result.evaluatedRows ?? rankRows(result.rows);
-  const selectedRow = result.selectedCandidate ?? result.eligible;
+  // A quarterly-demoted row remains available in combinations for audit, but it
+  // is not a selected row. This prevents the rejected row from looking adopted
+  // and keeps the next row from being promoted implicitly.
+  const selectedRow = result.eligible;
   const combinations = rows.map((row, index) =>
     reportCombination(row, index + 1, row === selectedRow),
   );
@@ -1266,7 +1314,7 @@ const reportCandidate = (result) => {
   const warnings = candidateWarnings(result);
   if (!result.eligible && rejectionReasons.length === 0) {
     rejectionReasons.push({
-      code: 'no_evaluated_combinations',
+      code: REJECTION_CODES.NO_EVALUATED_COMBINATIONS,
       message: '評価されたパラメータ組合せなし',
       count: 1,
     });
@@ -1297,7 +1345,7 @@ export const createTuningReport = (
   const candidates = results.map(reportCandidate);
   const usdJpyFallbackRatios = candidates
     .flatMap((candidate) => candidate.warnings)
-    .filter((warning) => warning.code === 'usd_jpy_rate_source_fallback')
+    .filter((warning) => warning.code === WARNING_CODES.USD_JPY_RATE_SOURCE_FALLBACK)
     .map((warning) => warning.uncoveredReferenceSpanRatio)
     .filter(Number.isFinite);
   const usdJpyFallbackRatioSum = usdJpyFallbackRatios.reduce(
@@ -1350,7 +1398,9 @@ export const createTuningReport = (
       passedCandidateCount: candidates.filter((candidate) => candidate.status === 'passed').length,
       rejectedCandidateCount: candidates.filter((candidate) => candidate.status === 'rejected').length,
       referenceSpanBelowTargetCount: candidates.filter((candidate) =>
-        candidate.warnings.some((warning) => warning.code === 'reference_span_below_target'),
+        candidate.warnings.some(
+          (warning) => warning.code === WARNING_CODES.REFERENCE_SPAN_BELOW_TARGET,
+        ),
       ).length,
       combinationCount,
       passedCombinationCount,
@@ -1392,7 +1442,7 @@ const printReferenceSpanWarning = (result) => {
   );
 };
 
-const printTargetResult = (result) => {
+export const printTargetResult = (result) => {
   console.log(`\n## ${result.strategy.meta.id} (${result.pair} ${result.timeframe})`);
   if (hasEvaluationError(result)) {
     console.log(`評価失敗: ${evaluationErrorMessage(result.evaluationError)}`);
@@ -1404,8 +1454,15 @@ const printTargetResult = (result) => {
   );
   printReferenceSpanWarning(result);
   console.log(markdownTable(result.rows.slice(0, 5)));
+  const quarterlyResults = result.selectedCandidate?.quarterlyResults;
+  if (Array.isArray(quarterlyResults)) {
+    console.log(`四半期: ${quarterlySummary(quarterlyResults)}`);
+  }
   if (result.eligible) {
     console.log(`採用候補: ${combinationLabel(result.eligible)}`);
+  } else if (Array.isArray(quarterlyResults)) {
+    const positiveQuarters = quarterlyResults.filter((quarter) => quarter.netProfitYen > 0).length;
+    console.log(`採用候補: 該当なし(四半期安定性 ${positiveQuarters}/${quarterlyResults.length} で降格)`);
   } else {
     console.log('採用候補: 該当なし');
   }

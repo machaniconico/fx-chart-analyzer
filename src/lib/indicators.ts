@@ -6,6 +6,12 @@ export interface BollingerBands {
   lower: IndicatorPoint[];
 }
 
+export interface KeltnerChannel {
+  middle: IndicatorPoint[];
+  upper: IndicatorPoint[];
+  lower: IndicatorPoint[];
+}
+
 export interface MacdResult {
   macd: IndicatorPoint[];
   signal: IndicatorPoint[];
@@ -161,6 +167,83 @@ export const bollingerBands = (
     const deviation = Math.sqrt(variance / period);
     upper[i] = mean + multiplier * deviation;
     lower[i] = mean - multiplier * deviation;
+  }
+
+  return { middle, upper, lower };
+};
+
+/**
+ * MT4/MT5 iATR parity: calculate True Range from the current high/low and
+ * previous close, then apply a trailing Simple Moving Average. MetaQuotes'
+ * official MQL5 ATR article explicitly defines ATR as SMA(TR), and the MT4
+ * standard ATR.mq4 / MetaQuotes MT5 standard ATR source use the same
+ * rolling-SMA recurrence; this is intentionally not Wilder/SMMA smoothing.
+ * References: https://www.mql5.com/en/articles/16931,
+ * https://www.mql5.com/en/docs/indicators/iatr,
+ * https://www.mql5.com/en/code/42407 (states the built-in ATR averages TR
+ * with a simple moving average, which is why a separate Wilder variant exists)
+ *
+ * The first bar has no previous close, so the first ready ATR is at index
+ * `period` (matches the MT5 standard ATR seed; MT4's ATR.mq4 seeds the oldest
+ * bar's TR as High-Low, so it becomes ready one bar earlier with a slightly
+ * different value inside the oldest `period` bars only).
+ */
+export const atr = (
+  highs: readonly number[],
+  lows: readonly number[],
+  closes: readonly number[],
+  period: number,
+): IndicatorPoint[] => {
+  assertPeriod(period);
+  if (highs.length !== lows.length || highs.length !== closes.length) {
+    throw new Error('highs, lows, and closes must have the same length');
+  }
+
+  const trueRanges: IndicatorPoint[] = Array(closes.length).fill(null);
+  for (let i = 1; i < closes.length; i += 1) {
+    const high = highs[i];
+    const low = lows[i];
+    const previousClose = closes[i - 1];
+    if (![high, low, previousClose].every(Number.isFinite)) {
+      continue;
+    }
+    trueRanges[i] = Math.max(
+      high - low,
+      Math.abs(high - previousClose),
+      Math.abs(low - previousClose),
+    );
+  }
+
+  return smaFromNullable(trueRanges, period);
+};
+
+export const keltnerChannel = (
+  highs: readonly number[],
+  lows: readonly number[],
+  closes: readonly number[],
+  emaPeriod: number,
+  atrPeriod: number,
+  multiplier = 2,
+): KeltnerChannel => {
+  const middle = ema(closes, emaPeriod);
+  const volatility = atr(highs, lows, closes, atrPeriod);
+  const upper: IndicatorPoint[] = Array(closes.length).fill(null);
+  const lower: IndicatorPoint[] = Array(closes.length).fill(null);
+
+  for (let i = 0; i < closes.length; i += 1) {
+    const middleValue = middle[i];
+    const atrValue = volatility[i];
+    if (
+      typeof middleValue !== 'number' ||
+      !Number.isFinite(middleValue) ||
+      typeof atrValue !== 'number' ||
+      !Number.isFinite(atrValue) ||
+      !Number.isFinite(multiplier)
+    ) {
+      continue;
+    }
+    upper[i] = middleValue + multiplier * atrValue;
+    lower[i] = middleValue - multiplier * atrValue;
   }
 
   return { middle, upper, lower };

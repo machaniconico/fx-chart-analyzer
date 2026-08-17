@@ -27,6 +27,7 @@ const knownEntryConditionTypes = new Set([
   'ichimokuCross',
   'donchianBreak',
   'stochastic',
+  'keltnerBreak',
 ]);
 
 export const TWO_YEARS_SECONDS = 365 * 2 * 24 * 60 * 60;

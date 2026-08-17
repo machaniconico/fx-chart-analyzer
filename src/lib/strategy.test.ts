@@ -71,6 +71,59 @@ describe('strategy evaluator', () => {
     expect(evaluator.isEntrySignal(strategy, 2, 'long')).toBe(false);
   });
 
+  it('evaluates Keltner breaks long/short with a close boundary and no look-ahead', () => {
+    const condition = {
+      type: 'keltnerBreak' as const,
+      emaPeriod: 2,
+      atrPeriod: 2,
+      multiplier: 0.1,
+    };
+    const longBars = [
+      bar(0, 10.5, 9.5, 10),
+      bar(1, 10.5, 9.5, 10),
+      bar(2, 20, 20, 20),
+    ];
+    const shortBars = [
+      bar(0, 10.5, 9.5, 10),
+      bar(1, 10.5, 9.5, 10),
+      bar(2, 0, 0, 0),
+    ];
+
+    expect(createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition), 2)).toBe(true);
+    expect(createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition, 'short'), 2)).toBe(
+      false,
+    );
+    expect(createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition, 'short'), 2)).toBe(
+      true,
+    );
+    expect(createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition), 2)).toBe(false);
+
+    const withFuture = [...longBars, bar(3, 1_000, -1_000, 500)];
+    expect(createStrategyEvaluator(withFuture).isEntrySignal(strategyFor(condition), 2)).toBe(true);
+  });
+
+  it('accepts exact Keltner boundaries and fails closed for non-finite bands', () => {
+    const boundaryCondition = {
+      type: 'keltnerBreak' as const,
+      emaPeriod: 2,
+      atrPeriod: 2,
+      multiplier: 2,
+    };
+    const flatBars = [bar(0, 10, 10, 10), bar(1, 10, 10, 10), bar(2, 10, 10, 10)];
+    const flatEvaluator = createStrategyEvaluator(flatBars);
+    expect(flatEvaluator.isEntrySignal(strategyFor(boundaryCondition), 2)).toBe(true);
+    expect(flatEvaluator.isEntrySignal(strategyFor(boundaryCondition, 'short'), 2)).toBe(true);
+
+    const nonFiniteBars = [
+      bar(0, 10.5, 9.5, 10),
+      bar(1, 10.5, 9.5, 10),
+      bar(2, 10, 10, Number.NaN),
+    ];
+    const nonFiniteEvaluator = createStrategyEvaluator(nonFiniteBars);
+    expect(nonFiniteEvaluator.isEntrySignal(strategyFor(boundaryCondition), 2)).toBe(false);
+    expect(nonFiniteEvaluator.isEntrySignal(strategyFor(boundaryCondition, 'short'), 2)).toBe(false);
+  });
+
   it('detects stochastic crossAbove for long and the mirrored crossBelow for short', () => {
     const condition = {
       type: 'stochastic' as const,
@@ -252,6 +305,9 @@ describe('strategy evaluator', () => {
 
   it('labels the new strategy conditions', () => {
     expect(conditionLabel({ type: 'donchianBreak', period: 20 })).toBe('Donchian20 ブレイク');
+    expect(
+      conditionLabel({ type: 'keltnerBreak', emaPeriod: 20, atrPeriod: 10, multiplier: 2 }),
+    ).toBe('Keltner20/10 x2 ブレイク');
     expect(
       conditionLabel({
         type: 'stochastic',

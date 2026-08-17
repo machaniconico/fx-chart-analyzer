@@ -207,7 +207,7 @@ describe('forward test runner', () => {
             },
           ],
         },
-        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic/,
+        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak/,
       },
     ];
 
@@ -255,6 +255,15 @@ describe('forward test runner', () => {
         smoothing: 3,
         threshold: 20,
         comparison: 'crossAbove',
+      },
+    ],
+    [
+      'keltnerBreak',
+      {
+        type: 'keltnerBreak',
+        emaPeriod: 20,
+        atrPeriod: 10,
+        multiplier: 2,
       },
     ],
   ])('accepts %s entry conditions in virtual strategies', (entryType, entryCondition) => {

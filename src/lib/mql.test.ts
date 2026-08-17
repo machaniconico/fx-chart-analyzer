@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { generateMql4, generateMql5 } from './mql';
-import type { StrategyDefinition } from './strategy';
+import type { EntryCondition, StrategyDefinition } from './strategy';
 
 const fullStrategy: StrategyDefinition = {
   id: 'full-test',
@@ -81,6 +82,8 @@ const expectBalanced = (source: string): void => {
     expect(depth).toBe(0);
   }
 };
+
+const sourceHash = (source: string): string => createHash('sha256').update(source).digest('hex');
 
 describe('mql generation', () => {
   it('generates a complete MQL5 EA source with matching inputs and core functions', () => {
@@ -197,6 +200,78 @@ describe('mql generation', () => {
     expectBalanced(source);
   });
 
+  it('keeps legacy condition generators stable apart from the documented Donchian comment', () => {
+    const legacyConditions: EntryCondition[] = [
+      {
+        type: 'maCross',
+        fastType: 'ema',
+        fastPeriod: 8,
+        slowType: 'sma',
+        slowPeriod: 21,
+      },
+      { type: 'rsi', period: 14, threshold: 30, comparison: 'below' },
+      { type: 'bollinger', period: 20, multiplier: 2, mode: 'touch', band: 'lower' },
+      { type: 'macdCross', fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+      {
+        type: 'ichimokuCross',
+        conversionPeriod: 9,
+        basePeriod: 26,
+        spanBPeriod: 52,
+        displacement: 26,
+        requireCloudFilter: true,
+      },
+      { type: 'donchianBreak', period: 20 },
+      {
+        type: 'stochastic',
+        kPeriod: 14,
+        dPeriod: 3,
+        smoothing: 3,
+        threshold: 20,
+        comparison: 'crossBelow',
+      },
+    ];
+    const expectedHashes = [
+      {
+        mql4: '1f07954d19a07e156ca8f1d308317f9ea8542faf09dcb39fc53b7d03e6c8f038',
+        mql5: '283cde89fa6211c05fe739552cc279355193f41742be96d9efa52e5ab895f624',
+      },
+      {
+        mql4: 'c14c059d9565aeff93b2b2ef775b00e14bf4bb3f41bf4291ea58a33e6c6bb09c',
+        mql5: '2fbcb467dd99ff05263025aecabc5f97664775420bf9d49f012ccce2b47c7c2c',
+      },
+      {
+        mql4: '9a3d6db7329f8fe1eeed92ec9b97ed09e50768181c8152bdbc10f00f106f913c',
+        mql5: 'f4c3765a30bea0f7c788286ed57071535f8e44ae7f1f9469e8499303e119e198',
+      },
+      {
+        mql4: 'b69308c63655f4f0172b9bd9d8131545bf3e93fdc88ed7c63810b44f5ebfc676',
+        mql5: '5950b2d3786740af2f6de83c8bdfd794bb412ab01e898b5376ed3a845c86d480',
+      },
+      {
+        mql4: '2317b6944eaa6a2609a0e848b637305b7bb0ea5f268cef2eaf0220fcb30b8ca9',
+        mql5: '88ede4e25ceca3accaca5ac7ae77bd0b0ff95c408853210bcece04b64d23856c',
+      },
+      {
+        mql4: '8371ce5067f409c8ee4fc6cdf8f64761166ac156628991d0c72dab0902e7c2e2',
+        mql5: 'b81879f9c6feee50dd50c8219e3a1f064b0e9b38bbb546dc003a7b4801defc58',
+      },
+      {
+        mql4: 'af422b380f0017e2dd995bef556d5f117bd439b99e21f15e5781832d5bf5ac80',
+        mql5: 'ccb91cf54131b4c86c404d6ae0863c445670925905d0cd572466e7cd4cbfc590',
+      },
+    ];
+
+    for (const [index, condition] of legacyConditions.entries()) {
+      const strategy: StrategyDefinition = {
+        ...fullStrategy,
+        id: `legacy-${condition.type}`,
+        entryConditions: [condition],
+      };
+      expect(sourceHash(generateMql4(strategy))).toBe(expectedHashes[index].mql4);
+      expect(sourceHash(generateMql5(strategy))).toBe(expectedHashes[index].mql5);
+    }
+  });
+
   it('rejects non-finite generated numeric values before emitting MQL', () => {
     expect(() =>
       generateMql5({
@@ -296,6 +371,9 @@ describe('mql generation', () => {
     for (const source of [generateMql4(strategy), generateMql5(strategy)]) {
       expect(source).toContain('input int InpDonchian1Period = 20;');
       expect(source).toContain('int period = InpDonchian1Period;');
+      expect(source).toContain(
+        'Warm-up behavior differs from the TypeScript backtest: TS assumes sufficient history;',
+      );
       expect(source).toContain('if(period < 1)');
       expect(source).toContain('period = 1;');
       expect(source).toContain('if(iTime(_Symbol, _Period, period + 1) == 0)');
@@ -314,6 +392,57 @@ describe('mql generation', () => {
       );
       expectBalanced(source);
     }
+  });
+
+  it('generates shift-1 Keltner breakout signals with platform indicator guards', () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [
+        {
+          type: 'keltnerBreak',
+          emaPeriod: 20,
+          atrPeriod: 10,
+          multiplier: 2.0,
+        },
+      ],
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    expect(mql5).toContain('input int InpKeltner1EmaPeriod = 20;');
+    expect(mql5).toContain('input int InpKeltner1AtrPeriod = 10;');
+    expect(mql5).toContain('input double InpKeltner1Multiplier = 2;');
+    expect(mql5).toContain('int keltner1EmaHandle = INVALID_HANDLE;');
+    expect(mql5).toContain('int keltner1AtrHandle = INVALID_HANDLE;');
+    expect(mql5).toContain(
+      'keltner1EmaHandle = iMA(_Symbol, _Period, InpKeltner1EmaPeriod, 0, MODE_EMA, PRICE_CLOSE);',
+    );
+    expect(mql5).toContain('keltner1AtrHandle = iATR(_Symbol, _Period, InpKeltner1AtrPeriod);');
+    expect(mql5).toContain('if(iTime(_Symbol, _Period, requiredPeriod + 1) == 0)');
+    expect(mql5).toContain('double middle = BufferValue(keltner1EmaHandle, 0, 1);');
+    expect(mql5).toContain('double atrValue = BufferValue(keltner1AtrHandle, 0, 1);');
+    expect(mql5).toContain('double close1 = iClose(_Symbol, _Period, 1);');
+    expect(mql5).toContain('return close1 >= upper;');
+    expect(mql5).toContain('return close1 <= lower;');
+    expect(mql5).toContain('EMA warm-up note');
+    expect(mql5).toContain('ReleaseIndicator(keltner1EmaHandle);');
+    expect(mql5).toContain('ReleaseIndicator(keltner1AtrHandle);');
+
+    expect(mql4).toContain('input int InpKeltner1EmaPeriod = 20;');
+    expect(mql4).toContain('input int InpKeltner1AtrPeriod = 10;');
+    expect(mql4).toContain('input double InpKeltner1Multiplier = 2;');
+    expect(mql4).toContain(
+      'double middle = iMA(_Symbol, _Period, InpKeltner1EmaPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);',
+    );
+    expect(mql4).toContain('double atrValue = iATR(_Symbol, _Period, InpKeltner1AtrPeriod, 1);');
+    expect(mql4).toContain('if(iTime(_Symbol, _Period, requiredPeriod + 1) == 0)');
+    expect(mql4).toContain('double close1 = iClose(_Symbol, _Period, 1);');
+    expect(mql4).toContain('return close1 >= upper;');
+    expect(mql4).toContain('return close1 <= lower;');
+    expect(mql4).toContain('EMA warm-up note');
+    expectBalanced(mql5);
+    expectBalanced(mql4);
   });
 
   it('generates Ichimoku cross signals with shift parity and mirrored cloud rules for MQL4 and MQL5', () => {

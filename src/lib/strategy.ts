@@ -3,6 +3,7 @@ import {
   donchian,
   ema,
   ichimoku,
+  keltnerChannel,
   macd,
   rsi,
   sma,
@@ -13,6 +14,7 @@ import type {
   DonchianResult,
   IndicatorPoint,
   IchimokuResult,
+  KeltnerChannel,
   MacdResult,
   StochasticResult,
 } from './indicators';
@@ -68,6 +70,13 @@ export interface DonchianBreakCondition {
   period: number;
 }
 
+export interface KeltnerBreakCondition {
+  type: 'keltnerBreak';
+  emaPeriod: number;
+  atrPeriod: number;
+  multiplier: number;
+}
+
 export interface StochasticCondition {
   type: 'stochastic';
   kPeriod: number;
@@ -84,7 +93,8 @@ export type EntryCondition =
   | MacdCrossCondition
   | IchimokuCrossCondition
   | DonchianBreakCondition
-  | StochasticCondition;
+  | StochasticCondition
+  | KeltnerBreakCondition;
 
 export interface ExitRules {
   stopLossPips: number;
@@ -233,6 +243,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `一目${condition.conversionPeriod}/${condition.basePeriod}/${condition.spanBPeriod} クロス${condition.requireCloudFilter ? '(雲フィルタ)' : ''}`;
     case 'donchianBreak':
       return `Donchian${condition.period} ブレイク`;
+    case 'keltnerBreak':
+      return `Keltner${condition.emaPeriod}/${condition.atrPeriod} x${condition.multiplier} ブレイク`;
     case 'stochastic':
       return `Stoch${condition.kPeriod}/${condition.dPeriod}/${condition.smoothing} ${condition.comparison} ${condition.threshold}`;
   }
@@ -286,6 +298,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const macdCache = new Map<string, MacdResult>();
   const ichimokuCache = new Map<string, IchimokuResult>();
   const donchianCache = new Map<number, DonchianResult>();
+  const keltnerCache = new Map<string, KeltnerChannel>();
   const stochasticCache = new Map<string, StochasticResult>();
 
   const getMa = (type: MovingAverageType, period: number): IndicatorPoint[] => {
@@ -382,6 +395,30 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
+  const getKeltner = (
+    emaPeriod: number,
+    atrPeriod: number,
+    multiplier: number,
+  ): KeltnerChannel => {
+    const normalizedEmaPeriod = normalizePeriod(emaPeriod);
+    const normalizedAtrPeriod = normalizePeriod(atrPeriod);
+    const key = `${normalizedEmaPeriod}:${normalizedAtrPeriod}:${multiplier}`;
+    const cached = keltnerCache.get(key);
+    if (cached) {
+      return cached;
+    }
+    const values = keltnerChannel(
+      highs,
+      lows,
+      closes,
+      normalizedEmaPeriod,
+      normalizedAtrPeriod,
+      multiplier,
+    );
+    keltnerCache.set(key, values);
+    return values;
+  };
+
   const getStochastic = (
     kPeriod: number,
     dPeriod: number,
@@ -475,6 +512,19 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
         const channels = getDonchian(condition.period);
         const boundary = isShort ? channels.lower[index] : channels.upper[index];
         return isNumber(boundary) && (isShort ? closes[index] < boundary : closes[index] > boundary);
+      }
+      case 'keltnerBreak': {
+        const channel = getKeltner(
+          condition.emaPeriod,
+          condition.atrPeriod,
+          condition.multiplier,
+        );
+        const upper = channel.upper[index];
+        const lower = channel.lower[index];
+        if (!isNumber(upper) || !isNumber(lower) || !Number.isFinite(closes[index])) {
+          return false;
+        }
+        return isShort ? closes[index] <= lower : closes[index] >= upper;
       }
       case 'stochastic': {
         const values = getStochastic(
