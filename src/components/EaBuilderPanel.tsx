@@ -22,6 +22,7 @@ import {
   type BollingerCondition,
   type DonchianBreakCondition,
   type EntryCondition,
+  type IchimokuCrossCondition,
   type LotSizingMode,
   type MaCrossCondition,
   type MacdCrossCondition,
@@ -95,6 +96,15 @@ const defaultMacdCondition = (): MacdCrossCondition => ({
   fastPeriod: 12,
   slowPeriod: 26,
   signalPeriod: 9,
+});
+
+const defaultIchimokuCondition = (): IchimokuCrossCondition => ({
+  type: 'ichimokuCross',
+  conversionPeriod: 9,
+  basePeriod: 26,
+  spanBPeriod: 52,
+  displacement: 26,
+  requireCloudFilter: true,
 });
 
 const defaultDonchianCondition = (): DonchianBreakCondition => ({
@@ -200,6 +210,17 @@ const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
     }
     if (condition.type === 'macdCross' && condition.fastPeriod >= condition.slowPeriod) {
       messages.push('MACDは短期期間を長期期間より小さくしてください。');
+    }
+    if (
+      condition.type === 'ichimokuCross' &&
+      [
+        condition.conversionPeriod,
+        condition.basePeriod,
+        condition.spanBPeriod,
+        condition.displacement,
+      ].some((period) => !Number.isInteger(period) || period < 1)
+    ) {
+      messages.push('一目均衡表の期間は1以上の整数にしてください。');
     }
     if (condition.type === 'donchianBreak' && (!Number.isInteger(condition.period) || condition.period < 1)) {
       messages.push('ドンチアンブレイクの期間は1以上の整数にしてください。');
@@ -400,6 +421,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const rsiCondition = getCondition('rsi');
   const bbCondition = getCondition('bollinger');
   const macdCondition = getCondition('macdCross');
+  const ichimokuCondition = getCondition('ichimokuCross');
   const donchianCondition = getCondition('donchianBreak');
   const stochasticCondition = getCondition('stochastic');
 
@@ -974,6 +996,97 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                       }))
                     }
                   />
+                </label>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('ichimokuCross')}
+                onChange={(event) =>
+                  toggleCondition('ichimokuCross', event.target.checked, defaultIchimokuCondition)
+                }
+              />
+              <span>一目均衡表クロス</span>
+            </label>
+            {ichimokuCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>転換線期間</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={ichimokuCondition.conversionPeriod}
+                    onChange={(event) =>
+                      updateCondition('ichimokuCross', defaultIchimokuCondition, (condition) => ({
+                        ...condition,
+                        conversionPeriod: integerInput(
+                          event.target.value,
+                          condition.conversionPeriod,
+                          9,
+                          1,
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>基準線期間</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={ichimokuCondition.basePeriod}
+                    onChange={(event) =>
+                      updateCondition('ichimokuCross', defaultIchimokuCondition, (condition) => ({
+                        ...condition,
+                        basePeriod: integerInput(event.target.value, condition.basePeriod, 26, 1),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>先行スパンB期間</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={ichimokuCondition.spanBPeriod}
+                    onChange={(event) =>
+                      updateCondition('ichimokuCross', defaultIchimokuCondition, (condition) => ({
+                        ...condition,
+                        spanBPeriod: integerInput(event.target.value, condition.spanBPeriod, 52, 1),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>変位</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={ichimokuCondition.displacement}
+                    onChange={(event) =>
+                      updateCondition('ichimokuCross', defaultIchimokuCondition, (condition) => ({
+                        ...condition,
+                        displacement: integerInput(event.target.value, condition.displacement, 26, 1),
+                      }))
+                    }
+                  />
+                </label>
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={ichimokuCondition.requireCloudFilter}
+                    onChange={(event) =>
+                      updateCondition('ichimokuCross', defaultIchimokuCondition, (condition) => ({
+                        ...condition,
+                        requireCloudFilter: event.target.checked,
+                      }))
+                    }
+                  />
+                  <span>雲フィルタ</span>
                 </label>
               </div>
             )}

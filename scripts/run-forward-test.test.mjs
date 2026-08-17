@@ -207,7 +207,7 @@ describe('forward test runner', () => {
             },
           ],
         },
-        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, donchianBreak, stochastic/,
+        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic/,
       },
     ];
 
@@ -235,6 +235,17 @@ describe('forward test runner', () => {
 
   it.each([
     ['donchianBreak', { type: 'donchianBreak', period: 20 }],
+    [
+      'ichimokuCross',
+      {
+        type: 'ichimokuCross',
+        conversionPeriod: 9,
+        basePeriod: 26,
+        spanBPeriod: 52,
+        displacement: 26,
+        requireCloudFilter: true,
+      },
+    ],
     [
       'stochastic',
       {

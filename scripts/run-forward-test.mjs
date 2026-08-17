@@ -24,6 +24,7 @@ const knownEntryConditionTypes = new Set([
   'rsi',
   'bollinger',
   'macdCross',
+  'ichimokuCross',
   'donchianBreak',
   'stochastic',
 ]);

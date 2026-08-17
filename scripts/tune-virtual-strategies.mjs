@@ -55,6 +55,37 @@ export const TUNING_PAIRS = Object.freeze([
   'AUDJPY',
 ]);
 
+export const SESSION_VARIANTS = Object.freeze([
+  null,
+  Object.freeze({
+    label: '東京00:00-08:00',
+    filter: Object.freeze({
+      enabled: true,
+      start: '00:00',
+      end: '08:00',
+      serverUtcOffsetMinutes: 0,
+    }),
+  }),
+  Object.freeze({
+    label: 'ロンドン07:00-15:00',
+    filter: Object.freeze({
+      enabled: true,
+      start: '07:00',
+      end: '15:00',
+      serverUtcOffsetMinutes: 0,
+    }),
+  }),
+  Object.freeze({
+    label: 'NY12:00-20:00',
+    filter: Object.freeze({
+      enabled: true,
+      start: '12:00',
+      end: '20:00',
+      serverUtcOffsetMinutes: 0,
+    }),
+  }),
+]);
+
 export const ENTRY_TYPE_PROFILES = Object.freeze({
   maCross: Object.freeze({
     label: 'MAクロス順張り',
@@ -154,6 +185,24 @@ export const ENTRY_TYPE_PROFILES = Object.freeze({
     }),
     trailingStopPips: Object.freeze([null, 15]),
   }),
+  ichimokuCross: Object.freeze({
+    label: '一目クロス順張り',
+    timeframes: Object.freeze(['h1', 'h4']),
+    entryCondition: Object.freeze({
+      type: 'ichimokuCross',
+      conversionPeriod: 9,
+      basePeriod: 26,
+      spanBPeriod: 52,
+      displacement: 26,
+      requireCloudFilter: true,
+    }),
+    exit: Object.freeze({ stopLossPips: 30, takeProfitPips: 60, closeOnOppositeSignal: true }),
+    parameterRanges: Object.freeze({
+      stopLossPips: Object.freeze(rangeWithSteps(20, 80, 6)),
+      takeProfitPips: Object.freeze(rangeWithSteps(30, 150, 6)),
+    }),
+    trailingStopPips: Object.freeze([null, 20]),
+  }),
 });
 
 export const TUNING_ENTRY_TYPES = Object.freeze(Object.keys(ENTRY_TYPE_PROFILES));
@@ -212,6 +261,7 @@ Options:
   --entry-type <type[,type...]>        Filter entry types (${TUNING_ENTRY_TYPES.join(', ')})
   --timeframe <timeframe[,timeframe...]> Filter timeframes (${TUNING_TIMEFRAMES.join(', ')})
   --deep-history                       Use the source with wider pre-registration coverage
+  --session-variants                   Evaluate no-session, Tokyo, London, and New York variants
   --help, -h                            Show this help
 
 Each filter can be repeated. With no filters, the complete candidate matrix is evaluated.
@@ -242,11 +292,13 @@ const canonicalFilterValue = (rawValue, definition, flag) => {
 export const parseCliArgs = (args) => {
   const filters = { pairs: [], entryTypes: [], timeframes: [] };
   let deepHistory = false;
+  let sessionVariants = false;
 
   if (args.some((argument) => argument === '--help' || argument === '-h')) {
     return {
       help: true,
       ...(args.includes('--deep-history') ? { deepHistory: true } : {}),
+      ...(args.includes('--session-variants') ? { sessionVariants: true } : {}),
       ...filters,
     };
   }
@@ -255,6 +307,10 @@ export const parseCliArgs = (args) => {
     const argument = args[index];
     if (argument === '--deep-history') {
       deepHistory = true;
+      continue;
+    }
+    if (argument === '--session-variants') {
+      sessionVariants = true;
       continue;
     }
     const equalsIndex = argument.indexOf('=');
@@ -285,6 +341,7 @@ export const parseCliArgs = (args) => {
   return {
     help: false,
     ...(deepHistory ? { deepHistory: true } : {}),
+    ...(sessionVariants ? { sessionVariants: true } : {}),
     ...filters,
   };
 };
@@ -1134,6 +1191,7 @@ export const createTuningReport = (
       entryTypes: [...(filters.entryTypes ?? [])],
       timeframes: [...(filters.timeframes ?? [])],
       ...(deepHistoryRequested ? { deepHistory: true } : {}),
+      ...(filters.sessionVariants ? { sessionVariants: true } : {}),
     },
     ...(deepHistoryRequested ? { provenance: { deepHistory: true } } : {}),
     matrix: {
@@ -1230,7 +1288,10 @@ export const main = async ({
     log(CLI_USAGE);
     return [];
   }
-  const selectedTargets = filterTargets(candidateTargets, filters);
+  const candidates = filters.sessionVariants
+    ? candidateTargets.map((target) => ({ ...target, sessionVariants: SESSION_VARIANTS }))
+    : candidateTargets;
+  const selectedTargets = filterTargets(candidates, filters);
   if (selectedTargets.length === 0) {
     throw new Error('指定されたフィルターに一致するチューニング候補がありません。');
   }

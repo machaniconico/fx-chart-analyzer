@@ -2,6 +2,7 @@ import {
   bollingerBands,
   donchian,
   ema,
+  ichimoku,
   macd,
   rsi,
   sma,
@@ -11,6 +12,7 @@ import type {
   BollingerBands,
   DonchianResult,
   IndicatorPoint,
+  IchimokuResult,
   MacdResult,
   StochasticResult,
 } from './indicators';
@@ -52,6 +54,15 @@ export interface MacdCrossCondition {
   signalPeriod: number;
 }
 
+export interface IchimokuCrossCondition {
+  type: 'ichimokuCross';
+  conversionPeriod: number;
+  basePeriod: number;
+  spanBPeriod: number;
+  displacement: number;
+  requireCloudFilter: boolean;
+}
+
 export interface DonchianBreakCondition {
   type: 'donchianBreak';
   period: number;
@@ -71,6 +82,7 @@ export type EntryCondition =
   | RsiCondition
   | BollingerCondition
   | MacdCrossCondition
+  | IchimokuCrossCondition
   | DonchianBreakCondition
   | StochasticCondition;
 
@@ -217,6 +229,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `BB${condition.period}/${condition.multiplier} ${condition.band} ${condition.mode}`;
     case 'macdCross':
       return `MACD ${condition.fastPeriod}/${condition.slowPeriod}/${condition.signalPeriod} クロス`;
+    case 'ichimokuCross':
+      return `一目${condition.conversionPeriod}/${condition.basePeriod}/${condition.spanBPeriod} クロス${condition.requireCloudFilter ? '(雲フィルタ)' : ''}`;
     case 'donchianBreak':
       return `Donchian${condition.period} ブレイク`;
     case 'stochastic':
@@ -270,6 +284,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const rsiCache = new Map<number, IndicatorPoint[]>();
   const bbCache = new Map<string, BollingerBands>();
   const macdCache = new Map<string, MacdResult>();
+  const ichimokuCache = new Map<string, IchimokuResult>();
   const donchianCache = new Map<number, DonchianResult>();
   const stochasticCache = new Map<string, StochasticResult>();
 
@@ -328,6 +343,31 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     }
     const values = macd(closes, fast, slow, signal);
     macdCache.set(key, values);
+    return values;
+  };
+
+  const getIchimoku = (
+    conversionPeriod: number,
+    basePeriod: number,
+    spanBPeriod: number,
+    displacement: number,
+  ): IchimokuResult => {
+    const normalizedConversionPeriod = normalizePeriod(conversionPeriod);
+    const normalizedBasePeriod = normalizePeriod(basePeriod);
+    const normalizedSpanBPeriod = normalizePeriod(spanBPeriod);
+    const normalizedDisplacement = normalizePeriod(displacement);
+    const key = `${normalizedConversionPeriod}:${normalizedBasePeriod}:${normalizedSpanBPeriod}:${normalizedDisplacement}`;
+    const cached = ichimokuCache.get(key);
+    if (cached) {
+      return cached;
+    }
+    const values = ichimoku(highs, lows, {
+      conversionPeriod: normalizedConversionPeriod,
+      basePeriod: normalizedBasePeriod,
+      spanBPeriod: normalizedSpanBPeriod,
+      displacement: normalizedDisplacement,
+    });
+    ichimokuCache.set(key, values);
     return values;
   };
 
@@ -408,6 +448,28 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
         return isShort
           ? crossedBelow(values.macd[index - 1], values.signal[index - 1], values.macd[index], values.signal[index])
           : crossedAbove(values.macd[index - 1], values.signal[index - 1], values.macd[index], values.signal[index]);
+      }
+      case 'ichimokuCross': {
+        const values = getIchimoku(
+          condition.conversionPeriod,
+          condition.basePeriod,
+          condition.spanBPeriod,
+          condition.displacement,
+        );
+        const crossed = isShort
+          ? crossedBelow(values.conversion[index - 1], values.base[index - 1], values.conversion[index], values.base[index])
+          : crossedAbove(values.conversion[index - 1], values.base[index - 1], values.conversion[index], values.base[index]);
+        if (!crossed || !condition.requireCloudFilter) {
+          return crossed;
+        }
+        const spanA = values.leadingSpanA[index];
+        const spanB = values.leadingSpanB[index];
+        if (!isNumber(spanA) || !isNumber(spanB)) {
+          return false;
+        }
+        return isShort
+          ? closes[index] < Math.min(spanA, spanB)
+          : closes[index] > Math.max(spanA, spanB);
       }
       case 'donchianBreak': {
         const channels = getDonchian(condition.period);

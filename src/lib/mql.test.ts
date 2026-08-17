@@ -295,8 +295,12 @@ describe('mql generation', () => {
 
     for (const source of [generateMql4(strategy), generateMql5(strategy)]) {
       expect(source).toContain('input int InpDonchian1Period = 20;');
-      expect(source).toContain('iHighest(_Symbol, _Period, MODE_HIGH, InpDonchian1Period, 2);');
-      expect(source).toContain('iLowest(_Symbol, _Period, MODE_LOW, InpDonchian1Period, 2);');
+      expect(source).toContain('int period = InpDonchian1Period;');
+      expect(source).toContain('if(period < 1)');
+      expect(source).toContain('period = 1;');
+      expect(source).toContain('if(iTime(_Symbol, _Period, period + 1) == 0)');
+      expect(source).toContain('iHighest(_Symbol, _Period, MODE_HIGH, period, 2);');
+      expect(source).toContain('iLowest(_Symbol, _Period, MODE_LOW, period, 2);');
       expect(source).toContain('return close1 > upper;');
       expect(source).toContain('return close1 < lower;');
       expect(source).toContain('input int InpStoch2KPeriod = 14;');
@@ -310,5 +314,92 @@ describe('mql generation', () => {
       );
       expectBalanced(source);
     }
+  });
+
+  it('generates Ichimoku cross signals with shift parity and mirrored cloud rules for MQL4 and MQL5', () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [
+        {
+          type: 'ichimokuCross',
+          conversionPeriod: 9,
+          basePeriod: 26,
+          spanBPeriod: 52,
+          displacement: 26,
+          requireCloudFilter: true,
+        },
+      ],
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    expect(mql5).toContain('input int InpIchimoku1ConversionPeriod = 9;');
+    expect(mql5).toContain('input int InpIchimoku1BasePeriod = 26;');
+    expect(mql5).toContain('input int InpIchimoku1SpanBPeriod = 52;');
+    expect(mql5).toContain('input int InpIchimoku1Displacement = 26;');
+    expect(mql5).toContain('input bool InpIchimoku1RequireCloudFilter = true;');
+    expect(mql5).toContain('int ichimoku1Handle = INVALID_HANDLE;');
+    expect(mql5).toContain(
+      'ichimoku1Handle = iIchimoku(_Symbol, _Period, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod);',
+    );
+    expect(mql5).toContain('double previousConversion = BufferValue(ichimoku1Handle, 0, 2);');
+    expect(mql5).toContain('double currentConversion = BufferValue(ichimoku1Handle, 0, 1);');
+    expect(mql5).toContain('int requiredPeriod = InpIchimoku1ConversionPeriod;');
+    expect(mql5).toContain('if(iTime(_Symbol, _Period, requiredPeriod + 1) == 0)');
+    expect(mql5).toContain('double spanA = BufferValue(ichimoku1Handle, 2, 1);');
+    expect(mql5).toContain('double spanB = BufferValue(ichimoku1Handle, 3, 1);');
+    expect(mql5).toContain('CrossedAbove(previousConversion, previousBase, currentConversion, currentBase)');
+    expect(mql5).toContain('CrossedBelow(previousConversion, previousBase, currentConversion, currentBase)');
+    expect(mql5).toContain('close1 > MathMax(spanA, spanB)');
+    expect(mql5).toContain('close1 < MathMin(spanA, spanB)');
+    expect(mql5).toContain('MT4/MT5 SENKOUSPAN buffers');
+    expect(mql5).not.toContain('WARNING: Ichimoku displacement');
+    expect(mql5).toContain('ReleaseIndicator(ichimoku1Handle);');
+    // 雲フィルタ経路の履歴ガード: 雲値は変位済みなので spanBPeriod + displacement 本を要求する
+    expect(mql5).toContain(
+      'if(iTime(_Symbol, _Period, InpIchimoku1SpanBPeriod + InpIchimoku1Displacement) == 0)',
+    );
+
+    expect(mql4).toContain(
+      'double previousConversion = iIchimoku(NULL, 0, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod, MODE_TENKANSEN, 2);',
+    );
+    expect(mql4).toContain(
+      'double currentConversion = iIchimoku(NULL, 0, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod, MODE_TENKANSEN, 1);',
+    );
+    expect(mql4).toContain('int requiredPeriod = InpIchimoku1ConversionPeriod;');
+    expect(mql4).toContain('if(iTime(_Symbol, _Period, requiredPeriod + 1) == 0)');
+    expect(mql4).toContain(
+      'double spanA = iIchimoku(NULL, 0, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod, MODE_SENKOUSPANA, 1);',
+    );
+    expect(mql4).toContain(
+      'double spanB = iIchimoku(NULL, 0, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod, MODE_SENKOUSPANB, 1);',
+    );
+    expect(mql4).toContain('CrossedAbove(previousConversion, previousBase, currentConversion, currentBase)');
+    expect(mql4).toContain('CrossedBelow(previousConversion, previousBase, currentConversion, currentBase)');
+    expect(mql4).toContain('close1 > MathMax(spanA, spanB)');
+    expect(mql4).toContain('close1 < MathMin(spanA, spanB)');
+    // MQL4 は履歴不足時に iIchimoku が 0.0 を返し ValueReady を素通りするため、このガードが唯一の防御
+    expect(mql4).toContain(
+      'if(iTime(_Symbol, _Period, InpIchimoku1SpanBPeriod + InpIchimoku1Displacement) == 0)',
+    );
+    expect(mql4).toContain('MT4/MT5 SENKOUSPAN buffers');
+    expectBalanced(mql5);
+    expectBalanced(mql4);
+
+    const mismatched = generateMql4({
+      ...strategy,
+      entryConditions: [{
+        type: 'ichimokuCross',
+        conversionPeriod: 9,
+        basePeriod: 26,
+        spanBPeriod: 52,
+        displacement: 30,
+        requireCloudFilter: true,
+      }],
+    });
+    expect(mismatched).toContain(
+      'WARNING: Ichimoku displacement 30 differs from basePeriod 26',
+    );
   });
 });

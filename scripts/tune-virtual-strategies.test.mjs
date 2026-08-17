@@ -8,6 +8,7 @@ import {
   DATA_SOURCE_PUBLIC_DATA,
   ENTRY_TYPE_PROFILES,
   REFERENCE_SPAN_TARGET_DAYS,
+  SESSION_VARIANTS,
   TUNING_ENTRY_TYPES,
   TUNING_PAIRS,
   TUNING_REGISTERED_AT,
@@ -99,6 +100,24 @@ const legacyEntryTypeExpectations = [
     },
     trailingStopPips: [null, 20],
   },
+  {
+    entryType: 'donchianBreak',
+    timeframes: ['h1', 'h4'],
+    parameterRanges: {
+      stopLossPips: { min: 20, max: 80, step: 12 },
+      takeProfitPips: { min: 30, max: 150, step: 24 },
+    },
+    trailingStopPips: [null, 20],
+  },
+  {
+    entryType: 'stochastic',
+    timeframes: ['m30', 'h1'],
+    parameterRanges: {
+      stopLossPips: { min: 15, max: 60, step: 9 },
+      takeProfitPips: { min: 20, max: 100, step: 16 },
+    },
+    trailingStopPips: [null, 15],
+  },
 ];
 
 const readMagicNumbers = async (directory) => {
@@ -128,6 +147,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       'macdCross',
       'donchianBreak',
       'stochastic',
+      'ichimokuCross',
     ]);
     expect(ENTRY_TYPE_PROFILES.rsi.timeframes).toEqual(['m30', 'h1']);
     expect(ENTRY_TYPE_PROFILES.donchianBreak).toEqual({
@@ -159,6 +179,24 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       },
       trailingStopPips: [null, 15],
     });
+    expect(ENTRY_TYPE_PROFILES.ichimokuCross).toEqual({
+      label: '一目クロス順張り',
+      timeframes: ['h1', 'h4'],
+      entryCondition: {
+        type: 'ichimokuCross',
+        conversionPeriod: 9,
+        basePeriod: 26,
+        spanBPeriod: 52,
+        displacement: 26,
+        requireCloudFilter: true,
+      },
+      exit: { stopLossPips: 30, takeProfitPips: 60, closeOnOppositeSignal: true },
+      parameterRanges: {
+        stopLossPips: { min: 20, max: 80, step: 12 },
+        takeProfitPips: { min: 30, max: 150, step: 24 },
+      },
+      trailingStopPips: [null, 20],
+    });
   });
 
   it('covers every pair, entry type, and suitable timeframe exactly once', () => {
@@ -174,8 +212,8 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
         `${target.strategy.meta.pair}:${target.entryType}:${target.strategy.meta.timeframe}`,
     );
 
-    expect(expectedCount).toBe(72);
-    expect(matrix).toHaveLength(72);
+    expect(expectedCount).toBe(84);
+    expect(matrix).toHaveLength(84);
     expect(new Set(triples).size).toBe(expectedCount);
     expect(new Set(matrix.map((target) => target.id)).size).toBe(expectedCount);
     expect(matrix.every((target) => target.strategy.meta.registeredAt === TUNING_REGISTERED_AT)).toBe(
@@ -264,12 +302,13 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('supports each filter independently', () => {
     const matrix = buildCandidateMatrix();
 
-    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(12);
+    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(14);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'rsi']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'donchianBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'stochastic']))).toHaveLength(12);
+    expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'ichimokuCross']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'm30']))).toHaveLength(18);
-    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(36);
+    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(42);
     expect(() => parseCliArgs(['--timeframe', 'm15'])).toThrow(/Invalid value for --timeframe/);
   });
 
@@ -278,6 +317,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
 
     expect(CLI_USAGE).toContain('donchianBreak');
     expect(CLI_USAGE).toContain('stochastic');
+    expect(CLI_USAGE).toContain('ichimokuCross');
     expect(
       filterTargets(matrix, parseCliArgs(['--entry-type', 'DONCHIANBREAK'])),
     ).toEqual(
@@ -288,21 +328,23 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     ).toEqual(
       matrix.filter((target) => target.entryType === 'stochastic'),
     );
+    expect(
+      filterTargets(matrix, parseCliArgs(['--entry-type', 'ICHIMOKUCROSS'])),
+    ).toEqual(
+      matrix.filter((target) => target.entryType === 'ichimokuCross'),
+    );
   });
 
-  it('keeps new candidate magic numbers unique from candidates and registered EAs', async () => {
+  it('keeps all candidate magic numbers unique from candidates and registered EAs', async () => {
     const matrix = buildCandidateMatrix();
     const matrixMagicNumbers = matrix.map((target) => target.strategy.magicNumber);
     const registeredMagicNumbers = [
       ...(await readMagicNumbers(new URL('../strategies/virtual/', import.meta.url))),
       ...(await readMagicNumbers(new URL('../strategies/retired/', import.meta.url))),
     ];
-    const newMagicNumbers = matrix
-      .filter((target) => ['donchianBreak', 'stochastic'].includes(target.entryType))
-      .map((target) => target.strategy.magicNumber);
 
     expect(new Set(matrixMagicNumbers).size).toBe(matrixMagicNumbers.length);
-    expect(newMagicNumbers.every((magicNumber) => !registeredMagicNumbers.includes(magicNumber))).toBe(
+    expect(matrixMagicNumbers.every((magicNumber) => !registeredMagicNumbers.includes(magicNumber))).toBe(
       true,
     );
   });
@@ -324,7 +366,9 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       timeframes: [],
     });
     expect(parseCliArgs(['--deep-history']).deepHistory).toBe(true);
+    expect(parseCliArgs(['--session-variants']).sessionVariants).toBe(true);
     expect(CLI_USAGE).toContain('--deep-history');
+    expect(CLI_USAGE).toContain('--session-variants');
     expect(CLI_USAGE).toContain('--help, -h');
     expect(CLI_USAGE).toMatch(/console.*PF.*JSON report.*all evaluated combinations/i);
   });
@@ -350,6 +394,72 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       entryTypes: [],
       timeframes: [],
     });
+  });
+
+  it('enables session variants only when the CLI flag is present', async () => {
+    const target = buildCandidateMatrix()[0];
+    const runWithArgs = async (args) => {
+      const evaluate = vi.fn(async () => {
+        throw new Error('stop after target wiring');
+      });
+
+      await expect(
+        main({
+          args,
+          candidateTargets: [target],
+          loadEngine: async () => ({ cleanup: vi.fn() }),
+          evaluate,
+          writeReport: async () => '/tmp/tune-virtual-strategies-test.json',
+          printResult: vi.fn(),
+          log: vi.fn(),
+        }),
+      ).rejects.toThrow('1件の候補評価に失敗しました');
+
+      return evaluate.mock.calls[0][1];
+    };
+
+    const withoutFlag = await runWithArgs([]);
+    expect(withoutFlag).toBe(target);
+    expect(withoutFlag.sessionVariants).toBeNull();
+
+    const withFlag = await runWithArgs(['--session-variants']);
+    expect(withFlag.sessionVariants).toEqual(SESSION_VARIANTS);
+    expect(withFlag.sessionVariants).toEqual([
+      null,
+      {
+        label: '東京00:00-08:00',
+        filter: {
+          enabled: true,
+          start: '00:00',
+          end: '08:00',
+          serverUtcOffsetMinutes: 0,
+        },
+      },
+      {
+        label: 'ロンドン07:00-15:00',
+        filter: {
+          enabled: true,
+          start: '07:00',
+          end: '15:00',
+          serverUtcOffsetMinutes: 0,
+        },
+      },
+      {
+        label: 'NY12:00-20:00',
+        filter: {
+          enabled: true,
+          start: '12:00',
+          end: '20:00',
+          serverUtcOffsetMinutes: 0,
+        },
+      },
+    ]);
+
+    // フラグ有り実行の後に元 target が破壊されていないことを確認する
+    // (フラグ無し検証が先に走る順序だと、代入実装でも素通りするため)
+    expect(target.sessionVariants).toBeNull();
+    const withoutFlagAgain = await runWithArgs([]);
+    expect(withoutFlagAgain.sessionVariants).toBeNull();
   });
 });
 
@@ -902,7 +1012,7 @@ describe('tune-virtual-strategies JSON report', () => {
     expect(evaluatedIds).toEqual(['tune-rsi-eurusd-h1-v1']);
     expect(results).toHaveLength(1);
     expect(cleanupCalled).toBe(true);
-    expect(logs[0]).toBe('チューニング候補: 1/72件');
+    expect(logs[0]).toBe('チューニング候補: 1/84件');
     expect(writtenReport).toMatchObject({
       filters: { pairs: ['EURUSD'], entryTypes: ['rsi'], timeframes: ['h1'] },
       summary: { candidateCount: 1 },
