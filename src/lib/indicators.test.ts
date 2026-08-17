@@ -104,4 +104,22 @@ describe('indicators', () => {
     expectNullableCloseTo(result.leadingSpanA[51], 17.25);
     expectNullableCloseTo(result.leadingSpanB[77], 26);
   });
+
+  it('keeps a displaced cloud value independent from later bars', () => {
+    const highs = Array.from({ length: 20 }, (_, index) => index + 11);
+    const lows = highs.map((value) => value - 2);
+    const options = {
+      conversionPeriod: 2,
+      basePeriod: 3,
+      spanBPeriod: 4,
+      displacement: 2,
+    };
+    const result = ichimoku(highs, lows, options);
+    const changedLaterHighs = highs.map((value, index) => (index >= 9 ? value + 10_000 : value));
+    const changedLaterLows = lows.map((value, index) => (index >= 9 ? value - 10_000 : value));
+    const changedResult = ichimoku(changedLaterHighs, changedLaterLows, options);
+
+    expect(changedResult.leadingSpanA[10]).toBe(result.leadingSpanA[10]);
+    expect(changedResult.leadingSpanB[10]).toBe(result.leadingSpanB[10]);
+  });
 });

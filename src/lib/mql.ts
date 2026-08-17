@@ -4,6 +4,7 @@ import type {
   BollingerConditionMode,
   DonchianBreakCondition,
   EntryCondition,
+  IchimokuCrossCondition,
   LotSizingMode,
   MaCrossCondition,
   MoneyManagementSettings,
@@ -106,6 +107,14 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input int InpMACD${index}SlowPeriod = ${integerLiteral(condition.slowPeriod)};`,
         `input int InpMACD${index}SignalPeriod = ${integerLiteral(condition.signalPeriod)};`,
       ];
+    case 'ichimokuCross':
+      return [
+        `input int InpIchimoku${index}ConversionPeriod = ${integerLiteral(condition.conversionPeriod)};`,
+        `input int InpIchimoku${index}BasePeriod = ${integerLiteral(condition.basePeriod)};`,
+        `input int InpIchimoku${index}SpanBPeriod = ${integerLiteral(condition.spanBPeriod)};`,
+        `input int InpIchimoku${index}Displacement = ${integerLiteral(condition.displacement)};`,
+        `input bool InpIchimoku${index}RequireCloudFilter = ${boolLiteral(condition.requireCloudFilter)};`,
+      ];
     case 'donchianBreak':
       return [`input int InpDonchian${index}Period = ${integerLiteral(condition.period)};`];
     case 'stochastic':
@@ -128,6 +137,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mql5BollingerCondition(condition, index);
     case 'macdCross':
       return mql5MacdCondition(condition, index);
+    case 'ichimokuCross':
+      return mql5IchimokuCondition(condition, index);
     case 'donchianBreak':
       return mqlDonchianCondition(condition, index);
     case 'stochastic':
@@ -145,6 +156,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mql4BollingerCondition(condition, index);
     case 'macdCross':
       return mql4MacdCondition(condition, index);
+    case 'ichimokuCross':
+      return mql4IchimokuCondition(condition, index);
     case 'donchianBreak':
       return mqlDonchianCondition(condition, index);
     case 'stochastic':
@@ -280,8 +293,17 @@ const mqlDonchianCondition = (_condition: DonchianBreakCondition, index: number)
 bool Condition${index}(bool longSide)
 {
   // Shift 2 is the bar immediately before the signal bar (shift 1); the signal bar is excluded.
-  int highestShift = iHighest(_Symbol, _Period, MODE_HIGH, InpDonchian${index}Period, 2);
-  int lowestShift = iLowest(_Symbol, _Period, MODE_LOW, InpDonchian${index}Period, 2);
+  int period = InpDonchian${index}Period;
+  if(period < 1)
+  {
+    period = 1;
+  }
+  if(iTime(_Symbol, _Period, period + 1) == 0)
+  {
+    return false;
+  }
+  int highestShift = iHighest(_Symbol, _Period, MODE_HIGH, period, 2);
+  int lowestShift = iLowest(_Symbol, _Period, MODE_LOW, period, 2);
   if(highestShift < 0 || lowestShift < 0)
   {
     return false;
@@ -414,6 +436,124 @@ bool Condition${index}(bool longSide)
 }
 `;
 
+const ichimokuParityComment = `
+// Parity basis: MT4/MT5 SENKOUSPAN buffers expose the already displaced cloud
+// line at the queried shift, matching TS ichimoku.leadingSpan[index].
+`;
+
+const ichimokuDisplacementWarning = (condition: IchimokuCrossCondition): string =>
+  condition.displacement !== condition.basePeriod
+    ? `// WARNING: Ichimoku displacement ${integerLiteral(condition.displacement)} differs from basePeriod ${integerLiteral(condition.basePeriod)}. MQL iIchimoku follows its basePeriod displacement, so cloud parity with TS is not guaranteed.\n`
+    : '';
+
+const mql5IchimokuCondition = (condition: IchimokuCrossCondition, index: number): string => `
+${ichimokuParityComment}${ichimokuDisplacementWarning(condition)}bool Condition${index}(bool longSide)
+{
+  int requiredPeriod = InpIchimoku${index}ConversionPeriod;
+  if(InpIchimoku${index}BasePeriod > requiredPeriod)
+  {
+    requiredPeriod = InpIchimoku${index}BasePeriod;
+  }
+  if(InpIchimoku${index}SpanBPeriod > requiredPeriod)
+  {
+    requiredPeriod = InpIchimoku${index}SpanBPeriod;
+  }
+  if(requiredPeriod < 1)
+  {
+    requiredPeriod = 1;
+  }
+  if(iTime(_Symbol, _Period, requiredPeriod + 1) == 0)
+  {
+    return false;
+  }
+  double previousConversion = BufferValue(ichimoku${index}Handle, 0, 2);
+  double previousBase = BufferValue(ichimoku${index}Handle, 1, 2);
+  double currentConversion = BufferValue(ichimoku${index}Handle, 0, 1);
+  double currentBase = BufferValue(ichimoku${index}Handle, 1, 1);
+  if(!ValueReady(previousConversion) || !ValueReady(previousBase) || !ValueReady(currentConversion) || !ValueReady(currentBase))
+  {
+    return false;
+  }
+  bool crossed = longSide
+    ? CrossedAbove(previousConversion, previousBase, currentConversion, currentBase)
+    : CrossedBelow(previousConversion, previousBase, currentConversion, currentBase);
+  if(!crossed || !InpIchimoku${index}RequireCloudFilter)
+  {
+    return crossed;
+  }
+  // 雲フィルタ経路の履歴要件: SENKOUSPAN は変位済みの線なので、shift 1 の雲値は
+  // shift (1 + displacement) のバーから spanBPeriod 本で計算される。クロス判定用の
+  // requiredPeriod ではこの displacement 分を包含しないため別途チェックする
+  // (MQL4 の iIchimoku は履歴不足時に 0.0 を返し ValueReady を素通りするため fail-open になる)。
+  if(iTime(_Symbol, _Period, InpIchimoku${index}SpanBPeriod + InpIchimoku${index}Displacement) == 0)
+  {
+    return false;
+  }
+  double spanA = BufferValue(ichimoku${index}Handle, 2, 1);
+  double spanB = BufferValue(ichimoku${index}Handle, 3, 1);
+  double close1 = iClose(_Symbol, _Period, 1);
+  if(!ValueReady(spanA) || !ValueReady(spanB) || !ValueReady(close1))
+  {
+    return false;
+  }
+  return longSide ? close1 > MathMax(spanA, spanB) : close1 < MathMin(spanA, spanB);
+}
+`;
+
+const mql4IchimokuCondition = (condition: IchimokuCrossCondition, index: number): string => `
+${ichimokuParityComment}${ichimokuDisplacementWarning(condition)}bool Condition${index}(bool longSide)
+{
+  int requiredPeriod = InpIchimoku${index}ConversionPeriod;
+  if(InpIchimoku${index}BasePeriod > requiredPeriod)
+  {
+    requiredPeriod = InpIchimoku${index}BasePeriod;
+  }
+  if(InpIchimoku${index}SpanBPeriod > requiredPeriod)
+  {
+    requiredPeriod = InpIchimoku${index}SpanBPeriod;
+  }
+  if(requiredPeriod < 1)
+  {
+    requiredPeriod = 1;
+  }
+  if(iTime(_Symbol, _Period, requiredPeriod + 1) == 0)
+  {
+    return false;
+  }
+  double previousConversion = iIchimoku(NULL, 0, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_TENKANSEN, 2);
+  double previousBase = iIchimoku(NULL, 0, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_KIJUNSEN, 2);
+  double currentConversion = iIchimoku(NULL, 0, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_TENKANSEN, 1);
+  double currentBase = iIchimoku(NULL, 0, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_KIJUNSEN, 1);
+  if(!ValueReady(previousConversion) || !ValueReady(previousBase) || !ValueReady(currentConversion) || !ValueReady(currentBase))
+  {
+    return false;
+  }
+  bool crossed = longSide
+    ? CrossedAbove(previousConversion, previousBase, currentConversion, currentBase)
+    : CrossedBelow(previousConversion, previousBase, currentConversion, currentBase);
+  if(!crossed || !InpIchimoku${index}RequireCloudFilter)
+  {
+    return crossed;
+  }
+  // 雲フィルタ経路の履歴要件: SENKOUSPAN は変位済みの線なので、shift 1 の雲値は
+  // shift (1 + displacement) のバーから spanBPeriod 本で計算される。クロス判定用の
+  // requiredPeriod ではこの displacement 分を包含しないため別途チェックする
+  // (MQL4 の iIchimoku は履歴不足時に 0.0 を返し ValueReady を素通りするため fail-open になる)。
+  if(iTime(_Symbol, _Period, InpIchimoku${index}SpanBPeriod + InpIchimoku${index}Displacement) == 0)
+  {
+    return false;
+  }
+  double spanA = iIchimoku(NULL, 0, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_SENKOUSPANA, 1);
+  double spanB = iIchimoku(NULL, 0, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_SENKOUSPANB, 1);
+  double close1 = iClose(NULL, 0, 1);
+  if(!ValueReady(spanA) || !ValueReady(spanB) || !ValueReady(close1))
+  {
+    return false;
+  }
+  return longSide ? close1 > MathMax(spanA, spanB) : close1 < MathMin(spanA, spanB);
+}
+`;
+
 const entrySignalFunction = (strategy: StrategyDefinition): string => {
   if (strategy.entryConditions.length === 0) {
     return `
@@ -491,6 +631,8 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
         return [`int bb${conditionIndex}Handle = INVALID_HANDLE;`];
       case 'macdCross':
         return [`int macd${conditionIndex}Handle = INVALID_HANDLE;`];
+      case 'ichimokuCross':
+        return [`int ichimoku${conditionIndex}Handle = INVALID_HANDLE;`];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -534,6 +676,14 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '    return INIT_FAILED;',
           '  }',
         ];
+      case 'ichimokuCross':
+        return [
+          `  ichimoku${conditionIndex}Handle = iIchimoku(_Symbol, _Period, InpIchimoku${conditionIndex}ConversionPeriod, InpIchimoku${conditionIndex}BasePeriod, InpIchimoku${conditionIndex}SpanBPeriod);`,
+          `  if(!EnsureIndicator(ichimoku${conditionIndex}Handle, "Ichimoku${conditionIndex}"))`,
+          '  {',
+          '    return INIT_FAILED;',
+          '  }',
+        ];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -555,6 +705,8 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
         return [`  ReleaseIndicator(bb${conditionIndex}Handle);`];
       case 'macdCross':
         return [`  ReleaseIndicator(macd${conditionIndex}Handle);`];
+      case 'ichimokuCross':
+        return [`  ReleaseIndicator(ichimoku${conditionIndex}Handle);`];
       case 'donchianBreak':
       case 'stochastic':
         return [];
