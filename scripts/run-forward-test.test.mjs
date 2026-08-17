@@ -249,6 +249,8 @@ describe('forward test runner', () => {
         // EAごとに登録日は異なる(入れ替えで新規登録が入る)ため固定値を断言しない
         registeredAt: expect.any(Number),
       });
+      expect(Number.isInteger(item.meta.registeredAt)).toBe(true);
+      expect(item.meta.registeredAt).toBeGreaterThan(0);
       expect(item.forward.metrics.tradeCount).toEqual(expect.any(Number));
       expect(Array.isArray(item.forward.trades)).toBe(true);
       expect(Array.isArray(item.forward.equityCurve)).toBe(true);
