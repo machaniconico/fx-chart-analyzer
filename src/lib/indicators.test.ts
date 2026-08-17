@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { bollingerBands, ema, ichimoku, macd, rsi, sma } from './indicators';
+import {
+  bollingerBands,
+  donchian,
+  ema,
+  ichimoku,
+  macd,
+  rsi,
+  sma,
+  stochastic,
+} from './indicators';
 
 const expectNullableCloseTo = (
   actual: number | null,
@@ -54,6 +63,35 @@ describe('indicators', () => {
     expectNullableCloseTo(result.macd[6], 1.5);
     expectNullableCloseTo(result.signal[7], 1.5);
     expectNullableCloseTo(result.histogram[7], 0);
+  });
+
+  it('calculates Donchian channels from the preceding bars only', () => {
+    const result = donchian([10, 12, 11, 15, 14], [5, 7, 6, 8, 9], 2);
+
+    expect(result.upper).toEqual([null, null, 12, 12, 15]);
+    expect(result.lower).toEqual([null, null, 5, 6, 6]);
+  });
+
+  it('calculates slow stochastic %K and %D with numeric values', () => {
+    const result = stochastic(
+      [10, 10, 12, 12, 12],
+      [0, 0, 0, 0, 0],
+      [5, 5, 12, 0, 6],
+      2,
+      2,
+      2,
+    );
+
+    expect(result.k).toEqual([null, null, 75, 50, 25]);
+    expect(result.d).toEqual([null, null, null, 62.5, 37.5]);
+  });
+
+  it('uses 50 for flat stochastic ranges without producing NaN', () => {
+    const result = stochastic([10, 10, 10, 10], [10, 10, 10, 10], [10, 10, 10, 10], 2, 2, 1);
+
+    expect(result.k).toEqual([null, 50, 50, 50]);
+    expect(result.d).toEqual([null, null, 50, 50]);
+    expect([...result.k, ...result.d].every((value) => value === null || Number.isFinite(value))).toBe(true);
   });
 
   it('calculates Ichimoku components with forward-displaced cloud spans', () => {

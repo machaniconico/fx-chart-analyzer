@@ -20,6 +20,7 @@ import {
   defaultMoneyManagement,
   defaultStrategies,
   type BollingerCondition,
+  type DonchianBreakCondition,
   type EntryCondition,
   type LotSizingMode,
   type MaCrossCondition,
@@ -27,6 +28,7 @@ import {
   type MovingAverageType,
   type RsiComparison,
   type RsiCondition,
+  type StochasticCondition,
   type StrategyDefinition,
 } from '../lib/strategy';
 import type { Bar, Pair, Timeframe } from '../types';
@@ -93,6 +95,20 @@ const defaultMacdCondition = (): MacdCrossCondition => ({
   fastPeriod: 12,
   slowPeriod: 26,
   signalPeriod: 9,
+});
+
+const defaultDonchianCondition = (): DonchianBreakCondition => ({
+  type: 'donchianBreak',
+  period: 20,
+});
+
+const defaultStochasticCondition = (): StochasticCondition => ({
+  type: 'stochastic',
+  kPeriod: 14,
+  dPeriod: 3,
+  smoothing: 3,
+  threshold: 20,
+  comparison: 'below',
 });
 
 type ConditionType = EntryCondition['type'];
@@ -184,6 +200,20 @@ const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
     }
     if (condition.type === 'macdCross' && condition.fastPeriod >= condition.slowPeriod) {
       messages.push('MACDは短期期間を長期期間より小さくしてください。');
+    }
+    if (condition.type === 'donchianBreak' && (!Number.isInteger(condition.period) || condition.period < 1)) {
+      messages.push('ドンチアンブレイクの期間は1以上の整数にしてください。');
+    }
+    if (
+      condition.type === 'stochastic' &&
+      (!Number.isInteger(condition.kPeriod) ||
+        condition.kPeriod < 1 ||
+        !Number.isInteger(condition.dPeriod) ||
+        condition.dPeriod < 1 ||
+        !Number.isInteger(condition.smoothing) ||
+        condition.smoothing < 1)
+    ) {
+      messages.push('ストキャスティクスの期間は1以上の整数にしてください。');
     }
   }
   if (
@@ -370,6 +400,8 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const rsiCondition = getCondition('rsi');
   const bbCondition = getCondition('bollinger');
   const macdCondition = getCondition('macdCross');
+  const donchianCondition = getCondition('donchianBreak');
+  const stochasticCondition = getCondition('stochastic');
 
   const updateMoneyManagement = (
     updater: (current: typeof moneyManagement) => typeof moneyManagement,
@@ -908,6 +940,128 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                       updateCondition('macdCross', defaultMacdCondition, (condition) => ({
                         ...condition,
                         signalPeriod: integerInput(event.target.value, condition.signalPeriod, 9, 1),
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('donchianBreak')}
+                onChange={(event) =>
+                  toggleCondition('donchianBreak', event.target.checked, defaultDonchianCondition)
+                }
+              />
+              <span>ドンチアンブレイク</span>
+            </label>
+            {donchianCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>期間</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={donchianCondition.period}
+                    onChange={(event) =>
+                      updateCondition('donchianBreak', defaultDonchianCondition, (condition) => ({
+                        ...condition,
+                        period: integerInput(event.target.value, condition.period, 20, 1),
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('stochastic')}
+                onChange={(event) =>
+                  toggleCondition('stochastic', event.target.checked, defaultStochasticCondition)
+                }
+              />
+              <span>ストキャスティクス</span>
+            </label>
+            {stochasticCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>K期間</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={stochasticCondition.kPeriod}
+                    onChange={(event) =>
+                      updateCondition('stochastic', defaultStochasticCondition, (condition) => ({
+                        ...condition,
+                        kPeriod: integerInput(event.target.value, condition.kPeriod, 14, 1),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>D期間</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={stochasticCondition.dPeriod}
+                    onChange={(event) =>
+                      updateCondition('stochastic', defaultStochasticCondition, (condition) => ({
+                        ...condition,
+                        dPeriod: integerInput(event.target.value, condition.dPeriod, 3, 1),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>平滑化</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={stochasticCondition.smoothing}
+                    onChange={(event) =>
+                      updateCondition('stochastic', defaultStochasticCondition, (condition) => ({
+                        ...condition,
+                        smoothing: integerInput(event.target.value, condition.smoothing, 3, 1),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>判定</span>
+                  <select
+                    value={stochasticCondition.comparison}
+                    onChange={(event) =>
+                      updateCondition('stochastic', defaultStochasticCondition, (condition) => ({
+                        ...condition,
+                        comparison: event.target.value as RsiComparison,
+                      }))
+                    }
+                  >
+                    <option value="below">以下</option>
+                    <option value="above">以上</option>
+                    <option value="crossBelow">下抜け</option>
+                    <option value="crossAbove">上抜け</option>
+                  </select>
+                </label>
+                <label>
+                  <span>閾値</span>
+                  <input
+                    max="99"
+                    min="1"
+                    type="number"
+                    value={stochasticCondition.threshold}
+                    onChange={(event) =>
+                      updateCondition('stochastic', defaultStochasticCondition, (condition) => ({
+                        ...condition,
+                        threshold: numericInput(event.target.value, condition.threshold, 20, 1, 99),
                       }))
                     }
                   />

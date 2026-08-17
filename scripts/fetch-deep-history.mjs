@@ -19,6 +19,7 @@ export const DEFAULT_STRATEGIES_DIRECTORY = path.join(projectRoot, 'strategies',
 export const REQUEST_PAUSE_MS = 1_500;
 export { DEEP_HISTORY_LOOKBACK_DAYS };
 
+// 完全性チェックではなく、取得ゼロに近い異常応答を弾くための tripwire。
 export const MIN_EXPECTED_BARS_BY_TIMEFRAME = Object.freeze({
   m30: 3_000,
   h1: 1_500,

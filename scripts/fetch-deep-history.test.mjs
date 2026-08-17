@@ -52,6 +52,12 @@ const expectedRangeFrom = (registeredAt) =>
     (registeredAt - DEEP_HISTORY_LOOKBACK_DAYS * 24 * 60 * 60) * 1_000,
   ).toISOString();
 
+const EXPECTED_MINIMUM_BARS_BY_TIMEFRAME = Object.freeze({
+  m30: 3_000,
+  h1: 1_500,
+  h4: 1_500,
+});
+
 describe('fetch-deep-history CLI', () => {
   it('reuses the tuning pair and timeframe sets without fetching unused d1 jobs', () => {
     expect(DEEP_HISTORY_PAIRS).toBe(TUNING_PAIRS);
@@ -84,6 +90,10 @@ describe('fetch-deep-history CLI', () => {
   it('shows help even when an unknown option is also present', () => {
     expect(parseCliArgs(['--unknown', '--help'])).toMatchObject({ help: true });
     expect(CLI_USAGE).toContain('--help, -h');
+  });
+
+  it('keeps the minimum-bar gate fixed for every supported timeframe', () => {
+    expect(MIN_EXPECTED_BARS_BY_TIMEFRAME).toEqual(EXPECTED_MINIMUM_BARS_BY_TIMEFRAME);
   });
 
   it('derives the fetch anchor from the shared tuning registration and JSON registrations', async () => {

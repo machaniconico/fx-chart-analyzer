@@ -12,6 +12,16 @@ export interface MacdResult {
   histogram: IndicatorPoint[];
 }
 
+export interface DonchianResult {
+  upper: IndicatorPoint[];
+  lower: IndicatorPoint[];
+}
+
+export interface StochasticResult {
+  k: IndicatorPoint[];
+  d: IndicatorPoint[];
+}
+
 export interface IchimokuResult {
   conversion: IndicatorPoint[];
   base: IndicatorPoint[];
@@ -97,6 +107,33 @@ const emaFromNullable = (values: readonly IndicatorPoint[], period: number): Ind
 
     previous = value * alpha + previous * (1 - alpha);
     result[i] = previous;
+  }
+
+  return result;
+};
+
+const smaFromNullable = (values: readonly IndicatorPoint[], period: number): IndicatorPoint[] => {
+  assertPeriod(period);
+  const result: IndicatorPoint[] = Array(values.length).fill(null);
+  const window: number[] = [];
+  let sum = 0;
+
+  for (let i = 0; i < values.length; i += 1) {
+    const value = values[i];
+    if (value === null) {
+      window.length = 0;
+      sum = 0;
+      continue;
+    }
+
+    window.push(value);
+    sum += value;
+    if (window.length > period) {
+      sum -= window.shift() as number;
+    }
+    if (window.length === period) {
+      result[i] = sum / period;
+    }
   }
 
   return result;
@@ -202,6 +239,65 @@ export const macd = (
   });
 
   return { macd: macdLine, signal, histogram };
+};
+
+export const donchian = (
+  highs: readonly number[],
+  lows: readonly number[],
+  period: number,
+): DonchianResult => {
+  assertPeriod(period);
+  if (highs.length !== lows.length) {
+    throw new Error('highs and lows must have the same length');
+  }
+
+  const upper: IndicatorPoint[] = Array(highs.length).fill(null);
+  const lower: IndicatorPoint[] = Array(highs.length).fill(null);
+  for (let i = period; i < highs.length; i += 1) {
+    let highest = -Infinity;
+    let lowest = Infinity;
+    for (let offset = i - period; offset < i; offset += 1) {
+      highest = Math.max(highest, highs[offset]);
+      lowest = Math.min(lowest, lows[offset]);
+    }
+    upper[i] = highest;
+    lower[i] = lowest;
+  }
+
+  return { upper, lower };
+};
+
+export const stochastic = (
+  highs: readonly number[],
+  lows: readonly number[],
+  closes: readonly number[],
+  kPeriod: number,
+  dPeriod: number,
+  smoothing: number,
+): StochasticResult => {
+  assertPeriod(kPeriod);
+  assertPeriod(dPeriod);
+  assertPeriod(smoothing);
+  if (highs.length !== lows.length || highs.length !== closes.length) {
+    throw new Error('highs, lows, and closes must have the same length');
+  }
+
+  const rawK: IndicatorPoint[] = Array(closes.length).fill(null);
+  for (let i = kPeriod - 1; i < closes.length; i += 1) {
+    let highest = -Infinity;
+    let lowest = Infinity;
+    for (let offset = i - kPeriod + 1; offset <= i; offset += 1) {
+      highest = Math.max(highest, highs[offset]);
+      lowest = Math.min(lowest, lows[offset]);
+    }
+
+    const range = highest - lowest;
+    rawK[i] = range === 0 ? 50 : ((closes[i] - lowest) / range) * 100;
+  }
+
+  const k = smaFromNullable(rawK, smoothing);
+  const d = smaFromNullable(k, dPeriod);
+  return { k, d };
 };
 
 const midpoint = (

@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   hasOperationStatus,
   isRetiredForwardStrategy,
+  loadForwardResults,
   loadRetiredForwardStrategies,
+  type ForwardResultsFile,
   type ForwardStrategyResult,
   type RetiredForwardStrategy,
 } from './forward-test';
@@ -390,6 +392,54 @@ describe('hasOperationStatus', () => {
     { name: 'non-string reason', operationStatus: { status: 'active', reason: 123 } },
   ])('rejects $name', ({ operationStatus }) => {
     expect(hasOperationStatus(strategyWithStatus(operationStatus))).toBe(false);
+  });
+});
+
+describe('loadForwardResults', () => {
+  const validResults = (): ForwardResultsFile => ({
+    schemaVersion: 3,
+    computedAt: '2026-08-17T12:00:00.000Z',
+    strategies: [strategyWithStatus({ status: 'active', reason: '判定理由' })],
+  });
+
+  it('loads a valid results fixture without changing its payload', async () => {
+    const fixture = validResults();
+    const fetchMock = stubFetch(responseWithJson(fixture));
+
+    await expect(loadForwardResults()).resolves.toEqual(fixture);
+    expect(fetchMock).toHaveBeenCalledWith('/data/forward/results.json', { cache: 'no-cache' });
+  });
+
+  it.each([
+    { name: 'non-object payload', payload: () => null },
+    {
+      name: 'non-number schema version',
+      payload: () => ({ ...validResults(), schemaVersion: '3' }),
+    },
+    {
+      name: 'missing computedAt',
+      payload: () => {
+        const payload = validResults();
+        delete (payload as Partial<ForwardResultsFile>).computedAt;
+        return payload;
+      },
+    },
+    {
+      name: 'strategies is not an array',
+      payload: () => ({ ...validResults(), strategies: {} }),
+    },
+    {
+      name: 'strategy is missing meta',
+      payload: () => ({ ...validResults(), strategies: [{ forward: {} }] }),
+    },
+    {
+      name: 'strategy is missing forward',
+      payload: () => ({ ...validResults(), strategies: [{ meta: {} }] }),
+    },
+  ])('throws a Japanese shape error for $name', async ({ payload }) => {
+    stubFetch(responseWithJson(payload()));
+
+    await expect(loadForwardResults()).rejects.toThrow('フォワードテスト結果の形式が不正です');
   });
 });
 

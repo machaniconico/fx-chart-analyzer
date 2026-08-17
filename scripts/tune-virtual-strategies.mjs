@@ -122,6 +122,38 @@ export const ENTRY_TYPE_PROFILES = Object.freeze({
     }),
     trailingStopPips: Object.freeze([null, 20]),
   }),
+  donchianBreak: Object.freeze({
+    label: 'ドンチアンブレイク順張り',
+    timeframes: Object.freeze(['h1', 'h4']),
+    entryCondition: Object.freeze({
+      type: 'donchianBreak',
+      period: 20,
+    }),
+    exit: Object.freeze({ stopLossPips: 30, takeProfitPips: 60, closeOnOppositeSignal: false }),
+    parameterRanges: Object.freeze({
+      stopLossPips: Object.freeze(rangeWithSteps(20, 80, 6)),
+      takeProfitPips: Object.freeze(rangeWithSteps(30, 150, 6)),
+    }),
+    trailingStopPips: Object.freeze([null, 20]),
+  }),
+  stochastic: Object.freeze({
+    label: 'ストキャス逆張り',
+    timeframes: Object.freeze(['m30', 'h1']),
+    entryCondition: Object.freeze({
+      type: 'stochastic',
+      kPeriod: 14,
+      dPeriod: 3,
+      smoothing: 3,
+      threshold: 20,
+      comparison: 'crossAbove',
+    }),
+    exit: Object.freeze({ stopLossPips: 25, takeProfitPips: 40, closeOnOppositeSignal: false }),
+    parameterRanges: Object.freeze({
+      stopLossPips: Object.freeze(rangeWithSteps(15, 60, 6)),
+      takeProfitPips: Object.freeze(rangeWithSteps(20, 100, 6)),
+    }),
+    trailingStopPips: Object.freeze([null, 15]),
+  }),
 });
 
 export const TUNING_ENTRY_TYPES = Object.freeze(Object.keys(ENTRY_TYPE_PROFILES));

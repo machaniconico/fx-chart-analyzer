@@ -207,7 +207,7 @@ describe('forward test runner', () => {
             },
           ],
         },
-        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross/,
+        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, donchianBreak, stochastic/,
       },
     ];
 
@@ -231,6 +231,35 @@ describe('forward test runner', () => {
         }),
       ).toThrow(expected);
     }
+  });
+
+  it.each([
+    ['donchianBreak', { type: 'donchianBreak', period: 20 }],
+    [
+      'stochastic',
+      {
+        type: 'stochastic',
+        kPeriod: 14,
+        dPeriod: 3,
+        smoothing: 3,
+        threshold: 20,
+        comparison: 'crossAbove',
+      },
+    ],
+  ])('accepts %s entry conditions in virtual strategies', (entryType, entryCondition) => {
+    const candidate = JSON.parse(JSON.stringify(strategy));
+    candidate.meta.id = `virtual-${entryType}-v1`;
+    candidate.meta.name = `${entryType} test`;
+    candidate.id = candidate.meta.id;
+    candidate.name = candidate.meta.name;
+    candidate.entryConditions = [entryCondition];
+
+    expect(() => buildStrategyReport({
+      strategy: candidate,
+      bars: [bar(registeredAt)],
+      usdJpyBars: [bar(registeredAt)],
+      runBacktest: emptyBacktestResult,
+    })).not.toThrow();
   });
 
   it('validates the generated public results schema', async () => {

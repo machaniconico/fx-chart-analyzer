@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -62,6 +62,55 @@ const row = ({
   },
 });
 
+const legacyEntryTypeExpectations = [
+  {
+    entryType: 'maCross',
+    timeframes: ['h1', 'h4'],
+    parameterRanges: {
+      stopLossPips: { min: 20, max: 80, step: 12 },
+      takeProfitPips: { min: 30, max: 150, step: 24 },
+    },
+    trailingStopPips: [null, 20],
+  },
+  {
+    entryType: 'rsi',
+    timeframes: ['m30', 'h1'],
+    parameterRanges: {
+      stopLossPips: { min: 10, max: 50, step: 8 },
+      takeProfitPips: { min: 15, max: 75, step: 12 },
+    },
+    trailingStopPips: [null],
+  },
+  {
+    entryType: 'bollinger',
+    timeframes: ['m30', 'h1'],
+    parameterRanges: {
+      stopLossPips: { min: 15, max: 75, step: 12 },
+      takeProfitPips: { min: 25, max: 125, step: 20 },
+    },
+    trailingStopPips: [null, 20],
+  },
+  {
+    entryType: 'macdCross',
+    timeframes: ['h1', 'h4'],
+    parameterRanges: {
+      stopLossPips: { min: 20, max: 80, step: 12 },
+      takeProfitPips: { min: 30, max: 150, step: 24 },
+    },
+    trailingStopPips: [null, 20],
+  },
+];
+
+const readMagicNumbers = async (directory) => {
+  const filenames = (await readdir(directory)).filter((filename) => filename.endsWith('.json'));
+  return Promise.all(
+    filenames.map(async (filename) => {
+      const strategy = JSON.parse(await readFile(new URL(filename, directory), 'utf8'));
+      return strategy.magicNumber;
+    }),
+  );
+};
+
 describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('keeps the required pair and entry-type coverage explicit', () => {
     expect(TUNING_PAIRS).toEqual([
@@ -77,8 +126,39 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       'rsi',
       'bollinger',
       'macdCross',
+      'donchianBreak',
+      'stochastic',
     ]);
     expect(ENTRY_TYPE_PROFILES.rsi.timeframes).toEqual(['m30', 'h1']);
+    expect(ENTRY_TYPE_PROFILES.donchianBreak).toEqual({
+      label: 'ドンチアンブレイク順張り',
+      timeframes: ['h1', 'h4'],
+      entryCondition: { type: 'donchianBreak', period: 20 },
+      exit: { stopLossPips: 30, takeProfitPips: 60, closeOnOppositeSignal: false },
+      parameterRanges: {
+        stopLossPips: { min: 20, max: 80, step: 12 },
+        takeProfitPips: { min: 30, max: 150, step: 24 },
+      },
+      trailingStopPips: [null, 20],
+    });
+    expect(ENTRY_TYPE_PROFILES.stochastic).toEqual({
+      label: 'ストキャス逆張り',
+      timeframes: ['m30', 'h1'],
+      entryCondition: {
+        type: 'stochastic',
+        kPeriod: 14,
+        dPeriod: 3,
+        smoothing: 3,
+        threshold: 20,
+        comparison: 'crossAbove',
+      },
+      exit: { stopLossPips: 25, takeProfitPips: 40, closeOnOppositeSignal: false },
+      parameterRanges: {
+        stopLossPips: { min: 15, max: 60, step: 9 },
+        takeProfitPips: { min: 20, max: 100, step: 16 },
+      },
+      trailingStopPips: [null, 15],
+    });
   });
 
   it('covers every pair, entry type, and suitable timeframe exactly once', () => {
@@ -94,7 +174,8 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
         `${target.strategy.meta.pair}:${target.entryType}:${target.strategy.meta.timeframe}`,
     );
 
-    expect(matrix).toHaveLength(expectedCount);
+    expect(expectedCount).toBe(72);
+    expect(matrix).toHaveLength(72);
     expect(new Set(triples).size).toBe(expectedCount);
     expect(new Set(matrix.map((target) => target.id)).size).toBe(expectedCount);
     expect(matrix.every((target) => target.strategy.meta.registeredAt === TUNING_REGISTERED_AT)).toBe(
@@ -120,6 +201,33 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
               (target) => target.strategy.entryConditions[0].type === entryType,
             ),
         ).toBe(true);
+      }
+    }
+  });
+
+  it('keeps every legacy candidate id, magic number, and parameter range unchanged', () => {
+    const matrix = buildCandidateMatrix();
+
+    for (const [entryTypeIndex, expectation] of legacyEntryTypeExpectations.entries()) {
+      for (const [pairIndex, pair] of TUNING_PAIRS.entries()) {
+        for (const [timeframeIndex, timeframe] of expectation.timeframes.entries()) {
+          const candidate = matrix.find(
+            (target) =>
+              target.strategy.meta.pair === pair
+              && target.entryType === expectation.entryType
+              && target.strategy.meta.timeframe === timeframe,
+          );
+
+          expect(candidate).toMatchObject({
+            id: `tune-${expectation.entryType.toLowerCase()}-${pair.toLowerCase()}-${timeframe}-v1`,
+            entryType: expectation.entryType,
+            strategy: {
+              magicNumber: 1783100000 + pairIndex * 100 + entryTypeIndex * 10 + timeframeIndex,
+            },
+            parameterRanges: expectation.parameterRanges,
+            trailingStopPips: expectation.trailingStopPips,
+          });
+        }
       }
     }
   });
@@ -156,11 +264,47 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('supports each filter independently', () => {
     const matrix = buildCandidateMatrix();
 
-    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(8);
+    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'rsi']))).toHaveLength(12);
-    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'm30']))).toHaveLength(12);
-    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(24);
+    expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'donchianBreak']))).toHaveLength(12);
+    expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'stochastic']))).toHaveLength(12);
+    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'm30']))).toHaveLength(18);
+    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(36);
     expect(() => parseCliArgs(['--timeframe', 'm15'])).toThrow(/Invalid value for --timeframe/);
+  });
+
+  it('documents and filters the new entry types through the CLI', () => {
+    const matrix = buildCandidateMatrix();
+
+    expect(CLI_USAGE).toContain('donchianBreak');
+    expect(CLI_USAGE).toContain('stochastic');
+    expect(
+      filterTargets(matrix, parseCliArgs(['--entry-type', 'DONCHIANBREAK'])),
+    ).toEqual(
+      matrix.filter((target) => target.entryType === 'donchianBreak'),
+    );
+    expect(
+      filterTargets(matrix, parseCliArgs(['--entry-type', 'stochastic'])),
+    ).toEqual(
+      matrix.filter((target) => target.entryType === 'stochastic'),
+    );
+  });
+
+  it('keeps new candidate magic numbers unique from candidates and registered EAs', async () => {
+    const matrix = buildCandidateMatrix();
+    const matrixMagicNumbers = matrix.map((target) => target.strategy.magicNumber);
+    const registeredMagicNumbers = [
+      ...(await readMagicNumbers(new URL('../strategies/virtual/', import.meta.url))),
+      ...(await readMagicNumbers(new URL('../strategies/retired/', import.meta.url))),
+    ];
+    const newMagicNumbers = matrix
+      .filter((target) => ['donchianBreak', 'stochastic'].includes(target.entryType))
+      .map((target) => target.strategy.magicNumber);
+
+    expect(new Set(matrixMagicNumbers).size).toBe(matrixMagicNumbers.length);
+    expect(newMagicNumbers.every((magicNumber) => !registeredMagicNumbers.includes(magicNumber))).toBe(
+      true,
+    );
   });
 
   it('rejects invalid filter values and leaves incompatible valid filters empty', () => {
@@ -758,7 +902,7 @@ describe('tune-virtual-strategies JSON report', () => {
     expect(evaluatedIds).toEqual(['tune-rsi-eurusd-h1-v1']);
     expect(results).toHaveLength(1);
     expect(cleanupCalled).toBe(true);
-    expect(logs[0]).toBe('チューニング候補: 1/48件');
+    expect(logs[0]).toBe('チューニング候補: 1/72件');
     expect(writtenReport).toMatchObject({
       filters: { pairs: ['EURUSD'], entryTypes: ['rsi'], timeframes: ['h1'] },
       summary: { candidateCount: 1 },

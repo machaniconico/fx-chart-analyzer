@@ -119,6 +119,19 @@ export const isRetiredForwardStrategy = (value: unknown): value is RetiredForwar
     && operationPeriod.confirmedDayCount >= 0;
 };
 
+const isForwardResultsFile = (value: unknown): value is ForwardResultsFile =>
+  isRecord(value)
+  && typeof value.schemaVersion === 'number'
+  && Number.isFinite(value.schemaVersion)
+  && typeof value.computedAt === 'string'
+  && Array.isArray(value.strategies)
+  && value.strategies.every(
+    (strategy) =>
+      isRecord(strategy)
+      && isRecord(strategy.meta)
+      && isRecord(strategy.forward),
+  );
+
 export const hasOperationStatus = (
   strategy: ForwardStrategyResult,
 ): strategy is ForwardStrategyResult & { operationStatus: ForwardOperationStatusResult } => {
@@ -140,7 +153,11 @@ export const loadForwardResults = async (): Promise<ForwardResultsFile> => {
   if (!response.ok) {
     throw new Error('フォワードテスト結果を読み込めませんでした');
   }
-  return (await response.json()) as ForwardResultsFile;
+  const payload: unknown = await response.json();
+  if (!isForwardResultsFile(payload)) {
+    throw new Error('フォワードテスト結果の形式が不正です');
+  }
+  return payload;
 };
 
 export const loadRetiredForwardStrategies = async (): Promise<RetiredForwardStrategy[]> => {

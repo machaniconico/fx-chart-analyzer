@@ -2,6 +2,7 @@ import type {
   BollingerBandSide,
   BollingerCondition,
   BollingerConditionMode,
+  DonchianBreakCondition,
   EntryCondition,
   LotSizingMode,
   MaCrossCondition,
@@ -10,6 +11,7 @@ import type {
   MovingAverageType,
   RsiComparison,
   RsiCondition,
+  StochasticCondition,
   StrategyDefinition,
 } from './strategy';
 import { defaultMoneyManagement } from './strategy';
@@ -104,6 +106,15 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input int InpMACD${index}SlowPeriod = ${integerLiteral(condition.slowPeriod)};`,
         `input int InpMACD${index}SignalPeriod = ${integerLiteral(condition.signalPeriod)};`,
       ];
+    case 'donchianBreak':
+      return [`input int InpDonchian${index}Period = ${integerLiteral(condition.period)};`];
+    case 'stochastic':
+      return [
+        `input int InpStoch${index}KPeriod = ${integerLiteral(condition.kPeriod)};`,
+        `input int InpStoch${index}DPeriod = ${integerLiteral(condition.dPeriod)};`,
+        `input int InpStoch${index}Smoothing = ${integerLiteral(condition.smoothing)};`,
+        `input double InpStoch${index}Threshold = ${numberLiteral(condition.threshold)};`,
+      ];
   }
 };
 
@@ -117,6 +128,10 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mql5BollingerCondition(condition, index);
     case 'macdCross':
       return mql5MacdCondition(condition, index);
+    case 'donchianBreak':
+      return mqlDonchianCondition(condition, index);
+    case 'stochastic':
+      return mqlStochasticCondition(condition, index);
   }
 };
 
@@ -130,6 +145,10 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mql4BollingerCondition(condition, index);
     case 'macdCross':
       return mql4MacdCondition(condition, index);
+    case 'donchianBreak':
+      return mqlDonchianCondition(condition, index);
+    case 'stochastic':
+      return mqlStochasticCondition(condition, index);
   }
 };
 
@@ -257,6 +276,106 @@ bool Condition${index}(bool longSide)
 `;
 };
 
+const mqlDonchianCondition = (_condition: DonchianBreakCondition, index: number): string => `
+bool Condition${index}(bool longSide)
+{
+  // Shift 2 is the bar immediately before the signal bar (shift 1); the signal bar is excluded.
+  int highestShift = iHighest(_Symbol, _Period, MODE_HIGH, InpDonchian${index}Period, 2);
+  int lowestShift = iLowest(_Symbol, _Period, MODE_LOW, InpDonchian${index}Period, 2);
+  if(highestShift < 0 || lowestShift < 0)
+  {
+    return false;
+  }
+  double close1 = iClose(_Symbol, _Period, 1);
+  double upper = iHigh(_Symbol, _Period, highestShift);
+  double lower = iLow(_Symbol, _Period, lowestShift);
+  if(!ValueReady(close1) || !ValueReady(upper) || !ValueReady(lower))
+  {
+    return false;
+  }
+  if(longSide)
+  {
+    return close1 > upper;
+  }
+  return close1 < lower;
+}
+`;
+
+const mqlStochasticCondition = (condition: StochasticCondition, index: number): string => {
+  const shortComparison = mirrorComparison(condition.comparison);
+  return `
+// The TS evaluator computes raw %K over kPeriod, then applies a smoothing-period SMA.
+// Flat high/low ranges are explicitly mapped to 50. The D period is retained as an input
+// for parity with the stochastic definition; entry conditions intentionally compare %K.
+double StochasticRawK${index}(int shift)
+{
+  int kPeriod = InpStoch${index}KPeriod;
+  if(kPeriod < 1)
+  {
+    kPeriod = 1;
+  }
+  if(iTime(_Symbol, _Period, shift + kPeriod - 1) == 0)
+  {
+    return EMPTY_VALUE;
+  }
+  int highestShift = iHighest(_Symbol, _Period, MODE_HIGH, kPeriod, shift);
+  int lowestShift = iLowest(_Symbol, _Period, MODE_LOW, kPeriod, shift);
+  if(highestShift < 0 || lowestShift < 0)
+  {
+    return EMPTY_VALUE;
+  }
+  double highest = iHigh(_Symbol, _Period, highestShift);
+  double lowest = iLow(_Symbol, _Period, lowestShift);
+  double closeAtShift = iClose(_Symbol, _Period, shift);
+  if(!ValueReady(highest) || !ValueReady(lowest) || !ValueReady(closeAtShift))
+  {
+    return EMPTY_VALUE;
+  }
+  double range = highest - lowest;
+  if(range == 0.0)
+  {
+    return 50.0;
+  }
+  return (closeAtShift - lowest) / range * 100.0;
+}
+
+double StochasticK${index}(int shift)
+{
+  int smoothing = InpStoch${index}Smoothing;
+  if(smoothing < 1)
+  {
+    smoothing = 1;
+  }
+  double sum = 0.0;
+  for(int offset = 0; offset < smoothing; offset++)
+  {
+    double raw = StochasticRawK${index}(shift + offset);
+    if(!ValueReady(raw))
+    {
+      return EMPTY_VALUE;
+    }
+    sum += raw;
+  }
+  return sum / smoothing;
+}
+
+bool Condition${index}(bool longSide)
+{
+  double previous = StochasticK${index}(2);
+  double current = StochasticK${index}(1);
+  if(!ValueReady(current))
+  {
+    return false;
+  }
+  if(longSide)
+  {
+    ${rsiCode(condition.comparison, `InpStoch${index}Threshold`)}
+  }
+  ${rsiCode(shortComparison, `100.0 - InpStoch${index}Threshold`)}
+}
+`;
+};
+
 const mql5MacdCondition = (_condition: MacdCrossCondition, index: number): string => `
 bool Condition${index}(bool longSide)
 {
@@ -372,6 +491,9 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
         return [`int bb${conditionIndex}Handle = INVALID_HANDLE;`];
       case 'macdCross':
         return [`int macd${conditionIndex}Handle = INVALID_HANDLE;`];
+      case 'donchianBreak':
+      case 'stochastic':
+        return [];
     }
   });
 
@@ -412,6 +534,9 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '    return INIT_FAILED;',
           '  }',
         ];
+      case 'donchianBreak':
+      case 'stochastic':
+        return [];
     }
   });
 
@@ -430,6 +555,9 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
         return [`  ReleaseIndicator(bb${conditionIndex}Handle);`];
       case 'macdCross':
         return [`  ReleaseIndicator(macd${conditionIndex}Handle);`];
+      case 'donchianBreak':
+      case 'stochastic':
+        return [];
     }
   });
 
