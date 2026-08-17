@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { generateMql4, generateMql5 } from './mql';
 import type { EntryCondition, StrategyDefinition } from './strategy';
@@ -83,7 +82,7 @@ const expectBalanced = (source: string): void => {
   }
 };
 
-const sourceHash = (source: string): string => createHash('sha256').update(source).digest('hex');
+const mqlSnapshotPath = (name: string): string => `./__snapshots__/${name}.snap`;
 
 describe('mql generation', () => {
   it('generates a complete MQL5 EA source with matching inputs and core functions', () => {
@@ -200,7 +199,8 @@ describe('mql generation', () => {
     expectBalanced(source);
   });
 
-  it('keeps legacy condition generators stable apart from the documented Donchian comment', () => {
+  // __snapshots__/ は生成物ではなく正典(手で消さない)。CI では snapshot 欠落=テスト失敗。
+  it('keeps legacy condition generator output byte-stable via file snapshots', async () => {
     const legacyConditions: EntryCondition[] = [
       {
         type: 'maCross',
@@ -230,45 +230,18 @@ describe('mql generation', () => {
         comparison: 'crossBelow',
       },
     ];
-    const expectedHashes = [
-      {
-        mql4: '1f07954d19a07e156ca8f1d308317f9ea8542faf09dcb39fc53b7d03e6c8f038',
-        mql5: '283cde89fa6211c05fe739552cc279355193f41742be96d9efa52e5ab895f624',
-      },
-      {
-        mql4: 'c14c059d9565aeff93b2b2ef775b00e14bf4bb3f41bf4291ea58a33e6c6bb09c',
-        mql5: '2fbcb467dd99ff05263025aecabc5f97664775420bf9d49f012ccce2b47c7c2c',
-      },
-      {
-        mql4: '9a3d6db7329f8fe1eeed92ec9b97ed09e50768181c8152bdbc10f00f106f913c',
-        mql5: 'f4c3765a30bea0f7c788286ed57071535f8e44ae7f1f9469e8499303e119e198',
-      },
-      {
-        mql4: 'b69308c63655f4f0172b9bd9d8131545bf3e93fdc88ed7c63810b44f5ebfc676',
-        mql5: '5950b2d3786740af2f6de83c8bdfd794bb412ab01e898b5376ed3a845c86d480',
-      },
-      {
-        mql4: '2317b6944eaa6a2609a0e848b637305b7bb0ea5f268cef2eaf0220fcb30b8ca9',
-        mql5: '88ede4e25ceca3accaca5ac7ae77bd0b0ff95c408853210bcece04b64d23856c',
-      },
-      {
-        mql4: '8371ce5067f409c8ee4fc6cdf8f64761166ac156628991d0c72dab0902e7c2e2',
-        mql5: 'b81879f9c6feee50dd50c8219e3a1f064b0e9b38bbb546dc003a7b4801defc58',
-      },
-      {
-        mql4: 'af422b380f0017e2dd995bef556d5f117bd439b99e21f15e5781832d5bf5ac80',
-        mql5: 'ccb91cf54131b4c86c404d6ae0863c445670925905d0cd572466e7cd4cbfc590',
-      },
-    ];
-
-    for (const [index, condition] of legacyConditions.entries()) {
+    for (const condition of legacyConditions) {
       const strategy: StrategyDefinition = {
         ...fullStrategy,
         id: `legacy-${condition.type}`,
         entryConditions: [condition],
       };
-      expect(sourceHash(generateMql4(strategy))).toBe(expectedHashes[index].mql4);
-      expect(sourceHash(generateMql5(strategy))).toBe(expectedHashes[index].mql5);
+      await expect(generateMql4(strategy)).toMatchFileSnapshot(
+        mqlSnapshotPath(`mql-legacy-${condition.type}.mq4`),
+      );
+      await expect(generateMql5(strategy)).toMatchFileSnapshot(
+        mqlSnapshotPath(`mql-legacy-${condition.type}.mq5`),
+      );
     }
   });
 
@@ -394,7 +367,7 @@ describe('mql generation', () => {
     }
   });
 
-  it('generates shift-1 Keltner breakout signals with platform indicator guards', () => {
+  it('generates shift-1 Keltner breakout signals with platform indicator guards', async () => {
     const strategy: StrategyDefinition = {
       ...fullStrategy,
       entryConditions: [
@@ -441,6 +414,10 @@ describe('mql generation', () => {
     expect(mql4).toContain('return close1 >= upper;');
     expect(mql4).toContain('return close1 <= lower;');
     expect(mql4).toContain('EMA warm-up note');
+    expect(mql5).toContain('if(atrValue <= 0.0)');
+    expect(mql4).toContain('if(atrValue <= 0.0)');
+    await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-keltner.mq5'));
+    await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-keltner.mq4'));
     expectBalanced(mql5);
     expectBalanced(mql4);
   });

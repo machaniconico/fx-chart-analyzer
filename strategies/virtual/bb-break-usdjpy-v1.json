@@ -10,6 +10,29 @@
   "id": "bb-break-usdjpy-v1",
   "name": "ドル円BBブレイク順張り",
   "description": "ボリンジャーバンド(20,2)のバンドブレイクを両方向で追随します。2026-08-17の深履歴チューニング(737日窓・検証166取引・PF1.34=合格18候補中で最大サンプル)で選定(SL39/TP45)。",
+  "selectionEvidence": {
+    "adoptedAt": "2026-08-17",
+    "reportId": "tune-virtual-strategies-2026-08-17T16-11-14-568Z",
+    "reportLabel": "改善ウェーブ2・48候補深履歴ラン",
+    "candidatePool": 48,
+    "rankNote": "検証+30.6万円/166取引=当時の全候補中最大サンプル",
+    "optimization": {
+      "netProfitYen": 240449,
+      "profitFactor": 1.07,
+      "tradeCount": 563
+    },
+    "validation": {
+      "netProfitYen": 306474,
+      "profitFactor": 1.34
+    },
+    "quarterlyStability": {
+      "positive": 3,
+      "total": 4
+    },
+    "reservations": [
+      "四半期安定性は後日の追検査による"
+    ]
+  },
   "direction": "long",
   "entryDirections": [
     "long",

@@ -76,6 +76,27 @@ const strategy = {
   magicNumber: 1,
 };
 
+const selectionEvidence = {
+  adoptedAt: '2026-08-18',
+  reportId: 'selection-report-v1',
+  candidatePool: 96,
+  inSampleRank: 2,
+  optimization: {
+    netProfitYen: 269980,
+    profitFactor: 1.2,
+    tradeCount: 171,
+  },
+  validation: {
+    netProfitYen: 117940,
+    profitFactor: 1.24,
+  },
+  quarterlyStability: {
+    positive: 4,
+    total: 4,
+  },
+  reservations: ['採用時点の留保'],
+};
+
 const emptyBacktestResult = (bars) => ({
   pair: 'USDJPY',
   spreadPips: 0.9,
@@ -167,6 +188,76 @@ describe('forward test runner', () => {
       },
       barsEvaluated: 0,
     });
+  });
+
+  it('passes validated selection evidence through to each result strategy', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'fx-forward-selection-evidence-test-'));
+    const virtualDirectory = path.join(root, 'strategies/virtual');
+    try {
+      await mkdir(virtualDirectory, { recursive: true });
+      await writeFile(
+        path.join(virtualDirectory, `${strategy.meta.id}.json`),
+        `${JSON.stringify({ ...strategy, selectionEvidence }, null, 2)}\n`,
+        'utf8',
+      );
+
+      const artifacts = await buildForwardArtifacts({
+        strategiesDirectory: virtualDirectory,
+        loadBarsFor: async () => [bar(registeredAt), bar(registeredAt + 60)],
+        runBacktest: emptyBacktestResult,
+        evaluateRetirement: () => ({ status: 'active', reason: 'test' }),
+        retiredLedger: { schemaVersion: 1, strategies: {} },
+      });
+
+      expect(artifacts.results.strategies).toHaveLength(1);
+      expect(artifacts.results.strategies[0].selectionEvidence).toEqual(selectionEvidence);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps legacy strategies without selection evidence unchanged', () => {
+    const report = buildStrategyReport({
+      strategy,
+      bars: [bar(registeredAt)],
+      usdJpyBars: [bar(registeredAt)],
+      runBacktest: emptyBacktestResult,
+    });
+
+    expect(Object.hasOwn(report, 'selectionEvidence')).toBe(false);
+  });
+
+  it.each([
+    {
+      name: 'non-object evidence',
+      selectionEvidence: null,
+      expected: /selectionEvidence must be an object/,
+    },
+    {
+      name: 'wrong report id type',
+      selectionEvidence: { ...selectionEvidence, reportId: 123 },
+      expected: /selectionEvidence\.reportId must be a non-empty string/,
+    },
+    {
+      name: 'wrong report label type',
+      selectionEvidence: { ...selectionEvidence, reportLabel: 123 },
+      expected: /selectionEvidence\.reportLabel must be a non-empty string/,
+    },
+    {
+      name: 'wrong optimization trade count type',
+      selectionEvidence: {
+        ...selectionEvidence,
+        optimization: { ...selectionEvidence.optimization, tradeCount: '171' },
+      },
+      expected: /selectionEvidence\.optimization\.tradeCount must be a non-negative integer/,
+    },
+  ])('throws for malformed selection evidence: $name', ({ selectionEvidence: invalid, expected }) => {
+    expect(() => buildStrategyReport({
+      strategy: { ...strategy, selectionEvidence: invalid },
+      bars: [bar(registeredAt)],
+      usdJpyBars: [bar(registeredAt)],
+      runBacktest: emptyBacktestResult,
+    })).toThrow(expected);
   });
 
   it('rejects invalid virtual strategy JSON before running backtests', () => {

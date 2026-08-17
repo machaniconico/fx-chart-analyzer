@@ -1,4 +1,5 @@
 import {
+  atr,
   bollingerBands,
   donchian,
   ema,
@@ -288,6 +289,11 @@ const compareRsi = (
   }
 };
 
+type KeltnerEvaluation = {
+  channel: KeltnerChannel;
+  atrValues: IndicatorPoint[];
+};
+
 export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator => {
   const closes = bars.map((bar) => bar.c);
   const highs = bars.map((bar) => bar.h);
@@ -298,7 +304,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const macdCache = new Map<string, MacdResult>();
   const ichimokuCache = new Map<string, IchimokuResult>();
   const donchianCache = new Map<number, DonchianResult>();
-  const keltnerCache = new Map<string, KeltnerChannel>();
+  const keltnerCache = new Map<string, KeltnerEvaluation>();
   const stochasticCache = new Map<string, StochasticResult>();
 
   const getMa = (type: MovingAverageType, period: number): IndicatorPoint[] => {
@@ -399,7 +405,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     emaPeriod: number,
     atrPeriod: number,
     multiplier: number,
-  ): KeltnerChannel => {
+  ): KeltnerEvaluation => {
     const normalizedEmaPeriod = normalizePeriod(emaPeriod);
     const normalizedAtrPeriod = normalizePeriod(atrPeriod);
     const key = `${normalizedEmaPeriod}:${normalizedAtrPeriod}:${multiplier}`;
@@ -407,14 +413,17 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     if (cached) {
       return cached;
     }
-    const values = keltnerChannel(
-      highs,
-      lows,
-      closes,
-      normalizedEmaPeriod,
-      normalizedAtrPeriod,
-      multiplier,
-    );
+    const values = {
+      channel: keltnerChannel(
+        highs,
+        lows,
+        closes,
+        normalizedEmaPeriod,
+        normalizedAtrPeriod,
+        multiplier,
+      ),
+      atrValues: atr(highs, lows, closes, normalizedAtrPeriod),
+    };
     keltnerCache.set(key, values);
     return values;
   };
@@ -514,14 +523,21 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
         return isNumber(boundary) && (isShort ? closes[index] < boundary : closes[index] > boundary);
       }
       case 'keltnerBreak': {
-        const channel = getKeltner(
+        const { channel, atrValues } = getKeltner(
           condition.emaPeriod,
           condition.atrPeriod,
           condition.multiplier,
         );
         const upper = channel.upper[index];
         const lower = channel.lower[index];
-        if (!isNumber(upper) || !isNumber(lower) || !Number.isFinite(closes[index])) {
+        const atrValue = atrValues[index];
+        if (
+          !isNumber(atrValue) ||
+          atrValue <= 0 ||
+          !isNumber(upper) ||
+          !isNumber(lower) ||
+          !Number.isFinite(closes[index])
+        ) {
           return false;
         }
         return isShort ? closes[index] <= lower : closes[index] >= upper;

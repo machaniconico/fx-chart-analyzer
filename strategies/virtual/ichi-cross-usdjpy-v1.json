@@ -10,6 +10,30 @@
   "id": "ichi-cross-usdjpy-v1",
   "name": "ドル円一目クロス順張り",
   "description": "一目均衡表(9,26,52)の転換線/基準線クロスを雲フィルタ付きで両方向に追随します。2026-08-18の深履歴チューニング(737日窓・84候補)で全候補中の最適化期間利益1位(+325,815円/PF1.32/163取引、検証もPF1.57で順行)として選定(SL32/TP54)。",
+  "selectionEvidence": {
+    "adoptedAt": "2026-08-18",
+    "reportId": "tune-virtual-strategies-2026-08-17T19-57-25-508Z",
+    "reportLabel": "改善ウェーブ4・84候補深履歴ラン",
+    "candidatePool": 84,
+    "inSampleRank": 1,
+    "optimization": {
+      "netProfitYen": 325815,
+      "profitFactor": 1.32,
+      "tradeCount": 163
+    },
+    "validation": {
+      "netProfitYen": 178190,
+      "profitFactor": 1.57
+    },
+    "quarterlyStability": {
+      "positive": 4,
+      "total": 4
+    },
+    "reservations": [
+      "USDJPY集中(採用時3/6)",
+      "四半期安定性は同日後続の追検査(walk-forwardラン)による"
+    ]
+  },
   "direction": "long",
   "entryDirections": [
     "long",

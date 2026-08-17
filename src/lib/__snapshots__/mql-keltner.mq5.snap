@@ -1,0 +1,458 @@
+#property strict
+#property description "FullTestEA"
+
+// Session filter uses broker server time via TimeCurrent(); it is independent of this app's backtest UTC offset.
+// In Strategy Tester, economic calendar data can be unavailable. If CalendarValueHistory fails,
+// the MQL5 news filter blocks entries while NewsFilterEnable is true.
+
+#include <Trade/Trade.mqh>
+CTrade trade;
+
+input int InpLotSizingMode = 0; // 0=fixed lot, 1=fixed risk %, 2=compound balance %
+input double InpLots = 0.2;
+input double InpInitialBalance = 1000000;
+input double InpRiskPercent = 1;
+input double InpMaxLots = 100;
+input int InpMagicNumber = 67890;
+input bool InpTradeLong = true;
+input bool InpSessionFilterEnable = true;
+input string InpSessionStart = "08:00";
+input string InpSessionEnd = "17:30";
+input bool NewsFilterEnable = true;
+input int NewsBlockMinutes = 45;
+input int InpStopLossPips = 25;
+input int InpTakeProfitPips = 50;
+input bool InpUseTrailingStop = true;
+input int InpTrailingStopPips = 15;
+input bool InpCloseOnOppositeSignal = true;
+input int InpKeltner1EmaPeriod = 20;
+input int InpKeltner1AtrPeriod = 10;
+input double InpKeltner1Multiplier = 2;
+
+datetime lastBarTime = 0;
+int keltner1EmaHandle = INVALID_HANDLE;
+int keltner1AtrHandle = INVALID_HANDLE;
+
+double PipPoint()
+{
+  if(_Digits == 3 || _Digits == 5)
+  {
+    return _Point * 10.0;
+  }
+  return _Point;
+}
+
+double NormalizeLots(double lots)
+{
+  double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+  double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+  double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+  if(minLot <= 0.0)
+  {
+    minLot = 0.01;
+  }
+  if(maxLot <= 0.0)
+  {
+    maxLot = lots;
+  }
+  if(InpMaxLots > 0.0)
+  {
+    maxLot = MathMin(maxLot, InpMaxLots);
+  }
+  lots = MathMax(minLot, MathMin(maxLot, lots));
+  if(step > 0.0)
+  {
+    lots = MathFloor(lots / step) * step;
+  }
+  return NormalizeDouble(lots, 2);
+}
+
+double LotSizeForEntry()
+{
+  if(InpLotSizingMode == 0)
+  {
+    return NormalizeLots(InpLots);
+  }
+  // Fixed-risk live sizing uses the current account balance and broker tick value.
+  double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+  if(InpLotSizingMode == 2)
+  {
+    if(balance <= 0.0 || InpInitialBalance <= 0.0)
+    {
+      return NormalizeLots(InpLots);
+    }
+    return NormalizeLots(InpLots * balance / InpInitialBalance);
+  }
+  if(InpRiskPercent <= 0.0 || InpStopLossPips <= 0)
+  {
+    return NormalizeLots(InpLots);
+  }
+  double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+  double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+  double pipValuePerLot = tickSize > 0.0 ? tickValue * (PipPoint() / tickSize) : 0.0;
+  if(balance <= 0.0 || pipValuePerLot <= 0.0)
+  {
+    return NormalizeLots(InpLots);
+  }
+  double riskAmount = balance * InpRiskPercent / 100.0;
+  double spreadPips = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point / PipPoint();
+  double riskPips = InpStopLossPips + MathMax(0.0, spreadPips);
+  return NormalizeLots(riskAmount / (riskPips * pipValuePerLot));
+}
+
+bool ValueReady(double value)
+{
+  return value != EMPTY_VALUE && value == value;
+}
+
+bool CrossedAbove(double previousFast, double previousSlow, double currentFast, double currentSlow)
+{
+  return previousFast <= previousSlow && currentFast > currentSlow;
+}
+
+bool CrossedBelow(double previousFast, double previousSlow, double currentFast, double currentSlow)
+{
+  return previousFast >= previousSlow && currentFast < currentSlow;
+}
+
+int TimeTextToMinutes(string value)
+{
+  int separator = StringFind(value, ":");
+  if(separator < 0)
+  {
+    return 0;
+  }
+  int hour = (int)StringToInteger(StringSubstr(value, 0, separator));
+  int minute = (int)StringToInteger(StringSubstr(value, separator + 1));
+  if(hour < 0)
+  {
+    hour = 0;
+  }
+  if(hour > 23)
+  {
+    hour = 23;
+  }
+  if(minute < 0)
+  {
+    minute = 0;
+  }
+  if(minute > 59)
+  {
+    minute = 59;
+  }
+  return hour * 60 + minute;
+}
+
+bool IsInTradingSession()
+{
+  if(!InpSessionFilterEnable)
+  {
+    return true;
+  }
+  MqlDateTime current;
+  TimeToStruct(TimeCurrent(), current);
+  int nowMinutes = current.hour * 60 + current.min;
+  int startMinutes = TimeTextToMinutes(InpSessionStart);
+  int endMinutes = TimeTextToMinutes(InpSessionEnd);
+  if(startMinutes == endMinutes)
+  {
+    return true;
+  }
+  if(startMinutes < endMinutes)
+  {
+    return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+  }
+  return nowMinutes >= startMinutes || nowMinutes < endMinutes;
+}
+
+string BaseCurrency()
+{
+  if(StringLen(_Symbol) < 6)
+  {
+    return "";
+  }
+  return StringSubstr(_Symbol, 0, 3);
+}
+
+string QuoteCurrency()
+{
+  if(StringLen(_Symbol) < 6)
+  {
+    return "";
+  }
+  return StringSubstr(_Symbol, 3, 3);
+}
+
+bool CurrencyHasHighImpactNews(string currency, datetime fromTime, datetime toTime)
+{
+  if(currency == "")
+  {
+    return false;
+  }
+  MqlCalendarValue values[];
+  ResetLastError();
+  if(!CalendarValueHistory(values, fromTime, toTime, NULL, currency))
+  {
+    return true;
+  }
+  int count = ArraySize(values);
+  if(count <= 0)
+  {
+    return false;
+  }
+  for(int i = 0; i < count; i++)
+  {
+    MqlCalendarEvent eventInfo;
+    if(CalendarEventById(values[i].event_id, eventInfo) && eventInfo.importance == CALENDAR_IMPORTANCE_HIGH)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool IsHighImpactNewsWindow()
+{
+  if(!NewsFilterEnable || NewsBlockMinutes <= 0)
+  {
+    return false;
+  }
+  datetime nowTime = TimeCurrent();
+  datetime fromTime = nowTime - NewsBlockMinutes * 60;
+  datetime toTime = nowTime + NewsBlockMinutes * 60;
+  return CurrencyHasHighImpactNews(BaseCurrency(), fromTime, toTime) ||
+    CurrencyHasHighImpactNews(QuoteCurrency(), fromTime, toTime);
+}
+
+bool EntryFiltersAllow()
+{
+  return IsInTradingSession() && !IsHighImpactNewsWindow();
+}
+
+bool EnsureIndicator(int handle, string label)
+{
+  if(handle != INVALID_HANDLE)
+  {
+    return true;
+  }
+  Print(label, " handle creation failed: ", GetLastError());
+  return false;
+}
+
+void ReleaseIndicator(int &handle)
+{
+  if(handle == INVALID_HANDLE)
+  {
+    return;
+  }
+  IndicatorRelease(handle);
+  handle = INVALID_HANDLE;
+}
+
+double BufferValue(int handle, int bufferIndex, int shift)
+{
+  if(handle == INVALID_HANDLE)
+  {
+    return EMPTY_VALUE;
+  }
+  double values[];
+  ArraySetAsSeries(values, true);
+  int copied = CopyBuffer(handle, bufferIndex, shift, 1, values);
+  if(copied <= 0)
+  {
+    return EMPTY_VALUE;
+  }
+  return values[0];
+}
+
+int OnInit()
+{
+  keltner1EmaHandle = iMA(_Symbol, _Period, InpKeltner1EmaPeriod, 0, MODE_EMA, PRICE_CLOSE);
+  keltner1AtrHandle = iATR(_Symbol, _Period, InpKeltner1AtrPeriod);
+  if(!EnsureIndicator(keltner1EmaHandle, "Keltner1 EMA") || !EnsureIndicator(keltner1AtrHandle, "Keltner1 ATR"))
+  {
+    return INIT_FAILED;
+  }
+  return INIT_SUCCEEDED;
+}
+
+void OnDeinit(const int reason)
+{
+  ReleaseIndicator(keltner1EmaHandle);
+  ReleaseIndicator(keltner1AtrHandle);
+}
+
+
+
+// ATR parity basis: MetaQuotes documents ATR as a moving average of True Range;
+// the official MetaQuotes ATR implementation/article uses a Simple Moving Average
+// of TR, not Wilder/SMMA smoothing. See https://www.mql5.com/en/articles/16931
+// and https://www.mql5.com/en/code/12.
+// EMA warm-up note: the TS ema() seeds with the first EMA-period SMA, while
+// MT4/MT5 iMA(MODE_EMA) may converge differently during warm-up. The history
+// guard below keeps the EA fail-closed until both platform indicators are ready.
+bool Condition1(bool longSide)
+{
+  int requiredPeriod = InpKeltner1EmaPeriod;
+  if(InpKeltner1AtrPeriod > requiredPeriod)
+  {
+    requiredPeriod = InpKeltner1AtrPeriod;
+  }
+  if(requiredPeriod < 1)
+  {
+    requiredPeriod = 1;
+  }
+  if(iTime(_Symbol, _Period, requiredPeriod + 1) == 0)
+  {
+    return false;
+  }
+  double middle = BufferValue(keltner1EmaHandle, 0, 1);
+  double atrValue = BufferValue(keltner1AtrHandle, 0, 1);
+  double close1 = iClose(_Symbol, _Period, 1);
+  if(!ValueReady(middle) || !ValueReady(atrValue) || !ValueReady(close1))
+  {
+    return false;
+  }
+  if(atrValue <= 0.0)
+  {
+    return false;
+  }
+  double upper = middle + InpKeltner1Multiplier * atrValue;
+  double lower = middle - InpKeltner1Multiplier * atrValue;
+  if(!ValueReady(upper) || !ValueReady(lower))
+  {
+    return false;
+  }
+  if(longSide)
+  {
+    return close1 >= upper;
+  }
+  return close1 <= lower;
+}
+
+
+bool EntrySignal(bool longSide)
+{
+  return Condition1(longSide);
+}
+
+
+bool IsNewBar()
+{
+  datetime currentBarTime = iTime(_Symbol, _Period, 0);
+  if(currentBarTime == 0)
+  {
+    return false;
+  }
+  if(currentBarTime == lastBarTime)
+  {
+    return false;
+  }
+  lastBarTime = currentBarTime;
+  return true;
+}
+
+bool SelectCurrentPosition()
+{
+  for(int i = PositionsTotal() - 1; i >= 0; i--)
+  {
+    ulong ticket = PositionGetTicket(i);
+    if(ticket == 0)
+    {
+      continue;
+    }
+    if(!PositionSelectByTicket(ticket))
+    {
+      continue;
+    }
+    if(PositionGetString(POSITION_SYMBOL) == _Symbol && (int)PositionGetInteger(POSITION_MAGIC) == InpMagicNumber)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+void OpenPosition()
+{
+  double pip = PipPoint();
+  double lots = LotSizeForEntry();
+  trade.SetExpertMagicNumber(InpMagicNumber);
+  trade.SetDeviationInPoints(20);
+  if(InpTradeLong)
+  {
+    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double sl = NormalizeDouble(ask - InpStopLossPips * pip, _Digits);
+    double tp = NormalizeDouble(ask + InpTakeProfitPips * pip, _Digits);
+    trade.Buy(lots, _Symbol, ask, sl, tp, "FullTestEA");
+    return;
+  }
+  double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+  double sl = NormalizeDouble(bid + InpStopLossPips * pip, _Digits);
+  double tp = NormalizeDouble(bid - InpTakeProfitPips * pip, _Digits);
+  trade.Sell(lots, _Symbol, bid, sl, tp, "FullTestEA");
+}
+
+void CloseCurrentPosition()
+{
+  if(!SelectCurrentPosition())
+  {
+    return;
+  }
+  ulong ticket = (ulong)PositionGetInteger(POSITION_TICKET);
+  trade.PositionClose(ticket);
+}
+
+void ManageTrailingStop()
+{
+  if(!InpUseTrailingStop || InpTrailingStopPips <= 0)
+  {
+    return;
+  }
+  if(!SelectCurrentPosition())
+  {
+    return;
+  }
+  double pip = PipPoint();
+  ulong ticket = (ulong)PositionGetInteger(POSITION_TICKET);
+  double currentSL = PositionGetDouble(POSITION_SL);
+  double currentTP = PositionGetDouble(POSITION_TP);
+  long positionType = PositionGetInteger(POSITION_TYPE);
+  if(positionType == POSITION_TYPE_BUY)
+  {
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double nextSL = NormalizeDouble(bid - InpTrailingStopPips * pip, _Digits);
+    if((currentSL == 0.0 || nextSL > currentSL) && nextSL < bid)
+    {
+      trade.PositionModify(ticket, nextSL, currentTP);
+    }
+    return;
+  }
+  double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+  double nextSL = NormalizeDouble(ask + InpTrailingStopPips * pip, _Digits);
+  if((currentSL == 0.0 || nextSL < currentSL) && nextSL > ask)
+  {
+    trade.PositionModify(ticket, nextSL, currentTP);
+  }
+}
+
+void OnTick()
+{
+  ManageTrailingStop();
+  if(!IsNewBar())
+  {
+    return;
+  }
+  if(SelectCurrentPosition())
+  {
+    if(InpCloseOnOppositeSignal && EntrySignal(!InpTradeLong))
+    {
+      CloseCurrentPosition();
+    }
+    return;
+  }
+  if(EntryFiltersAllow() && EntrySignal(InpTradeLong))
+  {
+    OpenPosition();
+  }
+}
