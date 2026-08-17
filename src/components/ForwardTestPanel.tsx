@@ -8,10 +8,13 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatPrice } from '../lib/chart-data';
 import {
+  hasOperationStatus,
   loadForwardResults,
+  loadRetiredForwardStrategies,
   type ForwardMetrics,
   type ForwardResultsFile,
   type ForwardStrategyResult,
+  type RetiredForwardStrategy,
 } from '../lib/forward-test';
 import { evaluateForwardStatus } from '../lib/forwardStatus';
 import type { BacktestTrade } from '../lib/backtest';
@@ -54,6 +57,18 @@ const formatPercent = (value: number | null): string =>
 
 const formatPips = (value: number | null): string =>
   value === null ? '-' : `${value.toFixed(1)} pips`;
+
+const formatProfitFactor = (value: number | null): string =>
+  value === null ? '∞（損失0）' : value.toFixed(2);
+
+const operationStatusLabels: Record<
+  NonNullable<ForwardStrategyResult['operationStatus']>['status'],
+  string
+> = {
+  active: '運用中',
+  probation: '要注意',
+  retire_candidate: '退役候補',
+};
 
 const dateLabel = (timestamp: number): string =>
   new Date(timestamp * 1000).toLocaleString('ja-JP', {
@@ -218,6 +233,16 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResultWithHi
   const confirmed = isConfirmedHistory(forward);
   const actualLabel = confirmed ? '確定実績' : '再計算値';
   const forwardStatus = evaluateForwardStatus(forward.metrics);
+  let operationStatus: ForwardStrategyResult['operationStatus'];
+  if (hasOperationStatus(strategy)) {
+    operationStatus = strategy.operationStatus;
+  }
+  // 「運用非推奨」の重複解消は、赤の運用非推奨ボックスが実際に出る
+  // retire_candidate のときだけ行う。probation では成績バッジ側の警告文言を
+  // 残さないと、PF0.9未満(取引10〜19件)の助言が従来より弱まる。
+  const performanceStatusLabel = operationStatus?.status === 'retire_candidate'
+    ? forwardStatus.label.replace('(この設定での運用は非推奨)', '')
+    : forwardStatus.label;
   const referenceAvailable = !strategy.backtestReferenceCoverage
     || strategy.backtestReferenceCoverage.barsEvaluated > 0;
   const tradeCountFormatter = (value: number | null): string =>
@@ -238,12 +263,38 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResultWithHi
                 : `${forward.confirmedThrough}まで確定`
               : registeredDayLabel(meta.registeredAt, now)}
           </span>
-          <strong className={`forward-status-badge forward-status-${forwardStatus.tone}`}>
-            {forwardStatus.label}
-          </strong>
+          <div className="forward-status-badges">
+            <strong className={`forward-status-badge forward-status-${forwardStatus.tone}`}>
+              成績: {performanceStatusLabel}
+            </strong>
+            {operationStatus && (
+              <strong
+                className={`forward-operation-badge forward-operation-${operationStatus.status}`}
+              >
+                運用状態: {operationStatusLabels[operationStatus.status]}
+                <span className="forward-operation-reason-sr">
+                  。判定理由: {operationStatus.reason}
+                </span>
+              </strong>
+            )}
+          </div>
           <small className="forward-status-detail">{forwardStatus.detail}</small>
         </div>
       </header>
+
+      {operationStatus?.status === 'probation' && (
+        <div className="forward-operation-alert forward-operation-alert-probation" role="note">
+          <strong>注意して経過観察</strong>
+          <span>運用判断を保留し、確定実績を継続して監視してください。</span>
+        </div>
+      )}
+
+      {operationStatus?.status === 'retire_candidate' && (
+        <div className="forward-operation-alert forward-operation-alert-retire" role="note">
+          <strong>運用非推奨</strong>
+          <span>フォワード実績により退役候補と判定されています。</span>
+        </div>
+      )}
 
       <div className="forward-waiting-message">
         {confirmed ? (
@@ -389,8 +440,86 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResultWithHi
   );
 }
 
+const retiredDateLabel = (value: string | number): string => {
+  const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('ja-JP');
+};
+
+const retiredOperationPeriodLabel = (strategy: RetiredForwardStrategy): string => {
+  const { operationPeriod } = strategy.finalSnapshot;
+  const start = operationPeriod.firstConfirmedDate
+    ?? retiredDateLabel(operationPeriod.registeredAt);
+  const end = operationPeriod.confirmedThrough
+    ?? retiredDateLabel(strategy.retiredAt);
+  return `${start}〜${end}（確定${operationPeriod.confirmedDayCount.toLocaleString('ja-JP')}日）`;
+};
+
+function RetiredStrategyArchive({ strategies }: { strategies: RetiredForwardStrategy[] }) {
+  return (
+    <section className="forward-retired-archive" aria-labelledby="forward-retired-title">
+      <header className="forward-retired-heading">
+        <div>
+          <p className="eyebrow">退役実績アーカイブ</p>
+          <h2 id="forward-retired-title">退役したEA</h2>
+        </div>
+        <p>最終確定成績と退役判断を記録したまま公開しています。</p>
+      </header>
+
+      <div className="forward-retired-grid">
+        {strategies.map((strategy) => {
+          const { finalSnapshot, meta } = strategy;
+          return (
+            <article
+              className="forward-retired-card"
+              key={`${strategy.strategyId}@${strategy.meta.registeredAt}`}
+            >
+              <header>
+                <div>
+                  <p className="eyebrow">{meta.pair} / {timeframeLabels[meta.timeframe]}</p>
+                  <h3>{meta.name}</h3>
+                </div>
+                <span className="forward-retired-date">
+                  退役日 {retiredDateLabel(strategy.retiredAt)}
+                </span>
+              </header>
+
+              <dl className="forward-retired-metrics">
+                <div>
+                  <dt>最終累積損益</dt>
+                  <dd className={finalSnapshot.cumulativeProfitYen >= 0 ? 'metric-up' : 'metric-down'}>
+                    {formatYen(finalSnapshot.cumulativeProfitYen)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>最終取引数</dt>
+                  <dd>{finalSnapshot.tradeCount.toLocaleString('ja-JP')}件</dd>
+                </div>
+                <div>
+                  <dt>最終PF</dt>
+                  <dd>{formatProfitFactor(finalSnapshot.profitFactor)}</dd>
+                </div>
+              </dl>
+
+              <div className="forward-retired-period">
+                <strong>運用期間</strong>
+                <span>{retiredOperationPeriodLabel(strategy)}</span>
+              </div>
+
+              <div className="forward-retired-reason">
+                <strong>退役理由</strong>
+                <p>{strategy.reason}</p>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function ForwardTestPanel({ now }: ForwardTestPanelProps) {
   const [results, setResults] = useState<ForwardResultsFileWithHistory | null>(null);
+  const [retiredStrategies, setRetiredStrategies] = useState<RetiredForwardStrategy[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -398,6 +527,7 @@ export function ForwardTestPanel({ now }: ForwardTestPanelProps) {
     let disposed = false;
     setLoading(true);
     setError(null);
+    setRetiredStrategies([]);
     loadForwardResults()
       .then((payload) => {
         if (!disposed) {
@@ -413,6 +543,20 @@ export function ForwardTestPanel({ now }: ForwardTestPanelProps) {
       .finally(() => {
         if (!disposed) {
           setLoading(false);
+        }
+      });
+
+    loadRetiredForwardStrategies()
+      .then((retired) => {
+        if (!disposed) {
+          setRetiredStrategies(
+            [...retired].sort((left, right) => right.retiredAt.localeCompare(left.retiredAt)),
+          );
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setRetiredStrategies([]);
         }
       });
 
@@ -451,6 +595,10 @@ export function ForwardTestPanel({ now }: ForwardTestPanelProps) {
           <StrategyCard key={strategy.meta.id} strategy={strategy} now={now} />
         ))}
       </div>
+
+      {retiredStrategies.length > 0 && (
+        <RetiredStrategyArchive strategies={retiredStrategies} />
+      )}
 
       <p className="forward-disclaimer">
         確定実績は登録済みルールを日次データへ適用して保存した仮想運用結果であり、実口座の取引履歴ではありません。

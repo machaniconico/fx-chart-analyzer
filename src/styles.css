@@ -1433,7 +1433,8 @@ input:disabled {
 .trade-table-card,
 .calendar-panel,
 .forward-overview,
-.forward-strategy-card {
+.forward-strategy-card,
+.forward-retired-archive {
   background: #10151f;
   border: 1px solid rgba(142, 155, 179, 0.18);
   border-radius: 8px;
@@ -1564,7 +1565,15 @@ input:disabled {
   font-size: 12px;
 }
 
-.forward-status-badge {
+.forward-status-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.forward-status-badge,
+.forward-operation-badge {
   display: inline-flex;
   max-width: 100%;
   justify-content: center;
@@ -1575,6 +1584,36 @@ input:disabled {
   line-height: 1.4;
   overflow-wrap: anywhere;
   text-align: center;
+}
+
+.forward-operation-active {
+  border-color: rgba(32, 201, 151, 0.48);
+  background: rgba(32, 201, 151, 0.12);
+  color: #57ddb5;
+}
+
+.forward-operation-probation {
+  border-color: rgba(246, 200, 95, 0.58);
+  background: rgba(246, 200, 95, 0.15);
+  color: #f6c85f;
+}
+
+.forward-operation-retire_candidate {
+  border-color: rgba(255, 91, 120, 0.64);
+  background: rgba(255, 91, 120, 0.18);
+  color: #ff8b9e;
+}
+
+.forward-operation-reason-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .forward-status-block .forward-status-positive {
@@ -1599,6 +1638,33 @@ input:disabled {
   color: #b9c2d0;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.forward-operation-alert {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+  border: 1px solid;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.forward-operation-alert strong {
+  flex: 0 0 auto;
+}
+
+.forward-operation-alert-probation {
+  border-color: rgba(246, 200, 95, 0.48);
+  background: rgba(246, 200, 95, 0.12);
+  color: #f6c85f;
+}
+
+.forward-operation-alert-retire {
+  border-color: rgba(255, 91, 120, 0.56);
+  background: rgba(255, 91, 120, 0.14);
+  color: #ff8b9e;
 }
 
 .forward-waiting-message {
@@ -1687,6 +1753,121 @@ input:disabled {
 
 .forward-trade-table {
   min-width: 900px;
+}
+
+.forward-retired-archive {
+  display: grid;
+  gap: 14px;
+}
+
+.forward-retired-heading,
+.forward-retired-card > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.forward-retired-heading h2,
+.forward-retired-card h3 {
+  margin: 0;
+}
+
+.forward-retired-heading h2 {
+  font-size: 20px;
+}
+
+.forward-retired-heading > p {
+  max-width: 520px;
+  margin: 0;
+  color: #b9c2d0;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.forward-retired-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.forward-retired-card {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  border: 1px solid rgba(142, 155, 179, 0.2);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(17, 24, 36, 0.72);
+}
+
+.forward-retired-card h3 {
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.forward-retired-date {
+  flex: 0 0 auto;
+  border: 1px solid rgba(142, 155, 179, 0.3);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #b9c2d0;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.forward-retired-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.forward-retired-metrics div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(142, 155, 179, 0.14);
+  border-radius: 7px;
+  padding: 9px;
+  background: rgba(11, 16, 24, 0.44);
+}
+
+.forward-retired-metrics dt,
+.forward-retired-period strong,
+.forward-retired-reason strong {
+  color: #8e9bb3;
+  font-size: 11px;
+}
+
+.forward-retired-metrics dd {
+  margin: 0;
+  color: #ecf2ff;
+  font-size: 16px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.forward-retired-period,
+.forward-retired-reason {
+  display: grid;
+  gap: 4px;
+}
+
+.forward-retired-period span,
+.forward-retired-reason p {
+  margin: 0;
+  color: #d8e0ee;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.forward-retired-reason {
+  border-left: 3px solid rgba(255, 91, 120, 0.58);
+  padding-left: 10px;
 }
 
 .forward-disclaimer {
@@ -2075,6 +2256,8 @@ footer {
   .panel-heading,
   .forward-overview,
   .forward-strategy-heading,
+  .forward-retired-heading,
+  .forward-retired-card > header,
   .signal-item,
   .recommendation-section-heading,
   .recommendation-card-heading,
@@ -2096,6 +2279,23 @@ footer {
     width: 100%;
     min-width: 0;
     justify-items: start;
+  }
+
+  .forward-status-badges {
+    justify-content: flex-start;
+  }
+
+  .forward-retired-heading > p {
+    max-width: none;
+    text-align: left;
+  }
+
+  .forward-retired-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .forward-retired-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .recommendation-trade-grid {
