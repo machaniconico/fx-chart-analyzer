@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "computedAt": "2026-08-17T16:13:07.616Z",
+  "computedAt": "2026-08-17T17:04:57.638Z",
   "strategies": [
     {
       "meta": {
@@ -1297,6 +1297,75 @@
         "firstBarAt": 1739966400,
         "lastBarAt": 1786737600,
         "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "stoch-rev-eurjpy-v1",
+        "name": "ユーロ円ストキャス逆張り",
+        "version": 1,
+        "pair": "EURJPY",
+        "timeframe": "m30",
+        "registeredAt": 1786986277
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.1,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.1,
+        "winRate": 50.68493150684932,
+        "profitFactor": 0.8733999107725042,
+        "maxDrawdownPips": 517,
+        "maxDrawdownYen": 84670,
+        "maxDrawdownPct": 8.142082072802701,
+        "tradeCount": 73,
+        "netPips": -267.2,
+        "netProfitYen": -44268,
+        "grossProfitPips": 1883.3,
+        "grossLossPips": -2150.5,
+        "grossProfitYen": 305400,
+        "grossLossYen": -349668,
+        "riskRewardRatio": 0.8497945077786526,
+        "averageWinYen": 8254,
+        "averageLossYen": -9713,
+        "maxConsecutiveWins": 5,
+        "maxConsecutiveLosses": 4
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776778200,
+        "lastBarAt": 1786914000,
+        "barsEvaluated": 4000
       },
       "barsEvaluated": 0
     },

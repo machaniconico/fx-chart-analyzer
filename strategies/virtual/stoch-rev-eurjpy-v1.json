@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "id": "stoch-rev-eurjpy-v1",
+    "name": "ユーロ円ストキャス逆張り",
+    "version": 1,
+    "pair": "EURJPY",
+    "timeframe": "m30",
+    "registeredAt": 1786986277
+  },
+  "id": "stoch-rev-eurjpy-v1",
+  "name": "ユーロ円ストキャス逆張り",
+  "description": "スロー・ストキャスティクス(14,3,3)の%Kが20を上抜けた反転を両方向で拾う平均回帰型です。2026-08-17の深履歴チューニング(737日窓・72候補)で選定(SL60/TP52)。新アーキタイプ9合格中で最適化期間の利益・取引数とも最大(593取引)、かつ現行構成に無いペアと戦略型のため分散目的で採用。",
+  "direction": "long",
+  "entryDirections": [
+    "long",
+    "short"
+  ],
+  "entryConditions": [
+    {
+      "type": "stochastic",
+      "kPeriod": 14,
+      "dPeriod": 3,
+      "smoothing": 3,
+      "threshold": 20,
+      "comparison": "crossAbove"
+    }
+  ],
+  "exit": {
+    "stopLossPips": 60,
+    "takeProfitPips": 52,
+    "trailingStopPips": null,
+    "closeOnOppositeSignal": false
+  },
+  "sessionFilter": {
+    "enabled": false,
+    "start": "00:00",
+    "end": "23:59",
+    "serverUtcOffsetMinutes": 0
+  },
+  "newsFilter": {
+    "enabled": false,
+    "blockMinutes": 30
+  },
+  "lotSize": 0.1,
+  "moneyManagement": {
+    "initialBalanceYen": 1000000,
+    "lotSizingMode": "fixedRisk",
+    "fixedLot": 0.1,
+    "riskPercent": 1,
+    "maxLot": 100
+  },
+  "magicNumber": 1786986278
+}
