@@ -772,13 +772,13 @@ export const loadBacktestEngine = async () => {
   };
 };
 
-const loadVirtualStrategies = async () => {
-  const files = (await readdir(strategiesRoot))
+export const loadVirtualStrategies = async (directory = strategiesRoot) => {
+  const files = (await readdir(directory))
     .filter((filename) => filename.endsWith('.json'))
     .sort();
   const strategies = [];
   for (const filename of files) {
-    const strategy = await readJson(path.join(strategiesRoot, filename));
+    const strategy = await readJson(path.join(directory, filename));
     assertVirtualStrategy(strategy, filename);
     strategies.push(strategy);
   }
@@ -794,17 +794,21 @@ export const buildForwardArtifacts = async ({
   computedAt = new Date().toISOString(),
   runBacktest,
   existingHistory = createEmptyForwardHistory(),
+  strategiesDirectory = strategiesRoot,
+  loadBarsFor = loadBars,
+  evaluateRetirement,
 }) => {
   assertForwardHistoryIntegrity(existingHistory, 'existing forward history');
-  const evaluateForwardRetirement = await loadForwardRetirementEvaluator();
-  const strategies = await loadVirtualStrategies();
+  const evaluateForwardRetirement = evaluateRetirement
+    ?? await loadForwardRetirementEvaluator();
+  const strategies = await loadVirtualStrategies(strategiesDirectory);
   const reports = [];
   const dataCache = new Map();
 
   const cachedBars = async (pair, timeframe) => {
     const key = `${pair}:${timeframe}`;
     if (!dataCache.has(key)) {
-      dataCache.set(key, await loadBars(pair, timeframe));
+      dataCache.set(key, await loadBarsFor(pair, timeframe));
     }
     return dataCache.get(key);
   };

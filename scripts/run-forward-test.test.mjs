@@ -1,4 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildForwardArtifacts,
@@ -7,6 +9,7 @@ import {
   splitBarsByRegistration,
   TWO_YEARS_SECONDS,
 } from './run-forward-test.mjs';
+import { retireStrategy } from './retire-strategy.mjs';
 
 const registeredAt = 1782996300;
 
@@ -226,7 +229,7 @@ describe('forward test runner', () => {
     const payload = JSON.parse(await readFile('public/data/forward/results.json', 'utf8'));
 
     expect(typeof payload.computedAt).toBe('string');
-    expect(payload.strategies).toHaveLength(3);
+    expect(Array.isArray(payload.strategies)).toBe(true);
 
     for (const item of payload.strategies) {
       expect(item.meta).toEqual({
@@ -251,10 +254,13 @@ describe('forward test runner', () => {
       computedAt: '2026-08-17T00:00:00.000Z',
       runBacktest: emptyBacktestResult,
     });
+    const activeStrategyFiles = (await readdir(
+      new URL('../strategies/virtual/', import.meta.url),
+    )).filter((filename) => filename.endsWith('.json'));
 
     expect(FORWARD_RESULTS_SCHEMA_VERSION).toBe(3);
     expect(results.schemaVersion).toBe(3);
-    expect(results.strategies).toHaveLength(3);
+    expect(results.strategies).toHaveLength(activeStrategyFiles.length);
     for (const item of results.strategies) {
       expect(item.operationStatus).toEqual({
         status: 'active',
@@ -263,6 +269,83 @@ describe('forward test runner', () => {
       expect(item.operationStatus.reason).toContain('PF=0.00');
       expect(item.operationStatus.reason).toContain('取引数=0件');
       expect(item.operationStatus.reason).toContain('確定日数=');
+    }
+  });
+
+  it('stops tracking a retired EA without changing any other EA history', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'fx-forward-retirement-test-'));
+    const virtualDirectory = path.join(root, 'strategies/virtual');
+    const historyPath = path.join(root, 'public/data/forward/history.json');
+    const activeStrategy = JSON.parse(JSON.stringify({
+      ...strategy,
+      meta: {
+        ...strategy.meta,
+        id: 'active-test-v1',
+        name: 'Active test',
+      },
+      id: 'active-test-v1',
+      name: 'Active test',
+    }));
+    const retiringStrategy = JSON.parse(JSON.stringify({
+      ...strategy,
+      meta: {
+        ...strategy.meta,
+        id: 'retiring-test-v1',
+        name: 'Retiring test',
+      },
+      id: 'retiring-test-v1',
+      name: 'Retiring test',
+    }));
+    const writeJson = async (filePath, payload) => {
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    };
+    const build = (existingHistory) => buildForwardArtifacts({
+      computedAt: '2026-08-17T00:00:00.000Z',
+      existingHistory,
+      strategiesDirectory: virtualDirectory,
+      loadBarsFor: async () => [bar(registeredAt)],
+      runBacktest: emptyBacktestResult,
+      evaluateRetirement: () => ({ status: 'active', reason: 'test fixture' }),
+    });
+
+    try {
+      await writeJson(
+        path.join(virtualDirectory, `${activeStrategy.meta.id}.json`),
+        activeStrategy,
+      );
+      await writeJson(
+        path.join(virtualDirectory, `${retiringStrategy.meta.id}.json`),
+        retiringStrategy,
+      );
+      const baseline = await build({ schemaVersion: 1, strategies: {} });
+      await writeJson(historyPath, baseline.history);
+      const activeHistoryBeforeRetirement = JSON.parse(JSON.stringify(
+        baseline.history.strategies[activeStrategy.meta.id],
+      ));
+      const retiringHistoryBeforeRetirement = JSON.parse(JSON.stringify(
+        baseline.history.strategies[retiringStrategy.meta.id],
+      ));
+
+      await retireStrategy({
+        projectRoot: root,
+        strategyId: retiringStrategy.meta.id,
+        reason: 'test retirement',
+        retiredAt: '2026-08-17T01:00:00.000Z',
+      });
+      const afterRetirement = await build(baseline.history);
+
+      expect(afterRetirement.results.strategies.map((item) => item.meta.id)).toEqual([
+        activeStrategy.meta.id,
+      ]);
+      expect(afterRetirement.history.strategies[activeStrategy.meta.id]).toEqual(
+        activeHistoryBeforeRetirement,
+      );
+      expect(afterRetirement.history.strategies[retiringStrategy.meta.id]).toEqual(
+        retiringHistoryBeforeRetirement,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 });
