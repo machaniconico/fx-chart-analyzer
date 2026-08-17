@@ -1,5 +1,19 @@
-import { bollingerBands, ema, macd, rsi, sma } from './indicators';
-import type { IndicatorPoint, BollingerBands, MacdResult } from './indicators';
+import {
+  bollingerBands,
+  donchian,
+  ema,
+  macd,
+  rsi,
+  sma,
+  stochastic,
+} from './indicators';
+import type {
+  BollingerBands,
+  DonchianResult,
+  IndicatorPoint,
+  MacdResult,
+  StochasticResult,
+} from './indicators';
 import type { Bar, Pair } from '../types';
 
 export type StrategyDirection = 'long' | 'short';
@@ -38,11 +52,27 @@ export interface MacdCrossCondition {
   signalPeriod: number;
 }
 
+export interface DonchianBreakCondition {
+  type: 'donchianBreak';
+  period: number;
+}
+
+export interface StochasticCondition {
+  type: 'stochastic';
+  kPeriod: number;
+  dPeriod: number;
+  smoothing: number;
+  threshold: number;
+  comparison: RsiComparison;
+}
+
 export type EntryCondition =
   | MaCrossCondition
   | RsiCondition
   | BollingerCondition
-  | MacdCrossCondition;
+  | MacdCrossCondition
+  | DonchianBreakCondition
+  | StochasticCondition;
 
 export interface ExitRules {
   stopLossPips: number;
@@ -187,6 +217,10 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `BB${condition.period}/${condition.multiplier} ${condition.band} ${condition.mode}`;
     case 'macdCross':
       return `MACD ${condition.fastPeriod}/${condition.slowPeriod}/${condition.signalPeriod} クロス`;
+    case 'donchianBreak':
+      return `Donchian${condition.period} ブレイク`;
+    case 'stochastic':
+      return `Stoch${condition.kPeriod}/${condition.dPeriod}/${condition.smoothing} ${condition.comparison} ${condition.threshold}`;
   }
 };
 
@@ -236,6 +270,8 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const rsiCache = new Map<number, IndicatorPoint[]>();
   const bbCache = new Map<string, BollingerBands>();
   const macdCache = new Map<string, MacdResult>();
+  const donchianCache = new Map<number, DonchianResult>();
+  const stochasticCache = new Map<string, StochasticResult>();
 
   const getMa = (type: MovingAverageType, period: number): IndicatorPoint[] => {
     const normalizedPeriod = normalizePeriod(period);
@@ -295,6 +331,42 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
+  const getDonchian = (period: number): DonchianResult => {
+    const normalizedPeriod = normalizePeriod(period);
+    const cached = donchianCache.get(normalizedPeriod);
+    if (cached) {
+      return cached;
+    }
+    const values = donchian(highs, lows, normalizedPeriod);
+    donchianCache.set(normalizedPeriod, values);
+    return values;
+  };
+
+  const getStochastic = (
+    kPeriod: number,
+    dPeriod: number,
+    smoothing: number,
+  ): StochasticResult => {
+    const normalizedKPeriod = normalizePeriod(kPeriod);
+    const normalizedDPeriod = normalizePeriod(dPeriod);
+    const normalizedSmoothing = normalizePeriod(smoothing);
+    const key = `${normalizedKPeriod}:${normalizedDPeriod}:${normalizedSmoothing}`;
+    const cached = stochasticCache.get(key);
+    if (cached) {
+      return cached;
+    }
+    const values = stochastic(
+      highs,
+      lows,
+      closes,
+      normalizedKPeriod,
+      normalizedDPeriod,
+      normalizedSmoothing,
+    );
+    stochasticCache.set(key, values);
+    return values;
+  };
+
   const evaluateCondition = (
     condition: EntryCondition,
     index: number,
@@ -336,6 +408,21 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
         return isShort
           ? crossedBelow(values.macd[index - 1], values.signal[index - 1], values.macd[index], values.signal[index])
           : crossedAbove(values.macd[index - 1], values.signal[index - 1], values.macd[index], values.signal[index]);
+      }
+      case 'donchianBreak': {
+        const channels = getDonchian(condition.period);
+        const boundary = isShort ? channels.lower[index] : channels.upper[index];
+        return isNumber(boundary) && (isShort ? closes[index] < boundary : closes[index] > boundary);
+      }
+      case 'stochastic': {
+        const values = getStochastic(
+          condition.kPeriod,
+          condition.dPeriod,
+          condition.smoothing,
+        );
+        const comparison = isShort ? mirroredComparison(condition.comparison) : condition.comparison;
+        const threshold = isShort ? 100 - condition.threshold : condition.threshold;
+        return compareRsi(values.k[index - 1], values.k[index], comparison, threshold);
       }
     }
   };

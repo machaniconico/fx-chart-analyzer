@@ -19,7 +19,14 @@ const outputPath = path.join(dataRoot, 'forward/results.json');
 const historyPath = path.join(dataRoot, 'forward/history.json');
 const retiredLedgerPath = path.join(dataRoot, 'forward/retired.json');
 const retirementEnginePath = path.join(projectRoot, 'src/lib/forwardRetirement.ts');
-const knownEntryConditionTypes = new Set(['maCross', 'rsi', 'bollinger', 'macdCross']);
+const knownEntryConditionTypes = new Set([
+  'maCross',
+  'rsi',
+  'bollinger',
+  'macdCross',
+  'donchianBreak',
+  'stochastic',
+]);
 
 export const TWO_YEARS_SECONDS = 365 * 2 * 24 * 60 * 60;
 export const FORWARD_HISTORY_SCHEMA_VERSION = 1;

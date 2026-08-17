@@ -273,4 +273,42 @@ describe('mql generation', () => {
     expect(mql4).toContain('input int InpLotSizingMode = 2;');
     expect(mql4).toContain('return NormalizeLots(InpLots * balance / InpInitialBalance);');
   });
+
+  it('generates look-ahead-safe Donchian and mirrored stochastic signals for MQL4 and MQL5', () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [
+        {
+          type: 'donchianBreak',
+          period: 20,
+        },
+        {
+          type: 'stochastic',
+          kPeriod: 14,
+          dPeriod: 3,
+          smoothing: 3,
+          threshold: 20,
+          comparison: 'crossBelow',
+        },
+      ],
+    };
+
+    for (const source of [generateMql4(strategy), generateMql5(strategy)]) {
+      expect(source).toContain('input int InpDonchian1Period = 20;');
+      expect(source).toContain('iHighest(_Symbol, _Period, MODE_HIGH, InpDonchian1Period, 2);');
+      expect(source).toContain('iLowest(_Symbol, _Period, MODE_LOW, InpDonchian1Period, 2);');
+      expect(source).toContain('return close1 > upper;');
+      expect(source).toContain('return close1 < lower;');
+      expect(source).toContain('input int InpStoch2KPeriod = 14;');
+      expect(source).toContain('input int InpStoch2DPeriod = 3;');
+      expect(source).toContain('input int InpStoch2Smoothing = 3;');
+      expect(source).toContain('if(range == 0.0)');
+      expect(source).toContain('return 50.0;');
+      expect(source).toContain('previous > InpStoch2Threshold && current <= InpStoch2Threshold;');
+      expect(source).toContain(
+        'previous < 100.0 - InpStoch2Threshold && current >= 100.0 - InpStoch2Threshold;',
+      );
+      expectBalanced(source);
+    }
+  });
 });
