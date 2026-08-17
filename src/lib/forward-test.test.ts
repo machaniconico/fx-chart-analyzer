@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   hasOperationStatus,
+  formatQuarterlyStability,
   isRetiredForwardStrategy,
   loadForwardResults,
   loadRetiredForwardStrategies,
+  parseSelectionEvidence,
   type ForwardResultsFile,
   type ForwardStrategyResult,
   type RetiredForwardStrategy,
@@ -58,6 +60,27 @@ const emptyForwardMetrics: ForwardStrategyResult['forward']['metrics'] = {
   averageLossYen: null,
   maxConsecutiveWins: 0,
   maxConsecutiveLosses: 0,
+};
+
+const selectionEvidence = {
+  adoptedAt: '2026-08-18',
+  reportId: 'selection-report-v1',
+  candidatePool: 96,
+  inSampleRank: 2,
+  optimization: {
+    netProfitYen: 269980,
+    profitFactor: 1.2,
+    tradeCount: 171,
+  },
+  validation: {
+    netProfitYen: 117940,
+    profitFactor: 1.24,
+  },
+  quarterlyStability: {
+    positive: 4,
+    total: 4,
+  },
+  reservations: ['採用時点の留保'],
 };
 
 const strategyWithStatus = (operationStatus: unknown): ForwardStrategyResult => ({
@@ -395,6 +418,60 @@ describe('hasOperationStatus', () => {
   });
 });
 
+describe('parseSelectionEvidence', () => {
+  it('accepts a complete evidence object', () => {
+    expect(parseSelectionEvidence(selectionEvidence)).toEqual(selectionEvidence);
+  });
+
+  it('accepts an optional human-readable report label', () => {
+    const evidence = {
+      ...selectionEvidence,
+      reportLabel: '改善ウェーブ4・84候補深履歴ラン',
+    };
+
+    expect(parseSelectionEvidence(evidence)).toEqual(evidence);
+  });
+
+  it.each([
+    { name: 'missing evidence', value: undefined },
+    {
+      name: 'missing rank and note',
+      value: (() => {
+        const value: Record<string, unknown> = { ...selectionEvidence };
+        delete value.inSampleRank;
+        return value;
+      })(),
+    },
+    {
+      name: 'wrong report label type',
+      value: { ...selectionEvidence, reportLabel: 123 },
+    },
+    {
+      name: 'wrong nested metric type',
+      value: {
+        ...selectionEvidence,
+        optimization: { ...selectionEvidence.optimization, profitFactor: '1.20' },
+      },
+    },
+  ])('returns undefined for $name', ({ value }) => {
+    expect(parseSelectionEvidence(value)).toBeUndefined();
+  });
+});
+
+describe('formatQuarterlyStability', () => {
+  it('marks every quarter as positive only when all quarters are positive', () => {
+    expect(formatQuarterlyStability({ positive: 4, total: 4 })).toBe('4/4全四半期プラス');
+    expect(formatQuarterlyStability({ positive: 3, total: 4 })).toBe(
+      '3/4四半期プラス(1四半期マイナス)',
+    );
+    expect(formatQuarterlyStability({ positive: 3, total: 4 })).not.toContain('全四半期プラス');
+  });
+
+  it('marks a missing quarterly check as untested', () => {
+    expect(formatQuarterlyStability(null)).toBe('未検査');
+  });
+});
+
 describe('loadForwardResults', () => {
   const validResults = (): ForwardResultsFile => ({
     schemaVersion: 3,
@@ -408,6 +485,27 @@ describe('loadForwardResults', () => {
 
     await expect(loadForwardResults()).resolves.toEqual(fixture);
     expect(fetchMock).toHaveBeenCalledWith('/data/forward/results.json', { cache: 'no-cache' });
+  });
+
+  it('preserves valid selection evidence on a strategy', async () => {
+    const fixture = validResults();
+    fixture.strategies[0] = { ...fixture.strategies[0], selectionEvidence };
+    stubFetch(responseWithJson(fixture));
+
+    await expect(loadForwardResults()).resolves.toEqual(fixture);
+  });
+
+  it('drops malformed optional selection evidence while keeping the result usable', async () => {
+    const fixture = validResults();
+    (fixture.strategies[0] as unknown as Record<string, unknown>).selectionEvidence = {
+      ...selectionEvidence,
+      validation: { ...selectionEvidence.validation, profitFactor: '1.24' },
+    };
+    stubFetch(responseWithJson(fixture));
+
+    const loaded = await loadForwardResults();
+
+    expect(Object.prototype.hasOwnProperty.call(loaded.strategies[0], 'selectionEvidence')).toBe(false);
   });
 
   it.each([

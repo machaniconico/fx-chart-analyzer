@@ -102,7 +102,33 @@ describe('strategy evaluator', () => {
     expect(createStrategyEvaluator(withFuture).isEntrySignal(strategyFor(condition), 2)).toBe(true);
   });
 
-  it('accepts exact Keltner boundaries and fails closed for non-finite bands', () => {
+  it('accepts exact Keltner band touches while ATR is positive (>= / <= inclusivity)', () => {
+    // 二進小数のみで構成し、close が帯と厳密一致するケースを固定する。
+    // emaPeriod 3 (alpha=0.5)・atrPeriod 1・multiplier 0.5:
+    //   long: ema=0.5*8+0.5*4=6, TR=4 → upper=6+2=8 === close
+    //   short: ema=0.5*2+0.5*4=3, TR=2 → lower=3-1=2 === close
+    // TS が排他不等号(>/<)に退行すると MQL 側(>=/<=)とのパリティが崩れるため、
+    // ATR>0 での等号成立を true として固定する。
+    const condition = {
+      type: 'keltnerBreak' as const,
+      emaPeriod: 3,
+      atrPeriod: 1,
+      multiplier: 0.5,
+    };
+    const longBars = [bar(0, 4, 4, 4), bar(1, 4, 4, 4), bar(2, 4, 4, 4), bar(3, 8, 4, 8)];
+    const shortBars = [bar(0, 4, 4, 4), bar(1, 4, 4, 4), bar(2, 4, 4, 4), bar(3, 4, 2, 2)];
+
+    expect(createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition), 3)).toBe(true);
+    expect(createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition, 'short'), 3)).toBe(
+      false,
+    );
+    expect(
+      createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition, 'short'), 3),
+    ).toBe(true);
+    expect(createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition), 3)).toBe(false);
+  });
+
+  it('requires a positive Keltner ATR and fails closed for non-finite bands', () => {
     const boundaryCondition = {
       type: 'keltnerBreak' as const,
       emaPeriod: 2,
@@ -111,8 +137,8 @@ describe('strategy evaluator', () => {
     };
     const flatBars = [bar(0, 10, 10, 10), bar(1, 10, 10, 10), bar(2, 10, 10, 10)];
     const flatEvaluator = createStrategyEvaluator(flatBars);
-    expect(flatEvaluator.isEntrySignal(strategyFor(boundaryCondition), 2)).toBe(true);
-    expect(flatEvaluator.isEntrySignal(strategyFor(boundaryCondition, 'short'), 2)).toBe(true);
+    expect(flatEvaluator.isEntrySignal(strategyFor(boundaryCondition), 2)).toBe(false);
+    expect(flatEvaluator.isEntrySignal(strategyFor(boundaryCondition, 'short'), 2)).toBe(false);
 
     const nonFiniteBars = [
       bar(0, 10.5, 9.5, 10),

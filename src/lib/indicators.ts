@@ -230,6 +230,10 @@ export const keltnerChannel = (
   const upper: IndicatorPoint[] = Array(closes.length).fill(null);
   const lower: IndicatorPoint[] = Array(closes.length).fill(null);
 
+  if (!Number.isFinite(multiplier)) {
+    return { middle, upper, lower };
+  }
+
   for (let i = 0; i < closes.length; i += 1) {
     const middleValue = middle[i];
     const atrValue = volatility[i];
@@ -237,8 +241,7 @@ export const keltnerChannel = (
       typeof middleValue !== 'number' ||
       !Number.isFinite(middleValue) ||
       typeof atrValue !== 'number' ||
-      !Number.isFinite(atrValue) ||
-      !Number.isFinite(multiplier)
+      !Number.isFinite(atrValue)
     ) {
       continue;
     }

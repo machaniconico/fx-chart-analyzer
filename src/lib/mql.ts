@@ -359,7 +359,15 @@ const keltnerParityComment = `
 // guard below keeps the EA fail-closed until both platform indicators are ready.
 `;
 
-const mql5KeltnerCondition = (_condition: KeltnerBreakCondition, index: number): string => `
+type KeltnerIndicatorExpressions = {
+  middle: string;
+  atr: string;
+};
+
+const mqlKeltnerCondition = (
+  index: number,
+  expressions: KeltnerIndicatorExpressions,
+): string => `
 ${keltnerParityComment}bool Condition${index}(bool longSide)
 {
   int requiredPeriod = InpKeltner${index}EmaPeriod;
@@ -375,10 +383,14 @@ ${keltnerParityComment}bool Condition${index}(bool longSide)
   {
     return false;
   }
-  double middle = BufferValue(keltner${index}EmaHandle, 0, 1);
-  double atrValue = BufferValue(keltner${index}AtrHandle, 0, 1);
+  double middle = ${expressions.middle};
+  double atrValue = ${expressions.atr};
   double close1 = iClose(_Symbol, _Period, 1);
   if(!ValueReady(middle) || !ValueReady(atrValue) || !ValueReady(close1))
+  {
+    return false;
+  }
+  if(atrValue <= 0.0)
   {
     return false;
   }
@@ -396,42 +408,17 @@ ${keltnerParityComment}bool Condition${index}(bool longSide)
 }
 `;
 
-const mql4KeltnerCondition = (_condition: KeltnerBreakCondition, index: number): string => `
-${keltnerParityComment}bool Condition${index}(bool longSide)
-{
-  int requiredPeriod = InpKeltner${index}EmaPeriod;
-  if(InpKeltner${index}AtrPeriod > requiredPeriod)
-  {
-    requiredPeriod = InpKeltner${index}AtrPeriod;
-  }
-  if(requiredPeriod < 1)
-  {
-    requiredPeriod = 1;
-  }
-  if(iTime(_Symbol, _Period, requiredPeriod + 1) == 0)
-  {
-    return false;
-  }
-  double middle = iMA(_Symbol, _Period, InpKeltner${index}EmaPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
-  double atrValue = iATR(_Symbol, _Period, InpKeltner${index}AtrPeriod, 1);
-  double close1 = iClose(_Symbol, _Period, 1);
-  if(!ValueReady(middle) || !ValueReady(atrValue) || !ValueReady(close1))
-  {
-    return false;
-  }
-  double upper = middle + InpKeltner${index}Multiplier * atrValue;
-  double lower = middle - InpKeltner${index}Multiplier * atrValue;
-  if(!ValueReady(upper) || !ValueReady(lower))
-  {
-    return false;
-  }
-  if(longSide)
-  {
-    return close1 >= upper;
-  }
-  return close1 <= lower;
-}
-`;
+const mql5KeltnerCondition = (_condition: KeltnerBreakCondition, index: number): string =>
+  mqlKeltnerCondition(index, {
+    middle: `BufferValue(keltner${index}EmaHandle, 0, 1)`,
+    atr: `BufferValue(keltner${index}AtrHandle, 0, 1)`,
+  });
+
+const mql4KeltnerCondition = (_condition: KeltnerBreakCondition, index: number): string =>
+  mqlKeltnerCondition(index, {
+    middle: `iMA(_Symbol, _Period, InpKeltner${index}EmaPeriod, 0, MODE_EMA, PRICE_CLOSE, 1)`,
+    atr: `iATR(_Symbol, _Period, InpKeltner${index}AtrPeriod, 1)`,
+  });
 
 const mqlStochasticCondition = (condition: StochasticCondition, index: number): string => {
   const shortComparison = mirrorComparison(condition.comparison);

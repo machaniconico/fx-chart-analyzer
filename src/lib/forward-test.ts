@@ -32,9 +32,35 @@ export interface ForwardMetrics {
   maxConsecutiveLosses: number;
 }
 
+export interface QuarterlyStability {
+  positive: number;
+  total: number;
+}
+
+export interface SelectionEvidence {
+  adoptedAt: string;
+  reportId: string;
+  reportLabel?: string;
+  candidatePool: number;
+  inSampleRank?: number;
+  rankNote?: string;
+  optimization: {
+    netProfitYen: number;
+    profitFactor: number;
+    tradeCount: number;
+  };
+  validation: {
+    netProfitYen: number;
+    profitFactor: number;
+  };
+  quarterlyStability: QuarterlyStability | null;
+  reservations: string[];
+}
+
 export interface ForwardStrategyResult {
   meta: ForwardStrategyMeta;
   operationStatus?: ForwardOperationStatusResult;
+  selectionEvidence?: SelectionEvidence;
   forward: {
     metrics: ForwardMetrics;
     trades: BacktestTrade[];
@@ -71,8 +97,154 @@ export interface RetiredForwardStrategy {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+const hasOwn = (value: object, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(value, key);
+
 const isNullableString = (value: unknown): value is string | null =>
   value === null || typeof value === 'string';
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+const isPositiveInteger = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value > 0;
+
+const isNonNegativeInteger = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 0;
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0;
+
+const isDateOnly = (value: unknown): value is string =>
+  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+export const formatQuarterlyStability = (quarterlyStability: QuarterlyStability | null): string => {
+  if (quarterlyStability === null) {
+    return '未検査';
+  }
+  const { positive, total } = quarterlyStability;
+  if (positive === total) {
+    return `${positive}/${total}全四半期プラス`;
+  }
+  return `${positive}/${total}四半期プラス(${total - positive}四半期マイナス)`;
+};
+
+// selectionEvidence のフィールドを追加・変更するときは、scripts/run-forward-test.mjs の検証と
+// scripts/run-forward-test.test.mjs / src/lib/forward-test.test.ts の両テストも同時に更新する。
+export const parseSelectionEvidence = (value: unknown): SelectionEvidence | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const adoptedAt = value.adoptedAt;
+  const reportId = value.reportId;
+  const candidatePool = value.candidatePool;
+  if (!isDateOnly(adoptedAt) || !isNonEmptyString(reportId) || !isPositiveInteger(candidatePool)) {
+    return undefined;
+  }
+  let reportLabel: string | undefined;
+  if (hasOwn(value, 'reportLabel')) {
+    if (!isNonEmptyString(value.reportLabel)) {
+      return undefined;
+    }
+    reportLabel = value.reportLabel;
+  }
+
+  const hasInSampleRank = hasOwn(value, 'inSampleRank');
+  const hasRankNote = hasOwn(value, 'rankNote');
+  if (!hasInSampleRank && !hasRankNote) {
+    return undefined;
+  }
+
+  let inSampleRank: number | undefined;
+  if (hasInSampleRank) {
+    if (!isPositiveInteger(value.inSampleRank)) {
+      return undefined;
+    }
+    inSampleRank = value.inSampleRank;
+  }
+
+  let rankNote: string | undefined;
+  if (hasRankNote) {
+    if (!isNonEmptyString(value.rankNote)) {
+      return undefined;
+    }
+    rankNote = value.rankNote;
+  }
+
+  const optimization = value.optimization;
+  if (
+    !isRecord(optimization)
+    || !isFiniteNumber(optimization.netProfitYen)
+    || !isFiniteNumber(optimization.profitFactor)
+    || !isNonNegativeInteger(optimization.tradeCount)
+  ) {
+    return undefined;
+  }
+
+  const validation = value.validation;
+  if (
+    !isRecord(validation)
+    || !isFiniteNumber(validation.netProfitYen)
+    || !isFiniteNumber(validation.profitFactor)
+  ) {
+    return undefined;
+  }
+
+  if (!hasOwn(value, 'quarterlyStability')) {
+    return undefined;
+  }
+  let quarterlyStability: SelectionEvidence['quarterlyStability'];
+  if (value.quarterlyStability === null) {
+    quarterlyStability = null;
+  } else {
+    const stability = value.quarterlyStability;
+    if (
+      !isRecord(stability)
+      || !isNonNegativeInteger(stability.positive)
+      || !isPositiveInteger(stability.total)
+      || stability.positive > stability.total
+    ) {
+      return undefined;
+    }
+    quarterlyStability = {
+      positive: stability.positive,
+      total: stability.total,
+    };
+  }
+
+  const reservations = value.reservations;
+  if (!Array.isArray(reservations) || !reservations.every((item) => typeof item === 'string')) {
+    return undefined;
+  }
+
+  const selectionEvidence: SelectionEvidence = {
+    adoptedAt,
+    reportId,
+    candidatePool,
+    optimization: {
+      netProfitYen: optimization.netProfitYen,
+      profitFactor: optimization.profitFactor,
+      tradeCount: optimization.tradeCount,
+    },
+    validation: {
+      netProfitYen: validation.netProfitYen,
+      profitFactor: validation.profitFactor,
+    },
+    quarterlyStability,
+    reservations,
+  };
+  if (reportLabel !== undefined) {
+    selectionEvidence.reportLabel = reportLabel;
+  }
+  if (inSampleRank !== undefined) {
+    selectionEvidence.inSampleRank = inSampleRank;
+  }
+  if (rankNote !== undefined) {
+    selectionEvidence.rankNote = rankNote;
+  }
+  return selectionEvidence;
+};
 
 export const isRetiredForwardStrategy = (value: unknown): value is RetiredForwardStrategy => {
   if (!isRecord(value) || !isRecord(value.meta) || !isRecord(value.finalSnapshot)) {
@@ -132,6 +304,21 @@ const isForwardResultsFile = (value: unknown): value is ForwardResultsFile =>
       && isRecord(strategy.forward),
   );
 
+const normalizeForwardResults = (payload: ForwardResultsFile): ForwardResultsFile => ({
+  ...payload,
+  strategies: payload.strategies.map((strategy) => {
+    const selectionEvidence = parseSelectionEvidence(strategy.selectionEvidence);
+    if (selectionEvidence === undefined) {
+      if (!hasOwn(strategy, 'selectionEvidence')) {
+        return strategy;
+      }
+      const { selectionEvidence: _ignored, ...legacyStrategy } = strategy;
+      return legacyStrategy;
+    }
+    return { ...strategy, selectionEvidence };
+  }),
+});
+
 export const hasOperationStatus = (
   strategy: ForwardStrategyResult,
 ): strategy is ForwardStrategyResult & { operationStatus: ForwardOperationStatusResult } => {
@@ -157,7 +344,7 @@ export const loadForwardResults = async (): Promise<ForwardResultsFile> => {
   if (!isForwardResultsFile(payload)) {
     throw new Error('フォワードテスト結果の形式が不正です');
   }
-  return payload;
+  return normalizeForwardResults(payload);
 };
 
 export const loadRetiredForwardStrategies = async (): Promise<RetiredForwardStrategy[]> => {

@@ -10,6 +10,29 @@
   "id": "ichi-cross-eurusd-v1",
   "name": "ユーロドル一目クロス順張り",
   "description": "一目均衡表(9,26,52)の転換線/基準線クロスを雲フィルタ付きで両方向に追随します。2026-08-18の深履歴チューニング(737日窓・96候補)で最適化期間利益2位(+269,980円/PF1.20/171取引、検証+117,940円/PF1.24)かつ四半期安定性4/4全プラス(取引も55〜62件/四半期と均等)として選定(SL20/TP54)。",
+  "selectionEvidence": {
+    "adoptedAt": "2026-08-18",
+    "reportId": "tune-virtual-strategies-2026-08-17T21-36-52-339Z",
+    "reportLabel": "改善ウェーブ6・96候補深履歴ラン",
+    "candidatePool": 96,
+    "inSampleRank": 2,
+    "optimization": {
+      "netProfitYen": 269980,
+      "profitFactor": 1.2,
+      "tradeCount": 171
+    },
+    "validation": {
+      "netProfitYen": 117940,
+      "profitFactor": 1.24
+    },
+    "quarterlyStability": {
+      "positive": 4,
+      "total": 4
+    },
+    "reservations": [
+      "一目均衡表型の2本目(いずれもh1)"
+    ]
+  },
   "direction": "long",
   "entryDirections": [
     "long",

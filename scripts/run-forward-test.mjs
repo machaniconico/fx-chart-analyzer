@@ -82,8 +82,93 @@ const isObject = (value) => typeof value === 'object' && value !== null && !Arra
 
 const positiveFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0;
 
+const finiteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
+
+const positiveInteger = (value) => Number.isInteger(value) && value > 0;
+
+const nonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
+
+const nonEmptyString = (value) => typeof value === 'string' && value.length > 0;
+
 const strategyContext = (filename, strategyId) =>
   filename === strategyId ? strategyId : `${filename} (${strategyId})`;
+
+// selectionEvidence のフィールドを追加・変更するときは、src/lib/forward-test.ts のパーサと
+// scripts/run-forward-test.test.mjs / src/lib/forward-test.test.ts の両テストも同時に更新する。
+export const assertSelectionEvidence = (value, context = 'selectionEvidence') => {
+  if (!isObject(value)) {
+    throw new Error(`${context} must be an object`);
+  }
+  if (typeof value.adoptedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value.adoptedAt)) {
+    throw new Error(`${context}.adoptedAt must be a YYYY-MM-DD date`);
+  }
+  if (!nonEmptyString(value.reportId)) {
+    throw new Error(`${context}.reportId must be a non-empty string`);
+  }
+  if (Object.hasOwn(value, 'reportLabel') && !nonEmptyString(value.reportLabel)) {
+    throw new Error(`${context}.reportLabel must be a non-empty string`);
+  }
+  if (!positiveInteger(value.candidatePool)) {
+    throw new Error(`${context}.candidatePool must be a positive integer`);
+  }
+
+  const hasInSampleRank = Object.hasOwn(value, 'inSampleRank');
+  const hasRankNote = Object.hasOwn(value, 'rankNote');
+  if (!hasInSampleRank && !hasRankNote) {
+    throw new Error(`${context} must contain inSampleRank or rankNote`);
+  }
+  if (hasInSampleRank && !positiveInteger(value.inSampleRank)) {
+    throw new Error(`${context}.inSampleRank must be a positive integer`);
+  }
+  if (hasRankNote && !nonEmptyString(value.rankNote)) {
+    throw new Error(`${context}.rankNote must be a non-empty string`);
+  }
+
+  if (!isObject(value.optimization)) {
+    throw new Error(`${context}.optimization must be an object`);
+  }
+  if (!finiteNumber(value.optimization.netProfitYen)) {
+    throw new Error(`${context}.optimization.netProfitYen must be a finite number`);
+  }
+  if (!finiteNumber(value.optimization.profitFactor)) {
+    throw new Error(`${context}.optimization.profitFactor must be a finite number`);
+  }
+  if (!nonNegativeInteger(value.optimization.tradeCount)) {
+    throw new Error(`${context}.optimization.tradeCount must be a non-negative integer`);
+  }
+
+  if (!isObject(value.validation)) {
+    throw new Error(`${context}.validation must be an object`);
+  }
+  if (!finiteNumber(value.validation.netProfitYen)) {
+    throw new Error(`${context}.validation.netProfitYen must be a finite number`);
+  }
+  if (!finiteNumber(value.validation.profitFactor)) {
+    throw new Error(`${context}.validation.profitFactor must be a finite number`);
+  }
+
+  if (!Object.hasOwn(value, 'quarterlyStability')) {
+    throw new Error(`${context}.quarterlyStability must be an object or null`);
+  }
+  if (value.quarterlyStability !== null) {
+    if (!isObject(value.quarterlyStability)) {
+      throw new Error(`${context}.quarterlyStability must be an object or null`);
+    }
+    if (!nonNegativeInteger(value.quarterlyStability.positive)) {
+      throw new Error(`${context}.quarterlyStability.positive must be a non-negative integer`);
+    }
+    if (!positiveInteger(value.quarterlyStability.total)) {
+      throw new Error(`${context}.quarterlyStability.total must be a positive integer`);
+    }
+    if (value.quarterlyStability.positive > value.quarterlyStability.total) {
+      throw new Error(`${context}.quarterlyStability.positive cannot exceed total`);
+    }
+  }
+
+  if (!Array.isArray(value.reservations) || !value.reservations.every((item) => typeof item === 'string')) {
+    throw new Error(`${context}.reservations must be an array of strings`);
+  }
+};
 
 const assertVirtualStrategy = (strategy, filename = 'strategy') => {
   if (!isObject(strategy) || !isObject(strategy.meta)) {
@@ -111,6 +196,9 @@ const assertVirtualStrategy = (strategy, filename = 'strategy') => {
   }
   if (strategy.id !== meta.id || strategy.name !== meta.name) {
     throw new Error(`${context}: strategy id/name must match meta id/name`);
+  }
+  if (Object.hasOwn(strategy, 'selectionEvidence')) {
+    assertSelectionEvidence(strategy.selectionEvidence, `${context}: selectionEvidence`);
   }
   if (!isObject(strategy.exit)) {
     throw new Error(`${context}: exit is required`);
@@ -820,6 +908,9 @@ export const buildStrategyReport = ({
 
   return {
     meta,
+    ...(Object.hasOwn(strategy, 'selectionEvidence')
+      ? { selectionEvidence: strategy.selectionEvidence }
+      : {}),
     forward: {
       metrics: summarizeMetrics(forwardResult),
       trades: latestTrades(forwardResult.trades, 50),
@@ -964,6 +1055,9 @@ export const buildForwardArtifacts = async ({
       const forward = buildForwardFromHistory(history.strategies[report.meta.id]);
       return {
         meta: report.meta,
+        ...(report.selectionEvidence === undefined
+          ? {}
+          : { selectionEvidence: report.selectionEvidence }),
         operationStatus: evaluateForwardRetirement({
           profitFactor: forward.metrics.profitFactor,
           tradeCount: forward.metrics.tradeCount,

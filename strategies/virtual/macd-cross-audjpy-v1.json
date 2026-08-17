@@ -10,6 +10,31 @@
   "id": "macd-cross-audjpy-v1",
   "name": "豪ドル円MACDクロス順張り",
   "description": "MACD(12,26,9)のシグナルクロスを両方向で追随し、反対シグナルで撤退します。2026-08-17の深履歴チューニング(737日窓・検証55取引・PF1.33)で選定した第2世代(SL20/TP78)。",
+  "selectionEvidence": {
+    "adoptedAt": "2026-08-17",
+    "reportId": "tune-virtual-strategies-2026-08-17T16-11-14-568Z",
+    "reportLabel": "改善ウェーブ2・48候補深履歴ラン(第2世代SL20/TP78)",
+    "candidatePool": 48,
+    "rankNote": "深窓48候補の上位合格(第2世代)",
+    "optimization": {
+      "netProfitYen": 202278,
+      "profitFactor": 1.17,
+      "tradeCount": 157
+    },
+    "validation": {
+      "netProfitYen": 133232,
+      "profitFactor": 1.33
+    },
+    "quarterlyStability": {
+      "positive": 3,
+      "total": 4
+    },
+    "reservations": [
+      "低頻度(20取引到達≈149日)",
+      "深窓で最適SLが32→20と判明し確定0日で世代交代した経緯あり",
+      "四半期安定性は後日の追検査による"
+    ]
+  },
   "direction": "long",
   "entryDirections": [
     "long",

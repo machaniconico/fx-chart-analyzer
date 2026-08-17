@@ -9,12 +9,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatPrice } from '../lib/chart-data';
 import {
   hasOperationStatus,
+  formatQuarterlyStability,
   loadForwardResults,
   loadRetiredForwardStrategies,
   type ForwardMetrics,
   type ForwardResultsFile,
   type ForwardStrategyResult,
   type RetiredForwardStrategy,
+  type SelectionEvidence,
 } from '../lib/forward-test';
 import { evaluateForwardStatus } from '../lib/forwardStatus';
 import type { BacktestTrade } from '../lib/backtest';
@@ -60,6 +62,14 @@ const formatPips = (value: number | null): string =>
 
 const formatProfitFactor = (value: number | null): string =>
   value === null ? '∞（損失0）' : value.toFixed(2);
+
+const formatEvidenceMetrics = (
+  netProfitYen: number,
+  profitFactor: number,
+  tradeCount?: number,
+): string => `${formatYen(netProfitYen)} / PF ${profitFactor.toFixed(2)}${
+  tradeCount === undefined ? '' : ` / ${numberFormatter.format(tradeCount)}件`
+}`;
 
 const operationStatusLabels: Record<
   NonNullable<ForwardStrategyResult['operationStatus']>['status'],
@@ -227,6 +237,86 @@ function MetricComparison({
   );
 }
 
+function SelectionEvidenceDetails({ evidence }: { evidence: SelectionEvidence }) {
+  const rankLabel = evidence.inSampleRank === undefined
+    ? `${numberFormatter.format(evidence.candidatePool)}候補`
+    : `${numberFormatter.format(evidence.candidatePool)}候補中 in-sample ${numberFormatter.format(evidence.inSampleRank)}位`;
+
+  return (
+    <details className="forward-operation-details forward-selection-evidence-details">
+      <summary>採用時の選定根拠</summary>
+      <div className="forward-selection-evidence-content">
+        <dl className="forward-selection-evidence-list">
+          <div>
+            <dt>採用日</dt>
+            <dd>{evidence.adoptedAt}</dd>
+          </div>
+          <div>
+            <dt>候補母数と順位</dt>
+            <dd>{rankLabel}</dd>
+          </div>
+          {evidence.rankNote && (
+            <div>
+              <dt>順位メモ</dt>
+              <dd>{evidence.rankNote}</dd>
+            </div>
+          )}
+          <div>
+            <dt>選定レポート</dt>
+            <dd>
+              {evidence.reportLabel && (
+                <>
+                  <span>{evidence.reportLabel}</span>
+                  <span aria-hidden="true"> / </span>
+                </>
+              )}
+              <span>{evidence.reportId}</span>
+            </dd>
+          </div>
+          <div>
+            <dt>最適化期間成績</dt>
+            <dd>
+              {formatEvidenceMetrics(
+                evidence.optimization.netProfitYen,
+                evidence.optimization.profitFactor,
+                evidence.optimization.tradeCount,
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>検証期間成績</dt>
+            <dd>
+              {formatEvidenceMetrics(
+                evidence.validation.netProfitYen,
+                evidence.validation.profitFactor,
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>四半期安定性</dt>
+            <dd>{formatQuarterlyStability(evidence.quarterlyStability)}</dd>
+          </div>
+          {evidence.reservations.length > 0 && (
+            <div>
+              <dt>留保</dt>
+              <dd>
+                <ul>
+                  {evidence.reservations.map((reservation, index) => (
+                    <li key={`${index}-${reservation}`}>{reservation}</li>
+                  ))}
+                </ul>
+              </dd>
+            </div>
+          )}
+        </dl>
+        <p className="forward-selection-evidence-note" role="note">
+          スプレッド固定・滑りなしの理想化バックテストによる採用時点の根拠であり、上のフォワード実績とは別物です
+        </p>
+      </div>
+    </details>
+  );
+}
+
 function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResultWithHistory; now: number }) {
   const { meta, forward, backtestReference } = strategy;
   const hasNoTrades = forward.metrics.tradeCount === 0;
@@ -285,6 +375,9 @@ function StrategyCard({ strategy, now }: { strategy: ForwardStrategyResultWithHi
               </summary>
               <p>{operationStatus.reason}</p>
             </details>
+          )}
+          {strategy.selectionEvidence && (
+            <SelectionEvidenceDetails evidence={strategy.selectionEvidence} />
           )}
         </div>
       </header>
