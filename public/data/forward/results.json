@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "computedAt": "2026-08-17T21:27:46.614Z",
+  "computedAt": "2026-08-17T21:39:20.966Z",
   "strategies": [
     {
       "meta": {
@@ -1239,6 +1239,75 @@
         "barsEvaluated": 2447
       },
       "barsEvaluated": 1553
+    },
+    {
+      "meta": {
+        "id": "ichi-cross-eurusd-v1",
+        "name": "ユーロドル一目クロス順張り",
+        "version": 1,
+        "pair": "EURUSD",
+        "timeframe": "h1",
+        "registeredAt": 1787002740
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.7,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.7,
+        "winRate": 17.142857142857142,
+        "profitFactor": 0.5230655030016503,
+        "maxDrawdownPips": 359.3,
+        "maxDrawdownYen": 164680,
+        "maxDrawdownPct": 16.09579562283246,
+        "tradeCount": 35,
+        "netPips": -285.1,
+        "netProfitYen": -132356,
+        "grossProfitPips": 319.8,
+        "grossLossPips": -604.9,
+        "grossProfitYen": 145158,
+        "grossLossYen": -277514,
+        "riskRewardRatio": 2.5281499311746436,
+        "averageWinYen": 24193,
+        "averageLossYen": -9569,
+        "maxConsecutiveWins": 2,
+        "maxConsecutiveLosses": 13
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776862800,
+        "lastBarAt": 1786996800,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
     },
     {
       "meta": {
