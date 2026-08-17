@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "id": "bb-break-usdjpy-v1",
+    "name": "ドル円BBブレイク順張り",
+    "version": 1,
+    "pair": "USDJPY",
+    "timeframe": "h1",
+    "registeredAt": 1786983187
+  },
+  "id": "bb-break-usdjpy-v1",
+  "name": "ドル円BBブレイク順張り",
+  "description": "ボリンジャーバンド(20,2)のバンドブレイクを両方向で追随します。2026-08-17の深履歴チューニング(737日窓・検証166取引・PF1.34=合格18候補中で最大サンプル)で選定(SL39/TP45)。",
+  "direction": "long",
+  "entryDirections": [
+    "long",
+    "short"
+  ],
+  "entryConditions": [
+    {
+      "type": "bollinger",
+      "period": 20,
+      "multiplier": 2,
+      "mode": "break",
+      "band": "upper"
+    }
+  ],
+  "exit": {
+    "stopLossPips": 39,
+    "takeProfitPips": 45,
+    "trailingStopPips": null,
+    "closeOnOppositeSignal": false
+  },
+  "sessionFilter": {
+    "enabled": false,
+    "start": "00:00",
+    "end": "23:59",
+    "serverUtcOffsetMinutes": 0
+  },
+  "newsFilter": {
+    "enabled": false,
+    "blockMinutes": 30
+  },
+  "lotSize": 0.1,
+  "moneyManagement": {
+    "initialBalanceYen": 1000000,
+    "lotSizingMode": "fixedRisk",
+    "fixedLot": 0.1,
+    "riskPercent": 1,
+    "maxLot": 100
+  },
+  "magicNumber": 1786983189
+}
