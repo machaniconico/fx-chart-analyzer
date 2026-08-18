@@ -214,11 +214,32 @@ describe('strategy evaluator', () => {
         validEvaluator.isEntrySignal(strategyFor({ ...condition, period }), 2),
       ).toBe(false);
     }
+    // A negative threshold with `below` is not mutation-sensitive because a
+    // finite DeMarker value is always >= 0. Use `above -0.1` in both
+    // directions instead: without the range guard, long sees .25 >= -.1 and
+    // short's mirrored comparison sees .25 <= 1.1, so both would turn true.
+    const negativeThreshold = -0.1;
+    expect(
+      validEvaluator.isEntrySignal(
+        strategyFor({ ...condition, comparison: 'above' as const, threshold: negativeThreshold }),
+        2,
+      ),
+    ).toBe(false);
+    expect(
+      validEvaluator.isEntrySignal(
+        strategyFor(
+          { ...condition, comparison: 'above' as const, threshold: negativeThreshold },
+          'short',
+        ),
+        2,
+      ),
+    ).toBe(false);
+
     // NaN is not observable through isEntrySignal alone: both relational
     // comparisons are false. Keep the case as a documented fail-closed check;
     // the explicit !Number.isFinite(condition.threshold) guard is the
     // white-box source of truth for this threshold range validation.
-    for (const threshold of [-0.1, 1.1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const threshold of [1.1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(
         validEvaluator.isEntrySignal(strategyFor({ ...condition, threshold }), 2),
       ).toBe(false);

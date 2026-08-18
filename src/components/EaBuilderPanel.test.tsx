@@ -573,6 +573,14 @@ it('accepts both Envelope period registration boundaries with a positive finite 
   }
 });
 
+it('accepts the AO lower period registration boundaries directly', () => {
+  expect(
+    strategyValidationMessages(
+      baseStrategy({ type: 'ao', fastPeriod: 2, slowPeriod: 3 }),
+    ),
+  ).toEqual([]);
+});
+
 const invalidValidationCases = validationCases.flatMap(({ type, invalid, message }) =>
   invalid.map(({ label, condition }) => ({ type, label, condition, message })),
 );
