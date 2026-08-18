@@ -246,7 +246,7 @@ export const ENTRY_TYPE_PROFILES = Object.freeze({
     }),
     exit: Object.freeze({ stopLossPips: 25, takeProfitPips: 50, closeOnOppositeSignal: false }),
     parameterRanges: Object.freeze({
-      stopLossPips: Object.freeze(rangeWithSteps(15, 75, 6)),
+      stopLossPips: Object.freeze(rangeWithSteps(15, 105, 7)),
       takeProfitPips: Object.freeze(rangeWithSteps(25, 125, 6)),
     }),
     trailingStopPips: Object.freeze([null, 20]),

@@ -273,7 +273,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       entryCondition: { type: 'cciBreak', period: 14, level: 100 },
       exit: { stopLossPips: 25, takeProfitPips: 50, closeOnOppositeSignal: false },
       parameterRanges: {
-        stopLossPips: { min: 15, max: 75, step: 12 },
+        stopLossPips: { min: 15, max: 105, step: 15 },
         takeProfitPips: { min: 25, max: 125, step: 20 },
       },
       trailingStopPips: [null, 20],

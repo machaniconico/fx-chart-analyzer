@@ -19,7 +19,7 @@ const outputPath = path.join(dataRoot, 'forward/results.json');
 const historyPath = path.join(dataRoot, 'forward/history.json');
 const retiredLedgerPath = path.join(dataRoot, 'forward/retired.json');
 const retirementEnginePath = path.join(projectRoot, 'src/lib/forwardRetirement.ts');
-const knownEntryConditionTypes = new Set([
+export const knownEntryConditionTypes = new Set([
   'maCross',
   'rsi',
   'bollinger',
@@ -90,6 +90,145 @@ const positiveInteger = (value) => Number.isInteger(value) && value > 0;
 const nonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
 
 const nonEmptyString = (value) => typeof value === 'string' && value.length > 0;
+
+const movingAverageTypes = new Set(['sma', 'ema']);
+const rsiComparisons = new Set(['below', 'above', 'crossBelow', 'crossAbove']);
+const bollingerModes = new Set(['touch', 'break']);
+const bollingerBands = new Set(['lower', 'upper']);
+
+const assertConditionField = (conditionContext, condition, field, predicate, expectation) => {
+  if (!predicate(condition[field])) {
+    throw new Error(`${conditionContext}.${field} ${expectation}`);
+  }
+};
+
+const assertConditionEnum = (conditionContext, condition, field, values) => {
+  assertConditionField(
+    conditionContext,
+    condition,
+    field,
+    (value) => values.has(value),
+    `must be one of ${[...values].join(', ')}`,
+  );
+};
+
+const assertPositiveIntegerField = (conditionContext, condition, field) => {
+  // normalizePeriod() rounds decimals, but the pipeline is intentionally stricter for data hygiene.
+  assertConditionField(
+    conditionContext,
+    condition,
+    field,
+    positiveInteger,
+    'must be a positive integer',
+  );
+};
+
+const assertPositiveIntegerFieldAtLeast = (conditionContext, condition, field, minimum) => {
+  assertConditionField(
+    conditionContext,
+    condition,
+    field,
+    (value) => positiveInteger(value) && value >= minimum,
+    `must be a positive integer greater than or equal to ${minimum}`,
+  );
+};
+
+const assertPositiveFiniteNumberField = (conditionContext, condition, field) => {
+  assertConditionField(
+    conditionContext,
+    condition,
+    field,
+    positiveFiniteNumber,
+    'must be a positive finite number',
+  );
+};
+
+const assertThresholdField = (conditionContext, condition, field, upperBound) => {
+  assertConditionField(
+    conditionContext,
+    condition,
+    field,
+    (value) => finiteNumber(value) && value > 0 && value < upperBound,
+    `must be a finite number greater than 0 and less than ${upperBound}`,
+  );
+};
+
+const assertEntryCondition = (condition, context, index) => {
+  const conditionContext = `${context}: entryConditions[${index}]`;
+
+  switch (condition.type) {
+    case 'maCross':
+      assertConditionEnum(conditionContext, condition, 'fastType', movingAverageTypes);
+      assertPositiveIntegerField(conditionContext, condition, 'fastPeriod');
+      assertConditionEnum(conditionContext, condition, 'slowType', movingAverageTypes);
+      assertPositiveIntegerField(conditionContext, condition, 'slowPeriod');
+      // fast>slow は評価器上は動作するが、EAビルダーの正当性契約(fast<slow)に合わせ製品判断として拒否する
+      if (condition.fastPeriod >= condition.slowPeriod) {
+        throw new Error(
+          `${conditionContext}.fastPeriod must be smaller than slowPeriod`,
+        );
+      }
+      break;
+    case 'rsi':
+      // RSI period 1 degenerates to 0/100; two samples are the minimum useful window.
+      assertPositiveIntegerFieldAtLeast(conditionContext, condition, 'period', 2);
+      assertThresholdField(conditionContext, condition, 'threshold', 100);
+      assertConditionEnum(conditionContext, condition, 'comparison', rsiComparisons);
+      break;
+    case 'bollinger':
+      // Standard deviation needs at least two samples; any finite positive multiplier is valid, with no arbitrary lower bound.
+      assertPositiveIntegerFieldAtLeast(conditionContext, condition, 'period', 2);
+      assertPositiveFiniteNumberField(conditionContext, condition, 'multiplier');
+      assertConditionEnum(conditionContext, condition, 'mode', bollingerModes);
+      assertConditionEnum(conditionContext, condition, 'band', bollingerBands);
+      break;
+    case 'macdCross':
+      assertPositiveIntegerField(conditionContext, condition, 'fastPeriod');
+      assertPositiveIntegerField(conditionContext, condition, 'slowPeriod');
+      assertPositiveIntegerField(conditionContext, condition, 'signalPeriod');
+      if (condition.fastPeriod >= condition.slowPeriod) {
+        throw new Error(
+          `${conditionContext}.fastPeriod must be smaller than slowPeriod`,
+        );
+      }
+      break;
+    case 'ichimokuCross':
+      assertPositiveIntegerField(conditionContext, condition, 'conversionPeriod');
+      assertPositiveIntegerField(conditionContext, condition, 'basePeriod');
+      assertPositiveIntegerField(conditionContext, condition, 'spanBPeriod');
+      assertPositiveIntegerField(conditionContext, condition, 'displacement');
+      assertConditionField(
+        conditionContext,
+        condition,
+        'requireCloudFilter',
+        (value) => typeof value === 'boolean',
+        'must be a boolean',
+      );
+      break;
+    case 'donchianBreak':
+      assertPositiveIntegerField(conditionContext, condition, 'period');
+      break;
+    case 'stochastic':
+      assertPositiveIntegerField(conditionContext, condition, 'kPeriod');
+      assertPositiveIntegerField(conditionContext, condition, 'dPeriod');
+      assertPositiveIntegerField(conditionContext, condition, 'smoothing');
+      assertThresholdField(conditionContext, condition, 'threshold', 100);
+      assertConditionEnum(conditionContext, condition, 'comparison', rsiComparisons);
+      break;
+    case 'keltnerBreak':
+      assertPositiveIntegerField(conditionContext, condition, 'emaPeriod');
+      assertPositiveIntegerField(conditionContext, condition, 'atrPeriod');
+      assertPositiveFiniteNumberField(conditionContext, condition, 'multiplier');
+      break;
+    case 'cciBreak':
+      // period 1 では平均絶対偏差が常に0となりCCIが定数0に退化(level>0では永久に発火しない)
+      assertPositiveIntegerFieldAtLeast(conditionContext, condition, 'period', 2);
+      assertPositiveFiniteNumberField(conditionContext, condition, 'level');
+      break;
+    default:
+      throw new Error(`${conditionContext}.type ${condition.type} has no parameter validation`);
+  }
+};
 
 const strategyContext = (filename, strategyId) =>
   filename === strategyId ? strategyId : `${filename} (${strategyId})`;
@@ -237,6 +376,7 @@ const assertVirtualStrategy = (strategy, filename = 'strategy') => {
         `${context}: entryConditions[${index}].type must be one of ${[...knownEntryConditionTypes].join(', ')}`,
       );
     }
+    assertEntryCondition(condition, context, index);
   }
 };
 
