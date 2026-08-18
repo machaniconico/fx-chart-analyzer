@@ -21,6 +21,7 @@ import {
   defaultStrategies,
   type BollingerCondition,
   type CciBreakCondition,
+  type AdxTrendCondition,
   type DonchianBreakCondition,
   type EntryCondition,
   type IchimokuCrossCondition,
@@ -104,6 +105,12 @@ const defaultCciCondition = (): CciBreakCondition => ({
   type: 'cciBreak',
   period: 14,
   level: 100,
+});
+
+const defaultAdxCondition = (): AdxTrendCondition => ({
+  type: 'adxTrend',
+  period: 14,
+  threshold: 25,
 });
 
 const defaultMacdCondition = (): MacdCrossCondition => ({
@@ -264,6 +271,16 @@ const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
         condition.level <= 0)
     ) {
       messages.push('CCIブレイクの期間は1以上の整数、閾値は0より大きい値にしてください。');
+    }
+    if (
+      condition.type === 'adxTrend' &&
+      (!Number.isInteger(condition.period) ||
+        condition.period < 2 ||
+        !Number.isFinite(condition.threshold) ||
+        condition.threshold <= 0 ||
+        condition.threshold >= 100)
+    ) {
+      messages.push('ADXトレンドの期間は2以上の整数、閾値は0より大きく100未満にしてください。');
     }
     if (
       condition.type === 'stochastic' &&
@@ -468,6 +485,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const stochasticCondition = getCondition('stochastic');
   const keltnerCondition = getCondition('keltnerBreak');
   const cciCondition = getCondition('cciBreak');
+  const adxCondition = getCondition('adxTrend');
 
   const updateMoneyManagement = (
     updater: (current: typeof moneyManagement) => typeof moneyManagement,
@@ -1331,6 +1349,53 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                       updateCondition('cciBreak', defaultCciCondition, (condition) => ({
                         ...condition,
                         level: numericInput(event.target.value, condition.level, 100, 0.1),
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('adxTrend')}
+                onChange={(event) =>
+                  toggleCondition('adxTrend', event.target.checked, defaultAdxCondition)
+                }
+              />
+              <span>ADXトレンド DIクロス</span>
+            </label>
+            {adxCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>期間</span>
+                  <input
+                    min="2"
+                    type="number"
+                    value={adxCondition.period}
+                    onChange={(event) =>
+                      updateCondition('adxTrend', defaultAdxCondition, (condition) => ({
+                        ...condition,
+                        period: integerInput(event.target.value, condition.period, 14, 2),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>ADX閾値</span>
+                  <input
+                    max="99.9"
+                    min="0.1"
+                    step="0.1"
+                    type="number"
+                    value={adxCondition.threshold}
+                    onChange={(event) =>
+                      updateCondition('adxTrend', defaultAdxCondition, (condition) => ({
+                        ...condition,
+                        threshold: numericInput(event.target.value, condition.threshold, 25, 0.1, 99.9),
                       }))
                     }
                   />

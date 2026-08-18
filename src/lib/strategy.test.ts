@@ -17,6 +17,12 @@ const bar = (index: number, high: number, low: number, close: number): Bar => ({
   v: 1,
 });
 
+const barsFrom = (
+  highs: readonly number[],
+  lows: readonly number[],
+  closes: readonly number[],
+): Bar[] => highs.map((high, index) => bar(index, high, lows[index], closes[index]));
+
 const strategyFor = (
   condition: EntryCondition,
   direction: 'long' | 'short' = 'long',
@@ -246,6 +252,190 @@ describe('strategy evaluator', () => {
     }
   });
 
+  it('evaluates ADX DI crosses in both directions with an inclusive ADX threshold', () => {
+    const condition = {
+      type: 'adxTrend' as const,
+      period: 2,
+      threshold: 51.47198480531814,
+    };
+    const longBars = [
+      bar(0, 10, 10, 10),
+      bar(1, 9, 9, 9),
+      bar(2, 10, 10, 10),
+      bar(3, 9, 9, 9),
+      bar(4, 10, 10, 10),
+    ];
+    const shortBars = [
+      bar(0, 10, 10, 10),
+      bar(1, 11, 11, 11),
+      bar(2, 10, 10, 10),
+      bar(3, 11, 11, 11),
+      bar(4, 10, 10, 10),
+    ];
+
+    const longValues = indicators.adx(
+      longBars.map((item) => item.h),
+      longBars.map((item) => item.l),
+      longBars.map((item) => item.c),
+      2,
+    );
+    const shortValues = indicators.adx(
+      shortBars.map((item) => item.h),
+      shortBars.map((item) => item.l),
+      shortBars.map((item) => item.c),
+      2,
+    );
+    // This threshold is the measured double at the signal bar, not a rounded value.
+    expect(longValues.adx[4]).toBe(51.47198480531814);
+    expect(shortValues.adx[4]).toBe(51.47198480531814);
+
+    expect(createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition), 4)).toBe(true);
+    expect(
+      createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition, 'short'), 4),
+    ).toBe(false);
+    expect(
+      createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition, 'short'), 4),
+    ).toBe(true);
+    expect(createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition), 4)).toBe(false);
+
+    const noCrossBars = [
+      bar(0, 10, 10, 10),
+      bar(1, 11, 11, 11),
+      bar(2, 12, 12, 12),
+      bar(3, 13, 13, 13),
+      bar(4, 14, 14, 14),
+    ];
+    expect(createStrategyEvaluator(noCrossBars).isEntrySignal(strategyFor(condition), 4)).toBe(
+      false,
+    );
+  });
+
+  it('treats the first upward bar after flat DI as a long cross', () => {
+    const condition = { type: 'adxTrend' as const, period: 2, threshold: 1 };
+    const longBars = barsFrom(
+      [10, 10, 10, 10, 10, 10, 11],
+      [10, 10, 10, 10, 10, 10, 10],
+      [10, 10, 10, 10, 10, 10, 11],
+    );
+    const longValues = indicators.adx(
+      longBars.map((item) => item.h),
+      longBars.map((item) => item.l),
+      longBars.map((item) => item.c),
+      condition.period,
+    );
+    expect(longValues.plusDi[5]).toBe(0);
+    expect(longValues.minusDi[5]).toBe(0);
+    expect(longValues.adx[6]).toBeGreaterThanOrEqual(condition.threshold);
+    expect(createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition), 6)).toBe(true);
+  });
+
+  it('treats the first downward bar after flat DI as a short cross', () => {
+    const condition = { type: 'adxTrend' as const, period: 2, threshold: 1 };
+    const shortBars = barsFrom(
+      [10, 10, 10, 10, 10, 10, 10],
+      [10, 10, 10, 10, 10, 10, 9],
+      [10, 10, 10, 10, 10, 10, 9],
+    );
+    const shortValues = indicators.adx(
+      shortBars.map((item) => item.h),
+      shortBars.map((item) => item.l),
+      shortBars.map((item) => item.c),
+      condition.period,
+    );
+    expect(shortValues.plusDi[5]).toBe(0);
+    expect(shortValues.minusDi[5]).toBe(0);
+    expect(shortValues.adx[6]).toBeGreaterThanOrEqual(condition.threshold);
+    expect(
+      createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition, 'short'), 6),
+    ).toBe(true);
+  });
+
+  it('keeps an ADX trend signal unchanged when future bars are appended', () => {
+    const condition = { type: 'adxTrend' as const, period: 2, threshold: 1 };
+    const bars = [
+      bar(0, 10, 10, 10),
+      bar(1, 10, 10, 10),
+      bar(2, 10, 10, 10),
+      bar(3, 10, 10, 10),
+      bar(4, 10, 10, 10),
+      bar(5, 10, 10, 10),
+      bar(6, 11, 10, 11),
+    ];
+    const withFuture = [...bars, bar(7, 1_000, -1_000, 500)];
+
+    expect(createStrategyEvaluator(bars).isEntrySignal(strategyFor(condition), 6)).toBe(true);
+    expect(createStrategyEvaluator(withFuture).isEntrySignal(strategyFor(condition), 6)).toBe(true);
+  });
+
+  it('rejects ADX entries below the threshold, at invalid thresholds, and during warm-up', () => {
+    const bars = [
+      bar(0, 10, 10, 10),
+      bar(1, 9, 9, 9),
+      bar(2, 10, 10, 10),
+      bar(3, 9, 9, 9),
+      bar(4, 10, 10, 10),
+    ];
+    const evaluator = createStrategyEvaluator(bars);
+    expect(
+      evaluator.isEntrySignal(
+        strategyFor({ type: 'adxTrend', period: 2, threshold: 51.47198480531815 }),
+        4,
+      ),
+    ).toBe(false);
+
+    for (const threshold of [0, -1, 100, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(
+        evaluator.isEntrySignal(strategyFor({ type: 'adxTrend', period: 2, threshold }), 4),
+      ).toBe(false);
+    }
+    expect(
+      evaluator.isEntrySignal(strategyFor({ type: 'adxTrend', period: 1, threshold: 1 }), 4),
+    ).toBe(false);
+
+    const warmupBars = Array.from({ length: 6 }, (_, index) =>
+      bar(index, 10 + index, 10, 10 + index),
+    );
+    const warmupValues = indicators.adx(
+      warmupBars.map((item) => item.h),
+      warmupBars.map((item) => item.l),
+      warmupBars.map((item) => item.c),
+      3,
+    );
+    expect(warmupValues.plusDi.slice(0, 3)).toEqual([null, null, null]);
+    expect(warmupValues.minusDi.slice(0, 3)).toEqual([null, null, null]);
+    expect(warmupValues.adx.slice(0, 6)).toEqual([null, null, null, null, null, null]);
+    expect(
+      createStrategyEvaluator(warmupBars).isEntrySignal(
+        strategyFor({ type: 'adxTrend', period: 3, threshold: 25 }),
+        5,
+      ),
+    ).toBe(false);
+  });
+
+  it('memoizes ADX values by normalized period', () => {
+    const adxSpy = vi.spyOn(indicators, 'adx');
+    const firstCondition = { type: 'adxTrend' as const, period: 2, threshold: 50 };
+    const secondCondition = { ...firstCondition, period: 2.4, threshold: 25 };
+    const strategy = {
+      ...strategyFor(firstCondition),
+      entryConditions: [firstCondition, secondCondition],
+    };
+    const bars = [
+      bar(0, 10, 10, 10),
+      bar(1, 9, 9, 9),
+      bar(2, 10, 10, 10),
+      bar(3, 9, 9, 9),
+      bar(4, 10, 10, 10),
+    ];
+
+    try {
+      expect(createStrategyEvaluator(bars).isEntrySignal(strategy, 4)).toBe(true);
+      expect(adxSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('detects stochastic crossAbove for long and the mirrored crossBelow for short', () => {
     const condition = {
       type: 'stochastic' as const,
@@ -442,6 +632,9 @@ describe('strategy evaluator', () => {
     ).toBe('Stoch14/3/3 crossAbove 20');
     expect(conditionLabel({ type: 'cciBreak', period: 14, level: 100 })).toBe(
       'CCI14 ±100 ブレイク',
+    );
+    expect(conditionLabel({ type: 'adxTrend', period: 14, threshold: 25 })).toBe(
+      'ADX14/25 DIクロス',
     );
   });
 });

@@ -3,6 +3,7 @@ import type {
   BollingerCondition,
   BollingerConditionMode,
   CciBreakCondition,
+  AdxTrendCondition,
   DonchianBreakCondition,
   EntryCondition,
   IchimokuCrossCondition,
@@ -130,6 +131,11 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input int InpCCI${index}Period = ${integerLiteral(condition.period)};`,
         `input double InpCCI${index}Level = ${numberLiteral(condition.level)};`,
       ];
+    case 'adxTrend':
+      return [
+        `input int InpADX${index}Period = ${integerLiteral(condition.period)};`,
+        `input double InpADX${index}Threshold = ${numberLiteral(condition.threshold)};`,
+      ];
     case 'stochastic':
       return [
         `input int InpStoch${index}KPeriod = ${integerLiteral(condition.kPeriod)};`,
@@ -162,6 +168,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mql5KeltnerCondition(condition, index);
     case 'cciBreak':
       return mql5CciCondition(condition, index);
+    case 'adxTrend':
+      return mql5AdxCondition(condition, index);
   }
 };
 
@@ -187,6 +195,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mql4KeltnerCondition(condition, index);
     case 'cciBreak':
       return mql4CciCondition(condition, index);
+    case 'adxTrend':
+      return mql4AdxCondition(condition, index);
   }
 };
 
@@ -474,6 +484,79 @@ const mql5CciCondition = (_condition: CciBreakCondition, index: number): string 
 
 const mql4CciCondition = (_condition: CciBreakCondition, index: number): string =>
   mqlCciCondition(index, 'iCCI(_Symbol, _Period, period, PRICE_TYPICAL, 1)');
+
+const adxParityComment = `
+// Native iADX exposes +DI, -DI, and ADX with zero-seeded values before the
+// TypeScript evaluator's warm-up boundary. The generated history guard keeps
+// both platforms fail-closed until DI has period bars and ADX has 2*period bars.
+// Reference: https://www.mql5.com/en/docs/indicators/iadx
+`;
+
+type AdxIndicatorExpressions = {
+  plusDi: string;
+  minusDi: string;
+  main: string;
+};
+
+const mqlAdxCondition = (
+  index: number,
+  expressions: AdxIndicatorExpressions,
+): string => `
+${adxParityComment}bool Condition${index}(bool longSide)
+{
+  int period = InpADX${index}Period;
+  if(period < 2)
+  {
+    return false;
+  }
+  // The TypeScript evaluator exposes ADX from index period*2; native iADX
+  // returns zero-seeded values earlier, so require the equivalent bar count.
+  if(iTime(_Symbol, _Period, period * 2 + 1) == 0)
+  {
+    return false;
+  }
+  double previousPlusDi = ${expressions.plusDi.replace(/SHIFT/g, '2')};
+  double previousMinusDi = ${expressions.minusDi.replace(/SHIFT/g, '2')};
+  double previousAdx = ${expressions.main.replace(/SHIFT/g, '2')};
+  double currentPlusDi = ${expressions.plusDi.replace(/SHIFT/g, '1')};
+  double currentMinusDi = ${expressions.minusDi.replace(/SHIFT/g, '1')};
+  double currentAdx = ${expressions.main.replace(/SHIFT/g, '1')};
+  double threshold = InpADX${index}Threshold;
+  if(!ValueReady(previousPlusDi) || !ValueReady(previousMinusDi) || !ValueReady(previousAdx) ||
+    !ValueReady(currentPlusDi) || !ValueReady(currentMinusDi) || !ValueReady(currentAdx) ||
+    !ValueReady(threshold))
+  {
+    return false;
+  }
+  if(!(threshold > 0.0) || !(threshold < 100.0))
+  {
+    return false;
+  }
+  if(currentAdx < threshold)
+  {
+    return false;
+  }
+  if(longSide)
+  {
+    return CrossedAbove(previousPlusDi, previousMinusDi, currentPlusDi, currentMinusDi);
+  }
+  return CrossedBelow(previousPlusDi, previousMinusDi, currentPlusDi, currentMinusDi);
+}
+`;
+
+const mql5AdxCondition = (_condition: AdxTrendCondition, index: number): string =>
+  mqlAdxCondition(index, {
+    plusDi: `BufferValue(adx${index}Handle, PLUSDI_LINE, SHIFT)`,
+    minusDi: `BufferValue(adx${index}Handle, MINUSDI_LINE, SHIFT)`,
+    main: `BufferValue(adx${index}Handle, MAIN_LINE, SHIFT)`,
+  });
+
+const mql4AdxCondition = (_condition: AdxTrendCondition, index: number): string =>
+  mqlAdxCondition(index, {
+    plusDi: `iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_PLUSDI, SHIFT)`,
+    minusDi: `iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_MINUSDI, SHIFT)`,
+    main: `iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_MAIN, SHIFT)`,
+  });
 
 const mqlStochasticCondition = (condition: StochasticCondition, index: number): string => {
   const shortComparison = mirrorComparison(condition.comparison);
@@ -793,6 +876,8 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
         ];
       case 'cciBreak':
         return [`int cci${conditionIndex}Handle = INVALID_HANDLE;`];
+      case 'adxTrend':
+        return [`int adx${conditionIndex}Handle = INVALID_HANDLE;`];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -866,6 +951,19 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '    return INIT_FAILED;',
           '  }',
         ];
+      case 'adxTrend':
+        return [
+          `  int adx${conditionIndex}Period = InpADX${conditionIndex}Period;`,
+          `  if(adx${conditionIndex}Period < 1)`,
+          '  {',
+          `    adx${conditionIndex}Period = 1;`,
+          '  }',
+          `  adx${conditionIndex}Handle = iADX(_Symbol, _Period, adx${conditionIndex}Period);`,
+          `  if(!EnsureIndicator(adx${conditionIndex}Handle, "ADX${conditionIndex}"))`,
+          '  {',
+          '    return INIT_FAILED;',
+          '  }',
+        ];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -896,6 +994,8 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
         ];
       case 'cciBreak':
         return [`  ReleaseIndicator(cci${conditionIndex}Handle);`];
+      case 'adxTrend':
+        return [`  ReleaseIndicator(adx${conditionIndex}Handle);`];
       case 'donchianBreak':
       case 'stochastic':
         return [];

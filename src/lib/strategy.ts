@@ -1,4 +1,5 @@
 import {
+  adx,
   atr,
   bollingerBands,
   cci,
@@ -12,6 +13,7 @@ import {
   stochastic,
 } from './indicators';
 import type {
+  AdxResult,
   BollingerBands,
   DonchianResult,
   IndicatorPoint,
@@ -85,6 +87,12 @@ export interface CciBreakCondition {
   level: number;
 }
 
+export interface AdxTrendCondition {
+  type: 'adxTrend';
+  period: number;
+  threshold: number;
+}
+
 export interface StochasticCondition {
   type: 'stochastic';
   kPeriod: number;
@@ -103,7 +111,8 @@ export type EntryCondition =
   | DonchianBreakCondition
   | StochasticCondition
   | KeltnerBreakCondition
-  | CciBreakCondition;
+  | CciBreakCondition
+  | AdxTrendCondition;
 
 export interface ExitRules {
   stopLossPips: number;
@@ -258,6 +267,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `Stoch${condition.kPeriod}/${condition.dPeriod}/${condition.smoothing} ${condition.comparison} ${condition.threshold}`;
     case 'cciBreak':
       return `CCI${condition.period} ±${condition.level} ブレイク`;
+    case 'adxTrend':
+      return `ADX${condition.period}/${condition.threshold} DIクロス`;
   }
 };
 
@@ -311,6 +322,7 @@ type CachedIchimokuResult = ReadonlyIndicatorResult<IchimokuResult>;
 type CachedDonchianResult = ReadonlyIndicatorResult<DonchianResult>;
 type CachedKeltnerChannel = ReadonlyIndicatorResult<KeltnerChannel>;
 type CachedStochasticResult = ReadonlyIndicatorResult<StochasticResult>;
+type CachedAdxResult = ReadonlyIndicatorResult<AdxResult>;
 
 type KeltnerEvaluation = {
   readonly channel: CachedKeltnerChannel;
@@ -331,6 +343,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const donchianCache = new Map<number, CachedDonchianResult>();
   const keltnerCache = new Map<string, KeltnerEvaluation>();
   const stochasticCache = new Map<string, CachedStochasticResult>();
+  const adxCache = new Map<number, CachedAdxResult>();
 
   const getMa = (type: MovingAverageType, period: number): CachedIndicatorValues => {
     const normalizedPeriod = normalizePeriod(period);
@@ -502,6 +515,17 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
+  const getAdx = (period: number): CachedAdxResult => {
+    const normalizedPeriod = normalizePeriod(period);
+    const cached = adxCache.get(normalizedPeriod);
+    if (cached) {
+      return cached;
+    }
+    const values = adx(highs, lows, closes, normalizedPeriod);
+    adxCache.set(normalizedPeriod, values);
+    return values;
+  };
+
   const evaluateCondition = (
     condition: EntryCondition,
     index: number,
@@ -598,6 +622,40 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
           return false;
         }
         return isShort ? current <= -condition.level : current >= condition.level;
+      }
+      case 'adxTrend': {
+        const normalizedPeriod = normalizePeriod(condition.period);
+        if (
+          !Number.isFinite(normalizedPeriod) ||
+          normalizedPeriod < 2 ||
+          !Number.isFinite(condition.threshold) ||
+          condition.threshold <= 0 ||
+          condition.threshold >= 100
+        ) {
+          return false;
+        }
+        const values = getAdx(condition.period);
+        const currentAdx = values.adx[index];
+        if (!isNumber(currentAdx) || currentAdx < condition.threshold) {
+          return false;
+        }
+        // 平坦相場(両DI=0)後の初動バーはクロスとして扱う。MQLミラーと同じ
+        // 2点比較を維持する意図的な契約であり、DI合計>0のガードは追加しない。
+        // period>=2 検証とプロファイル固定の period=14 により period=1 の
+        // アーティファクトは到達不能である。
+        return isShort
+          ? crossedBelow(
+              values.plusDi[index - 1],
+              values.minusDi[index - 1],
+              values.plusDi[index],
+              values.minusDi[index],
+            )
+          : crossedAbove(
+              values.plusDi[index - 1],
+              values.minusDi[index - 1],
+              values.plusDi[index],
+              values.minusDi[index],
+            );
       }
       case 'stochastic': {
         const values = getStochastic(

@@ -28,6 +28,12 @@ export interface StochasticResult {
   d: IndicatorPoint[];
 }
 
+export interface AdxResult {
+  plusDi: IndicatorPoint[];
+  minusDi: IndicatorPoint[];
+  adx: IndicatorPoint[];
+}
+
 export interface IchimokuResult {
   conversion: IndicatorPoint[];
   base: IndicatorPoint[];
@@ -372,6 +378,146 @@ export const cci = (
   }
 
   return result;
+};
+
+/**
+ * MetaTrader 5 iADX parity (intentionally not iADXWilder).
+ *
+ * This follows MetaQuotes' official MQL5 CodeBase ADX.mq5 reference
+ * implementation: +DM/-DM are first normalized by the current True Range,
+ * +DI and -DI are then EMA-smoothed with alpha=2/(period+1), and ADX is an
+ * EMA of DX = 100 * abs((+DI - -DI) / (+DI + -DI)). The reference's tie rule
+ * discards both directional movements when +DM and -DM are equal. This is
+ * different from the official iADXWilder reference, which uses SMMA for the
+ * directional movements, ATR/DI values, and ADX. See:
+ * https://www.mql5.com/en/docs/indicators/iadx
+ * https://www.mql5.com/en/code/7
+ * https://www.mql5.com/en/code/8
+ *
+ * The EMA state is seeded with zero as in ADX.mq5. MetaTrader's
+ * PLOT_DRAW_BEGIN is a chart-drawing setting; it does not make CopyBuffer
+ * return null, so the null warm-up below is an intentional fail-closed
+ * deviation made by this project. We expose DI from index `period` and ADX
+ * from index `period * 2` so the evaluator never consumes an un-warmed value.
+ * If TR or +DI+-DI is zero, the corresponding normalized value is defined as
+ * 0.0 (safe-side behavior, matching the project's other indicators instead
+ * of emitting NaN/Infinity). Invalid input starts a fresh finite segment and
+ * remains null until that segment has warmed up again.
+ */
+export const adx = (
+  highs: readonly number[],
+  lows: readonly number[],
+  closes: readonly number[],
+  period: number,
+): AdxResult => {
+  assertPeriod(period);
+  if (highs.length !== lows.length || highs.length !== closes.length) {
+    throw new Error('highs, lows, and closes must have the same length');
+  }
+
+  const plusDi: IndicatorPoint[] = Array(closes.length).fill(null);
+  const minusDi: IndicatorPoint[] = Array(closes.length).fill(null);
+  const adxValues: IndicatorPoint[] = Array(closes.length).fill(null);
+  const alpha = 2 / (period + 1);
+  const decay = 1 - alpha;
+  let previousPlusDi = 0;
+  let previousMinusDi = 0;
+  let previousAdx = 0;
+  let validBars = 0;
+
+  for (let i = 1; i < closes.length; i += 1) {
+    const high = highs[i];
+    const previousHigh = highs[i - 1];
+    const low = lows[i];
+    const previousLow = lows[i - 1];
+    const close = closes[i];
+    const previousClose = closes[i - 1];
+    if (
+      !Number.isFinite(high) ||
+      !Number.isFinite(previousHigh) ||
+      !Number.isFinite(low) ||
+      !Number.isFinite(previousLow) ||
+      !Number.isFinite(close) ||
+      !Number.isFinite(previousClose)
+    ) {
+      previousPlusDi = 0;
+      previousMinusDi = 0;
+      previousAdx = 0;
+      validBars = 0;
+      continue;
+    }
+
+    let positiveMovement = high - previousHigh;
+    let negativeMovement = previousLow - low;
+    if (!Number.isFinite(positiveMovement) || !Number.isFinite(negativeMovement)) {
+      previousPlusDi = 0;
+      previousMinusDi = 0;
+      previousAdx = 0;
+      validBars = 0;
+      continue;
+    }
+    positiveMovement = Math.max(positiveMovement, 0);
+    negativeMovement = Math.max(negativeMovement, 0);
+    if (positiveMovement > negativeMovement) {
+      negativeMovement = 0;
+    } else if (negativeMovement > positiveMovement) {
+      positiveMovement = 0;
+    } else {
+      positiveMovement = 0;
+      negativeMovement = 0;
+    }
+
+    const trueRange = Math.max(
+      Math.abs(high - low),
+      Math.abs(high - previousClose),
+      Math.abs(low - previousClose),
+    );
+    if (!Number.isFinite(trueRange)) {
+      previousPlusDi = 0;
+      previousMinusDi = 0;
+      previousAdx = 0;
+      validBars = 0;
+      continue;
+    }
+
+    // MetaTrader's reference sets both normalized movements to zero for TR=0.
+    const rawPlusDi = trueRange === 0 ? 0 : (100 * positiveMovement) / trueRange;
+    const rawMinusDi = trueRange === 0 ? 0 : (100 * negativeMovement) / trueRange;
+    const currentPlusDi = rawPlusDi * alpha + previousPlusDi * decay;
+    const currentMinusDi = rawMinusDi * alpha + previousMinusDi * decay;
+    const diSum = currentPlusDi + currentMinusDi;
+    // A zero DI sum is a non-directional bar; define DX as 0 instead of NaN.
+    const dx = diSum === 0 ? 0 : 100 * Math.abs((currentPlusDi - currentMinusDi) / diSum);
+    const currentAdx = dx * alpha + previousAdx * decay;
+    if (
+      !Number.isFinite(rawPlusDi) ||
+      !Number.isFinite(rawMinusDi) ||
+      !Number.isFinite(currentPlusDi) ||
+      !Number.isFinite(currentMinusDi) ||
+      !Number.isFinite(dx) ||
+      !Number.isFinite(currentAdx)
+    ) {
+      previousPlusDi = 0;
+      previousMinusDi = 0;
+      previousAdx = 0;
+      validBars = 0;
+      continue;
+    }
+
+    validBars += 1;
+    if (validBars >= period) {
+      plusDi[i] = currentPlusDi;
+      minusDi[i] = currentMinusDi;
+    }
+    if (validBars >= period * 2) {
+      adxValues[i] = currentAdx;
+    }
+    previousPlusDi = currentPlusDi;
+    previousMinusDi = currentMinusDi;
+    previousAdx = currentAdx;
+  }
+
+  return { plusDi, minusDi, adx: adxValues };
 };
 
 export const macd = (

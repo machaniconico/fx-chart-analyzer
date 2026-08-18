@@ -150,6 +150,7 @@ describe('forward test runner', () => {
       'stochastic',
       'keltnerBreak',
       'cciBreak',
+      'adxTrend',
     ]);
   });
 
@@ -360,7 +361,7 @@ describe('forward test runner', () => {
             },
           ],
         },
-        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak/,
+        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak, adxTrend/,
       },
     ];
 
@@ -420,6 +421,7 @@ describe('forward test runner', () => {
       },
     ],
     ['cciBreak', { type: 'cciBreak', period: 14, level: 100 }],
+    ['adxTrend', { type: 'adxTrend', period: 14, threshold: 25 }],
   ])('accepts %s entry conditions in virtual strategies', (entryType, entryCondition) => {
     const candidate = JSON.parse(JSON.stringify(strategy));
     candidate.meta.id = `virtual-${entryType}-v1`;
@@ -436,7 +438,7 @@ describe('forward test runner', () => {
     })).not.toThrow();
   });
 
-  it('accepts all 108 generated tuning candidates', () => {
+  it('accepts every generated tuning candidate', () => {
     const candidates = buildCandidateMatrix();
 
     // 正確な件数は tune-virtual-strategies.test.mjs が所有(二重管理を避け、ここでは非空のみ)
@@ -641,6 +643,21 @@ describe('forward test runner', () => {
     [
       'cciBreak (degenerate period)',
       { type: 'cciBreak', period: 1, level: 100 },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2/,
+    ],
+    [
+      'adxTrend',
+      { type: 'adxTrend', period: 14, threshold: 0 },
+      /entryConditions\[0\]\.threshold must be a finite number greater than 0 and less than 100/,
+    ],
+    [
+      'adxTrend (upper threshold)',
+      { type: 'adxTrend', period: 14, threshold: 100 },
+      /entryConditions\[0\]\.threshold must be a finite number greater than 0 and less than 100/,
+    ],
+    [
+      'adxTrend (degenerate period)',
+      { type: 'adxTrend', period: 1, threshold: 25 },
       /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2/,
     ],
   ])('rejects invalid %s condition parameters before backtesting', (entryType, entryCondition, expected) => {

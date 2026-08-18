@@ -29,6 +29,7 @@ export const knownEntryConditionTypes = Object.freeze([
   'stochastic',
   'keltnerBreak',
   'cciBreak',
+  'adxTrend',
 ]);
 const knownEntryConditionTypeSet = new Set(knownEntryConditionTypes);
 
@@ -233,6 +234,11 @@ const assertEntryCondition = (condition, context, index) => {
       // period 1 では平均絶対偏差が常に0となりCCIが定数0に退化(level>0では永久に発火しない)
       assertPositiveIntegerFieldAtLeast(conditionContext, condition, 'period', 2);
       assertPositiveFiniteNumberField(conditionContext, condition, 'level');
+      break;
+    case 'adxTrend':
+      // period 1 では EMA の alpha=1 で平滑化が消える(DI=生値, ADX=DX)ため実質未平滑のノイズ指標に退化する
+      assertPositiveIntegerFieldAtLeast(conditionContext, condition, 'period', 2);
+      assertThresholdField(conditionContext, condition, 'threshold', 100);
       break;
     default:
       throw new Error(`${conditionContext}.type ${condition.type} has no parameter validation`);
