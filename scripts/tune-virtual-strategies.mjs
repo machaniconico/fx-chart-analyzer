@@ -262,7 +262,7 @@ export const ENTRY_TYPE_PROFILES = Object.freeze({
     exit: Object.freeze({ stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true }),
     parameterRanges: Object.freeze({
       stopLossPips: Object.freeze(rangeWithSteps(20, 110, 7)),
-      takeProfitPips: Object.freeze(rangeWithSteps(40, 160, 7)),
+      takeProfitPips: Object.freeze(rangeWithSteps(40, 220, 10)),
     }),
     trailingStopPips: Object.freeze([null, 25]),
   }),
@@ -273,19 +273,45 @@ export const TUNING_TIMEFRAMES = Object.freeze(
   [...new Set(TUNING_ENTRY_TYPES.flatMap((entryType) => ENTRY_TYPE_PROFILES[entryType].timeframes))],
 );
 
+export const candidateMagicNumber = (pairIndex, entryTypeIndex, timeframeIndex) => {
+  for (const [label, value] of [
+    ['pair', pairIndex],
+    ['entry-type', entryTypeIndex],
+    ['timeframe', timeframeIndex],
+  ]) {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(`magicNumber ${label} index must be a non-negative integer: ${value}`);
+    }
+  }
+  if (timeframeIndex >= 10) {
+    throw new Error(
+      `magicNumber timeframe index out of range: ${timeframeIndex}; expected a value below 10`,
+    );
+  }
+  // ブロック幅100000の単射条件は pairIndex*100+99 < 100000 = pairIndex <= 999(現行6ペアからは到達不能)
+  if (pairIndex >= 1000) {
+    throw new Error(
+      `magicNumber pair index out of range: ${pairIndex}; expected a value below 1000`,
+    );
+  }
+
+  // Each entry-type block is 100000 wide, larger than pairIndex*100+99 (max 599),
+  // so neither pairs within a block nor the blocks themselves can collide.
+  return (
+    1783100000
+    + Math.floor(entryTypeIndex / 10) * 100000
+    + pairIndex * 100
+    + (entryTypeIndex % 10) * 10
+    + timeframeIndex
+  );
+};
+
 export const buildCandidateMatrix = () => {
   const candidates = [];
   for (const [pairIndex, pair] of TUNING_PAIRS.entries()) {
     for (const [entryTypeIndex, entryType] of TUNING_ENTRY_TYPES.entries()) {
       const profile = ENTRY_TYPE_PROFILES[entryType];
       for (const [timeframeIndex, timeframe] of profile.timeframes.entries()) {
-        // magicNumber 符号化は entryTypeIndex*10 + timeframeIndex < 100 が前提(pair ストライド100)。
-        // 11型目(index 10)以降は pair 間で衝突するため、拡幅移行を済ませるまで fail-closed で止める。
-        if (entryTypeIndex * 10 + timeframeIndex >= 100) {
-          throw new Error(
-            `magicNumber encoding saturated: entryType ${entryType} (index ${entryTypeIndex}, timeframe ${timeframe}) overflows the pair stride; widen the scheme before adding an 11th entry type`,
-          );
-        }
         const id = `tune-${entryType.toLowerCase()}-${pair.toLowerCase()}-${timeframe}-v1`;
         const name = `${pair} ${timeframe} ${profile.label}`;
         candidates.push({
@@ -307,7 +333,7 @@ export const buildCandidateMatrix = () => {
             newsFilter: { ...disabledNewsFilter },
             lotSize: 0.1,
             moneyManagement: { ...fixedRiskMoneyManagement },
-            magicNumber: 1783100000 + pairIndex * 100 + entryTypeIndex * 10 + timeframeIndex,
+            magicNumber: candidateMagicNumber(pairIndex, entryTypeIndex, timeframeIndex),
           },
           parameterRanges: {
             stopLossPips: { ...profile.parameterRanges.stopLossPips },
