@@ -1,5 +1,6 @@
 import {
   adx,
+  ao,
   atr,
   bollingerBands,
   cci,
@@ -117,6 +118,12 @@ export interface MomentumCondition {
   period: number;
 }
 
+export interface AoCondition {
+  type: 'ao';
+  fastPeriod: number;
+  slowPeriod: number;
+}
+
 export interface RviCondition {
   type: 'rvi';
   period: number;
@@ -145,6 +152,7 @@ export type EntryCondition =
   | AdxTrendCondition
   | ParabolicSarCondition
   | MomentumCondition
+  | AoCondition
   | RviCondition;
 
 export interface ExitRules {
@@ -311,6 +319,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `SAR${condition.step}/${condition.maximum} フリップ`;
     case 'momentum':
       return `Momentum${condition.period} 100クロス`;
+    case 'ao':
+      return `AO${condition.fastPeriod}/${condition.slowPeriod} ゼロラインクロス`;
     case 'rvi':
       return `RVI${condition.period} シグナルクロス`;
   }
@@ -394,6 +404,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const adxCache = new Map<number, CachedAdxResult>();
   const parabolicSarCache = new Map<string, CachedParabolicSarResult>();
   const momentumCache = new Map<number, CachedIndicatorValues>();
+  const aoCache = new Map<string, CachedIndicatorValues>();
   const rviCache = new Map<number, CachedRviResult>();
 
   const getMa = (type: MovingAverageType, period: number): CachedIndicatorValues => {
@@ -420,6 +431,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   };
 
   const getDemarker = (period: number): CachedIndicatorValues => {
+    // DeMarker keeps the raw period; the case 'demarker' guard in evaluateCondition is its normalization contract.
     const cached = demarkerCache.get(period);
     if (cached) {
       return cached;
@@ -609,6 +621,17 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
+  const getAo = (fastPeriod: number, slowPeriod: number): CachedIndicatorValues => {
+    const key = `${fastPeriod}:${slowPeriod}`;
+    const cached = aoCache.get(key);
+    if (cached) {
+      return cached;
+    }
+    const values = ao(highs, lows, fastPeriod, slowPeriod);
+    aoCache.set(key, values);
+    return values;
+  };
+
   const getRvi = (period: number): CachedRviResult => {
     const cached = rviCache.get(period);
     if (cached) {
@@ -638,6 +661,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
           : crossedAbove(fast[index - 1], slow[index - 1], fast[index], slow[index]);
       }
       case 'rsi': {
+        // RSI preserves legacy unvalidated thresholds; DeMarker needs 0..1 for its 1-threshold mirror.
         const values = getRsi(condition.period);
         const comparison = isShort ? mirroredComparison(condition.comparison) : condition.comparison;
         const threshold = isShort ? 100 - condition.threshold : condition.threshold;
@@ -804,6 +828,24 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
         // MQL mirror: include equality on the prior bar (<=/>=), but require
         // a strict move away from the 100 line on the signal bar (>/<).
         return isShort ? previous >= 100 && current < 100 : previous <= 100 && current > 100;
+      }
+      case 'ao': {
+        if (
+          !Number.isInteger(condition.fastPeriod) ||
+          condition.fastPeriod < 1 ||
+          !Number.isInteger(condition.slowPeriod) ||
+          condition.slowPeriod < 1 ||
+          condition.fastPeriod >= condition.slowPeriod
+        ) {
+          return false;
+        }
+        const values = getAo(condition.fastPeriod, condition.slowPeriod);
+        const previous = values[index - 1];
+        const current = values[index];
+        if (!isNumber(previous) || !isNumber(current)) {
+          return false;
+        }
+        return isShort ? previous >= 0 && current < 0 : previous <= 0 && current > 0;
       }
       case 'rvi': {
         if (!Number.isInteger(condition.period) || condition.period < 1) {

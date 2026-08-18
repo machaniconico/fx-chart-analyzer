@@ -5,6 +5,7 @@ import type {
   BollingerConditionMode,
   CciBreakCondition,
   AdxTrendCondition,
+  AoCondition,
   DeMarkerCondition,
   DonchianBreakCondition,
   EntryCondition,
@@ -153,6 +154,11 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
       ];
     case 'momentum':
       return [`input int InpMomentum${index}Period = ${integerLiteral(condition.period)};`];
+    case 'ao':
+      return [
+        `input int InpAO${index}FastPeriod = ${integerLiteral(condition.fastPeriod)};`,
+        `input int InpAO${index}SlowPeriod = ${integerLiteral(condition.slowPeriod)};`,
+      ];
     case 'rvi':
       return [`input int InpRVI${index}Period = ${integerLiteral(condition.period)};`];
     case 'stochastic':
@@ -195,6 +201,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mql5ParabolicSarCondition(condition, index);
     case 'momentum':
       return mqlMomentumCondition(condition, index);
+    case 'ao':
+      return mqlAoCondition(condition, index);
     case 'rvi':
       return mqlRviCondition(condition, index);
   }
@@ -230,6 +238,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mql4ParabolicSarCondition(condition, index);
     case 'momentum':
       return mqlMomentumCondition(condition, index);
+    case 'ao':
+      return mqlAoCondition(condition, index);
     case 'rvi':
       return mqlRviCondition(condition, index);
   }
@@ -603,6 +613,124 @@ bool Condition${index}(bool longSide)
 }
 `;
 
+const aoParityComment = `
+// AO parity: the native iAO buffer is intentionally not used.
+// Calculate MEDIAN PRICE per bar first, then each SMA as sum / period, and
+// finally subtract the slow SMA from the fast SMA. This preserves the
+// TypeScript ao() order exactly: median per bar -> both SMAs -> difference.
+// The first AO value is at TS index slowPeriod - 1; the first two-value
+// zero-cross evaluation is therefore at TS index slowPeriod.
+// The history gates protect unavailable iHigh/iLow bars; non-finite arithmetic
+// fails closed as EMPTY_VALUE.
+`;
+
+const mqlAoCondition = (_condition: AoCondition, index: number): string => `
+${aoParityComment}double AoMedian${index}(int shift)
+{
+  double high = iHigh(_Symbol, _Period, shift);
+  double low = iLow(_Symbol, _Period, shift);
+  if(!ValueReady(high) || !MathIsValidNumber(high) ||
+    !ValueReady(low) || !MathIsValidNumber(low))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = (high + low) / 2.0;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+double AoSma${index}(int shift, int period)
+{
+  if(period < 1)
+  {
+    return EMPTY_VALUE;
+  }
+  double sum = 0.0;
+  // Descending MQL shifts visit the TS window oldest-to-newest, preserving
+  // the TypeScript accumulation order before division by the period.
+  for(int offset = period - 1; offset >= 0; offset--)
+  {
+    double median = AoMedian${index}(shift + offset);
+    if(!ValueReady(median) || !MathIsValidNumber(median))
+    {
+      return EMPTY_VALUE;
+    }
+    sum += median;
+  }
+  if(!ValueReady(sum) || !MathIsValidNumber(sum))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = sum / period;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+double AoValue${index}(int shift)
+{
+  int fastPeriod = InpAO${index}FastPeriod;
+  int slowPeriod = InpAO${index}SlowPeriod;
+  if(fastPeriod < 1 || slowPeriod < 1 || fastPeriod >= slowPeriod)
+  {
+    return EMPTY_VALUE;
+  }
+  // AO's slow SMA at this shift requires history through shift + slowPeriod - 1.
+  if(iTime(_Symbol, _Period, shift + slowPeriod - 1) == 0)
+  {
+    return EMPTY_VALUE;
+  }
+  double fastSma = AoSma${index}(shift, fastPeriod);
+  double slowSma = AoSma${index}(shift, slowPeriod);
+  if(!ValueReady(fastSma) || !MathIsValidNumber(fastSma) ||
+    !ValueReady(slowSma) || !MathIsValidNumber(slowSma))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = fastSma - slowSma;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+bool Condition${index}(bool longSide)
+{
+  int fastPeriod = InpAO${index}FastPeriod;
+  int slowPeriod = InpAO${index}SlowPeriod;
+  int signalShift = 1;
+  if(fastPeriod < 1 || slowPeriod < 1 || fastPeriod >= slowPeriod)
+  {
+    return false;
+  }
+  // The TS evaluator first evaluates a cross at index slowPeriod. The
+  // previous AO at signalShift + 1 is the oldest read and requires history
+  // through slowPeriod + signalShift on the same first-eligible bar.
+  if(iTime(_Symbol, _Period, slowPeriod + signalShift) == 0)
+  {
+    return false;
+  }
+  double previous = AoValue${index}(signalShift + 1);
+  double current = AoValue${index}(signalShift);
+  if(!ValueReady(previous) || !MathIsValidNumber(previous) ||
+    !ValueReady(current) || !MathIsValidNumber(current))
+  {
+    return false;
+  }
+  if(longSide)
+  {
+    return previous <= 0.0 && current > 0.0;
+  }
+  return previous >= 0.0 && current < 0.0;
+}
+`;
+
 const demarkerParityComment = `
 // DeMarker parity: the native iDeMarker buffer is intentionally not used.
 // This project follows the TS/MT5 form from the terminal help exactly:
@@ -795,6 +923,10 @@ ${rviParityComment}bool RviBarsReady${index}(int shift)
 
 double RviNumeratorSwma${index}(int shift)
 {
+  if(!RviBarsReady${index}(shift))
+  {
+    return EMPTY_VALUE;
+  }
   double open0 = iOpen(_Symbol, _Period, shift);
   double close0 = iClose(_Symbol, _Period, shift);
   double open1 = iOpen(_Symbol, _Period, shift + 1);
@@ -803,10 +935,6 @@ double RviNumeratorSwma${index}(int shift)
   double close2 = iClose(_Symbol, _Period, shift + 2);
   double open3 = iOpen(_Symbol, _Period, shift + 3);
   double close3 = iClose(_Symbol, _Period, shift + 3);
-  if(!RviBarsReady${index}(shift))
-  {
-    return EMPTY_VALUE;
-  }
   return ((close0 - open0) +
     2 * (close1 - open1) +
     2 * (close2 - open2) +
@@ -815,6 +943,10 @@ double RviNumeratorSwma${index}(int shift)
 
 double RviRangeSwma${index}(int shift)
 {
+  if(!RviBarsReady${index}(shift))
+  {
+    return EMPTY_VALUE;
+  }
   double high0 = iHigh(_Symbol, _Period, shift);
   double low0 = iLow(_Symbol, _Period, shift);
   double high1 = iHigh(_Symbol, _Period, shift + 1);
@@ -823,10 +955,6 @@ double RviRangeSwma${index}(int shift)
   double low2 = iLow(_Symbol, _Period, shift + 2);
   double high3 = iHigh(_Symbol, _Period, shift + 3);
   double low3 = iLow(_Symbol, _Period, shift + 3);
-  if(!RviBarsReady${index}(shift))
-  {
-    return EMPTY_VALUE;
-  }
   return ((high0 - low0) +
     2 * (high1 - low1) +
     2 * (high2 - low2) +
@@ -924,7 +1052,7 @@ bool Condition${index}(bool longSide)
   {
     return false;
   }
-  // The previous signal at signalShift + 1 reads through period + 7 +
+  // The previous signal at signalShift + 1 requires history through period + 7 +
   // signalShift. Keep this second guard explicit, matching the two-stage
   // MomentumCondition precedent.
   if(iTime(_Symbol, _Period, period + 7 + signalShift) == 0)
@@ -1228,6 +1356,17 @@ const mql4EntryConditionOnInit = (conditions: readonly EntryCondition[]): string
         `  if(InpMomentum${conditionIndex}Period < 1)`,
         '  {',
         `    Print("Momentum${conditionIndex} rejected: period must be an integer greater than or equal to 1");`,
+        '    return INIT_FAILED;',
+        '  }',
+      ];
+    }
+    if (condition.type === 'ao') {
+      return [
+        // The evaluator hard domain is both periods >= 1; input int makes
+        // non-integer values unrepresentable, so reject invalid ranges here.
+        `  if(InpAO${conditionIndex}FastPeriod < 1 || InpAO${conditionIndex}SlowPeriod < 1 || InpAO${conditionIndex}FastPeriod >= InpAO${conditionIndex}SlowPeriod)`,
+        '  {',
+        `    Print("AO${conditionIndex} rejected: periods must be integers greater than or equal to 1 and fastPeriod must be smaller than slowPeriod");`,
         '    return INIT_FAILED;',
         '  }',
       ];
@@ -1594,6 +1733,9 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
       case 'momentum':
         // Momentum is calculated from iClose to preserve TypeScript operation order.
         return [];
+      case 'ao':
+        // AO is calculated from iHigh/iLow to preserve TypeScript operation order.
+        return [];
       case 'rvi':
         // RVI is calculated from OHLC to preserve TypeScript operation order.
         return [];
@@ -1715,6 +1857,17 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '    return INIT_FAILED;',
           '  }',
         ];
+      case 'ao':
+        return [
+          // The evaluator hard domain is both periods >= 1; input int makes
+          // non-integer values unrepresentable. Keep fastPeriod < slowPeriod
+          // explicit because the AO calculation has no valid equal-period form.
+          `  if(InpAO${conditionIndex}FastPeriod < 1 || InpAO${conditionIndex}SlowPeriod < 1 || InpAO${conditionIndex}FastPeriod >= InpAO${conditionIndex}SlowPeriod)`,
+          '  {',
+          `    Print("AO${conditionIndex} rejected: periods must be integers greater than or equal to 1 and fastPeriod must be smaller than slowPeriod");`,
+          '    return INIT_FAILED;',
+          '  }',
+        ];
       case 'rvi':
         return [
           // The evaluator hard domain is period >= 1; input int makes
@@ -1772,6 +1925,8 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
       case 'parabolicSar':
         return [`  ReleaseIndicator(sar${conditionIndex}Handle);`];
       case 'momentum':
+        return [];
+      case 'ao':
         return [];
       case 'rvi':
         return [];

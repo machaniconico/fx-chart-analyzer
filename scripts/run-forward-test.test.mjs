@@ -165,6 +165,7 @@ describe('forward test runner', () => {
       'adxTrend',
       'parabolicSar',
       'momentum',
+      'ao',
       'rvi',
     ]);
   });
@@ -376,7 +377,7 @@ describe('forward test runner', () => {
             },
           ],
         },
-        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, demarker, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak, adxTrend, parabolicSar, momentum/,
+        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, demarker, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak, adxTrend, parabolicSar, momentum, ao/,
       },
     ];
 
@@ -439,6 +440,7 @@ describe('forward test runner', () => {
     ['adxTrend', { type: 'adxTrend', period: 14, threshold: 25 }],
     ['parabolicSar', { type: 'parabolicSar', step: 0.02, maximum: 0.2 }],
     ['momentum', { type: 'momentum', period: 14 }],
+    ['ao', { type: 'ao', fastPeriod: 5, slowPeriod: 34 }],
     ['rvi', { type: 'rvi', period: 10 }],
     ['demarker', { type: 'demarker', period: 14, threshold: 0.3, comparison: 'below' }],
   ])('accepts %s entry conditions in virtual strategies', (entryType, entryCondition) => {
@@ -537,6 +539,7 @@ describe('forward test runner', () => {
     ['adxTrend', { type: 'adxTrend', period: 14, threshold: 25 }],
     ['parabolicSar', { type: 'parabolicSar', step: 0.02, maximum: 0.2 }],
     ['momentum', { type: 'momentum', period: 14 }],
+    ['ao', { type: 'ao', fastPeriod: 5, slowPeriod: 34 }],
     ['rvi', { type: 'rvi', period: 10 }],
   ];
 
@@ -748,6 +751,41 @@ describe('forward test runner', () => {
       'momentum (non-integer)',
       { type: 'momentum', period: 14.5 },
       /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'ao (fast registration floor)',
+      { type: 'ao', fastPeriod: 1, slowPeriod: 3 },
+      /entryConditions\[0\]\.fastPeriod must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'ao (slow registration floor)',
+      { type: 'ao', fastPeriod: 2, slowPeriod: 1 },
+      /entryConditions\[0\]\.slowPeriod must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'ao (fast registration ceiling)',
+      { type: 'ao', fastPeriod: 1001, slowPeriod: 1002 },
+      /entryConditions\[0\]\.fastPeriod must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'ao (slow registration ceiling)',
+      { type: 'ao', fastPeriod: 999, slowPeriod: 1001 },
+      /entryConditions\[0\]\.slowPeriod must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'ao (non-integer)',
+      { type: 'ao', fastPeriod: 2.5, slowPeriod: 3 },
+      /entryConditions\[0\]\.fastPeriod must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'ao (equal periods)',
+      { type: 'ao', fastPeriod: 2, slowPeriod: 2 },
+      /entryConditions\[0\]\.fastPeriod must be smaller than slowPeriod/,
+    ],
+    [
+      'ao (reversed periods)',
+      { type: 'ao', fastPeriod: 3, slowPeriod: 2 },
+      /entryConditions\[0\]\.fastPeriod must be smaller than slowPeriod/,
     ],
     [
       'rvi (registration floor)',

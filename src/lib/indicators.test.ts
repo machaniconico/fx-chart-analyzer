@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   adx,
+  ao,
   atr,
   bollingerBands,
   cci,
@@ -130,6 +131,47 @@ describe('indicators', () => {
     const base = momentum([10, 11, 12, 8, 15], 2);
     const withFuture = momentum([10, 11, 12, 8, 15, 1_000], 2);
     expect(withFuture.slice(0, base.length)).toEqual(base);
+  });
+
+  it('calculates Awesome Oscillator from median prices with exact zero boundaries', () => {
+    const highs = [2, 1, 3, 4, 0];
+    const lows = [2, 1, 3, 4, 0];
+    const values = ao(highs, lows, 2, 3);
+
+    // MEDIAN=[2,1,3,4,0].  At index 2 both SMA windows equal 2 exactly,
+    // which fixes AO===0 before the positive and negative follow-up values.
+    expect(values).toEqual([
+      null,
+      null,
+      0,
+      (3 + 4) / 2 - (1 + 3 + 4) / 3,
+      (4 + 0) / 2 - (3 + 4 + 0) / 3,
+    ]);
+  });
+
+  it('warms Awesome Oscillator at slowPeriod-1 and fails closed for invalid windows', () => {
+    const values = ao([3, 1, 3, 4, 5, 6], [3, 1, 3, 4, 5, 6], 2, 3);
+    expect(values[1]).toBeNull();
+    expect(values[2]).not.toBeNull();
+
+    const invalid = ao(
+      [3, 1, 3, Number.NaN, 5, 6, 7],
+      [3, 1, 3, 4, 5, 6, 7],
+      2,
+      3,
+    );
+    expect(invalid[3]).toBeNull();
+    expect(invalid[4]).toBeNull();
+    expect(invalid[5]).toBeNull();
+    expect(invalid[6]).not.toBeNull();
+  });
+
+  it('rejects invalid Awesome Oscillator periods and mismatched price arrays', () => {
+    expect(() => ao([1, 2], [1, 2], 3, 3)).toThrow(
+      'fastPeriod must be smaller than slowPeriod',
+    );
+    expect(() => ao([1, 2], [1, 2], 1.5, 3)).toThrow('period must be a positive integer');
+    expect(() => ao([1, 2], [1], 1, 2)).toThrow('highs and lows must have the same length');
   });
 
   it('calculates MetaTrader RVI and signal values with exact weighted arithmetic', () => {

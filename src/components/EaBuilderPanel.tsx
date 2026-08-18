@@ -23,6 +23,7 @@ import {
   type BollingerCondition,
   type CciBreakCondition,
   type AdxTrendCondition,
+  type AoCondition,
   type DeMarkerCondition,
   type DonchianBreakCondition,
   type EntryCondition,
@@ -134,6 +135,12 @@ const defaultParabolicSarCondition = (): ParabolicSarCondition => ({
 const defaultMomentumCondition = (): MomentumCondition => ({
   type: 'momentum',
   period: 14,
+});
+
+const defaultAoCondition = (): AoCondition => ({
+  type: 'ao',
+  fastPeriod: 5,
+  slowPeriod: 34,
 });
 
 const defaultRviCondition = (): RviCondition => ({
@@ -360,6 +367,18 @@ export const strategyValidationMessages = (strategy: StrategyDefinition): string
       messages.push('Momentumの期間は2以上1000以下の整数にしてください。');
     }
     if (
+      condition.type === 'ao' &&
+      (!Number.isInteger(condition.fastPeriod) ||
+        condition.fastPeriod < 2 ||
+        condition.fastPeriod > 1000 ||
+        !Number.isInteger(condition.slowPeriod) ||
+        condition.slowPeriod < 2 ||
+        condition.slowPeriod > 1000 ||
+        condition.fastPeriod >= condition.slowPeriod)
+    ) {
+      messages.push('AOのfastPeriodとslowPeriodは2以上1000以下の整数で、fastPeriodをslowPeriodより小さくしてください。');
+    }
+    if (
       condition.type === 'rvi' &&
       (!Number.isInteger(condition.period) || condition.period < 2 || condition.period > 1000)
     ) {
@@ -572,6 +591,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const adxCondition = getCondition('adxTrend');
   const parabolicSarCondition = getCondition('parabolicSar');
   const momentumCondition = getCondition('momentum');
+  const aoCondition = getCondition('ao');
   const rviCondition = getCondition('rvi');
 
   const updateMoneyManagement = (
@@ -1656,6 +1676,56 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                 </label>
                 <small className="control-hint">
                   Momentumの期間は2以上1000以下の整数にしてください
+                </small>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('ao')}
+                onChange={(event) =>
+                  toggleCondition('ao', event.target.checked, defaultAoCondition)
+                }
+              />
+              <span>AOゼロラインクロス</span>
+            </label>
+            {aoCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>fastPeriod</span>
+                  <input
+                    max="1000"
+                    min="2"
+                    type="number"
+                    value={aoCondition.fastPeriod}
+                    onChange={(event) =>
+                      updateCondition('ao', defaultAoCondition, (condition) => ({
+                        ...condition,
+                        fastPeriod: integerInput(event.target.value, condition.fastPeriod, 5, 2, 1000),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>slowPeriod</span>
+                  <input
+                    max="1000"
+                    min="2"
+                    type="number"
+                    value={aoCondition.slowPeriod}
+                    onChange={(event) =>
+                      updateCondition('ao', defaultAoCondition, (condition) => ({
+                        ...condition,
+                        slowPeriod: integerInput(event.target.value, condition.slowPeriod, 34, 2, 1000),
+                      }))
+                    }
+                  />
+                </label>
+                <small className="control-hint">
+                  AOのfastPeriodとslowPeriodは2以上1000以下の整数で、fastPeriodをslowPeriodより小さくしてください
                 </small>
               </div>
             )}

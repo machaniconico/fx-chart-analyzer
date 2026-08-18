@@ -511,6 +511,20 @@ const validationCases: Array<{
     message: 'Momentumの期間は2以上1000以下の整数にしてください。',
   },
   {
+    type: 'ao',
+    valid: { type: 'ao', fastPeriod: 2, slowPeriod: 3 },
+    invalid: [
+      { label: 'fast period below minimum (1)', condition: { type: 'ao', fastPeriod: 1, slowPeriod: 3 } },
+      { label: 'slow period below minimum', condition: { type: 'ao', fastPeriod: 2, slowPeriod: 1 } },
+      { label: 'equal periods', condition: { type: 'ao', fastPeriod: 2, slowPeriod: 2 } },
+      { label: 'fast period greater than slow period', condition: { type: 'ao', fastPeriod: 3, slowPeriod: 2 } },
+      { label: 'fast period non-integer', condition: { type: 'ao', fastPeriod: 2.5, slowPeriod: 3 } },
+      { label: 'slow period non-integer', condition: { type: 'ao', fastPeriod: 2, slowPeriod: 3.5 } },
+      { label: 'period above maximum', condition: { type: 'ao', fastPeriod: 1001, slowPeriod: 1002 } },
+    ],
+    message: 'AOのfastPeriodとslowPeriodは2以上1000以下の整数で、fastPeriodをslowPeriodより小さくしてください。',
+  },
+  {
     type: 'rvi',
     valid: { type: 'rvi', period: 1000 },
     invalid: [
