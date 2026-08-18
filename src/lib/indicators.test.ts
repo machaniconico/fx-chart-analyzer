@@ -9,6 +9,7 @@ import {
   ichimoku,
   keltnerChannel,
   macd,
+  parabolicSar,
   rsi,
   sma,
   stochastic,
@@ -26,6 +27,32 @@ const expectNullableCloseTo = (
   expect(actual).not.toBeNull();
   expect(actual as number).toBeCloseTo(expected, precision);
 };
+
+const makeSarNumericFixture = (): { highs: number[]; lows: number[] } => ({
+  // Reversals at 2 and 3; the first-reversal-plus-100 exposure boundary is 102.
+  highs: [
+    10,
+    11,
+    12,
+    13,
+    ...Array.from({ length: 98 }, () => 13),
+    30,
+    32,
+    34,
+    35,
+  ],
+  lows: [
+    8,
+    9,
+    10,
+    8,
+    ...Array.from({ length: 98 }, () => 10),
+    15,
+    16,
+    17,
+    18,
+  ],
+});
 
 describe('indicators', () => {
   it('calculates SMA using a trailing window', () => {
@@ -90,6 +117,100 @@ describe('indicators', () => {
     expect(flat.plusDi).toEqual([null, 0, 0]);
     expect(flat.minusDi).toEqual([null, 0, 0]);
     expect(flat.adx).toEqual([null, null, 0]);
+  });
+
+  it('calculates MetaTrader iSAR flips with AF acceleration and the two-bar EP clamp', () => {
+    const { highs, lows } = makeSarNumericFixture();
+    const result = parabolicSar(highs, lows, 0.1, 0.3);
+
+    // The seed and first two reversals stay fail-closed. The first exposed bar
+    // is index 102: first reversal 2 + 100 bars, with two reversals observed.
+    expect(result.sar[101]).toBeNull();
+    expect(result.isLong[101]).toBeNull();
+    expect(result.isLong[102]).toBe(true);
+    expect(result.sar[102]).toBe(8);
+
+    // At 103 the raw 10.2 is clamped to min(Low[102], Low[101]) = 10.
+    // High[103] is a new EP, so AF accelerates to 0.2 and SAR[104] is 14.4.
+    // The next AF step reaches 0.3; raw SAR[105]=20.28 is clamped to
+    // min(Low[104], Low[103]) = 16.
+    expect(result.sar[103]).toBe(10);
+    expect(result.sar[104]).toBe(14.4);
+    expect(result.sar[105]).toBe(16);
+
+    // High[1] equals the initial SHORT SAR, so strict '<' must not reverse at
+    // index 1. A '<=' mutation shifts the first reversal to index 3 and keeps
+    // the boundary at index 102 null, killing the equality-boundary mutation.
+    // maximum===step is valid because only maximum<step is invalid.
+    expect(highs[1]).toBe(11);
+    expect(result.sar[102]).toBe(8);
+    expect(parabolicSar(highs, lows, 0.1, 0.1).sar[102]).toBe(8);
+  });
+
+  it('requires two reversals and the full 100-bar conservative warm-up', () => {
+    const oneReversalHighs = Array.from({ length: 106 }, (_, index) => 10 + index);
+    const oneReversalLows = Array.from({ length: 106 }, () => 8);
+    const oneReversal = parabolicSar(oneReversalHighs, oneReversalLows, 0.1, 0.3);
+    expect(oneReversal.sar.every((value) => value === null)).toBe(true);
+    expect(oneReversal.isLong.every((value) => value === null)).toBe(true);
+
+    const lateSecondHighs = Array.from({ length: 125 }, (_, index) => 10 + index);
+    const lateSecondLows = Array.from({ length: 125 }, () => 8);
+    lateSecondLows[120] = 0;
+    const lateSecond = parabolicSar(lateSecondHighs, lateSecondLows, 0.1, 0.3);
+    expect(lateSecond.sar[101]).toBeNull();
+    expect(lateSecond.sar[102]).toBeNull();
+    expect(lateSecond.sar[119]).toBeNull();
+    expect(lateSecond.sar[120]).not.toBeNull();
+    expect(lateSecond.isLong[120]).toBe(false);
+  });
+
+  it('keeps the complete SAR prefix unchanged when future bars are appended', () => {
+    const { highs, lows } = makeSarNumericFixture();
+    const base = parabolicSar(highs, lows, 0.1, 0.3);
+    const withFuture = parabolicSar(
+      [...highs, 1_000],
+      [...lows, -1_000],
+      0.1,
+      0.3,
+    );
+
+    expect(withFuture.sar.slice(0, highs.length)).toEqual(base.sar);
+    expect(withFuture.isLong.slice(0, highs.length)).toEqual(base.isLong);
+  });
+
+  it('fails closed for invalid iSAR parameters, non-finite prices, and short input', () => {
+    const highs = [10, 11, 12, 13];
+    const lows = [8, 9, 10, 11];
+    const allNull = (values: readonly (number | boolean | null)[]): boolean =>
+      values.every((value) => value === null);
+
+    for (const [step, maximum] of [
+      [0, 0.2],
+      [-0.1, 0.2],
+      [Number.NaN, 0.2],
+      [0.2, 0.1],
+      [0.1, Number.POSITIVE_INFINITY],
+    ]) {
+      const result = parabolicSar(highs, lows, step, maximum);
+      expect(allNull(result.sar)).toBe(true);
+      expect(allNull(result.isLong)).toBe(true);
+    }
+
+    const invalidPriceResult = parabolicSar([10, Number.NaN, 12, 13], lows, 0.1, 0.2);
+    expect(allNull(invalidPriceResult.sar)).toBe(true);
+    expect(allNull(invalidPriceResult.isLong)).toBe(true);
+    const { highs: validHighs, lows: validLows } = makeSarNumericFixture();
+    const invalidFutureHighs = [...validHighs];
+    invalidFutureHighs[105] = Number.NaN;
+    const invalidFutureResult = parabolicSar(invalidFutureHighs, validLows, 0.1, 0.3);
+    expect(invalidFutureResult.sar[102]).toBe(8);
+    expect(invalidFutureResult.sar[104]).toBe(14.4);
+    expect(invalidFutureResult.sar[105]).toBeNull();
+    expect(parabolicSar([10, 11], [8, 9], 0.1, 0.2).sar).toEqual([null, null]);
+    expect(() => parabolicSar([1, 2], [1], 0.1, 0.2)).toThrow(
+      'highs and lows must have the same length',
+    );
   });
 
   it('rejects ADX input arrays with different lengths', () => {

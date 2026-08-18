@@ -204,6 +204,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       'keltnerBreak',
       'cciBreak',
       'adxTrend',
+      'parabolicSar',
     ]);
     expect(ENTRY_TYPE_PROFILES.rsi.timeframes).toEqual(['m30', 'h1']);
     expect(ENTRY_TYPE_PROFILES.donchianBreak).toEqual({
@@ -291,6 +292,17 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       },
       trailingStopPips: [null, 25],
     });
+    expect(ENTRY_TYPE_PROFILES.parabolicSar).toEqual({
+      label: 'パラボリックSARフリップ順張り',
+      timeframes: ['h1', 'h4'],
+      entryCondition: { type: 'parabolicSar', step: 0.02, maximum: 0.2 },
+      exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
+      parameterRanges: {
+        stopLossPips: { min: 20, max: 110, step: 15 },
+        takeProfitPips: { min: 40, max: 220, step: 20 },
+      },
+      trailingStopPips: [null, 25],
+    });
   });
 
   it('expands the ADX take-profit grid while retaining the legacy points', async () => {
@@ -321,8 +333,8 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
         `${target.strategy.meta.pair}:${target.entryType}:${target.strategy.meta.timeframe}`,
     );
 
-    expect(expectedCount).toBe(120);
-    expect(matrix).toHaveLength(120);
+    expect(expectedCount).toBe(132);
+    expect(matrix).toHaveLength(132);
     expect(new Set(triples).size).toBe(expectedCount);
     expect(new Set(matrix.map((target) => target.id)).size).toBe(expectedCount);
     expect(matrix.every((target) => target.strategy.meta.registeredAt === TUNING_REGISTERED_AT)).toBe(
@@ -483,7 +495,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       1783100580,
       1783100581,
     ]);
-    expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(120);
+    expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(matrix.length);
   });
 
   it('assigns ADX candidates to entry-type index 9 with 12 candidates and unique magic numbers', () => {
@@ -510,6 +522,34 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       ['GBPUSD', 'h4', 1783100491],
       ['AUDJPY', 'h1', 1783100590],
       ['AUDJPY', 'h4', 1783100591],
+    ]);
+    expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(matrix.length);
+  });
+
+  it('assigns Parabolic SAR candidates to the first second-block index with exact triples', () => {
+    const matrix = buildCandidateMatrix();
+    const parabolicSarCandidates = matrix.filter((target) => target.entryType === 'parabolicSar');
+
+    expect(parabolicSarCandidates).toHaveLength(12);
+    expect(
+      parabolicSarCandidates.map((target) => [
+        target.strategy.meta.pair,
+        target.strategy.meta.timeframe,
+        target.strategy.magicNumber,
+      ]),
+    ).toEqual([
+      ['USDJPY', 'h1', 1783200000],
+      ['USDJPY', 'h4', 1783200001],
+      ['EURUSD', 'h1', 1783200100],
+      ['EURUSD', 'h4', 1783200101],
+      ['GBPJPY', 'h1', 1783200200],
+      ['GBPJPY', 'h4', 1783200201],
+      ['EURJPY', 'h1', 1783200300],
+      ['EURJPY', 'h4', 1783200301],
+      ['GBPUSD', 'h1', 1783200400],
+      ['GBPUSD', 'h4', 1783200401],
+      ['AUDJPY', 'h1', 1783200500],
+      ['AUDJPY', 'h4', 1783200501],
     ]);
     expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(matrix.length);
   });
@@ -546,7 +586,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('supports each filter independently', () => {
     const matrix = buildCandidateMatrix();
 
-    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(20);
+    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(22);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'rsi']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'donchianBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'stochastic']))).toHaveLength(12);
@@ -554,8 +594,9 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'keltnerBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'cciBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'adxTrend']))).toHaveLength(12);
+    expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'parabolicSar']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'm30']))).toHaveLength(24);
-    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(60);
+    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(66);
     expect(() => parseCliArgs(['--timeframe', 'm15'])).toThrow(/Invalid value for --timeframe/);
   });
 
@@ -568,6 +609,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(CLI_USAGE).toContain('keltnerBreak');
     expect(CLI_USAGE).toContain('cciBreak');
     expect(CLI_USAGE).toContain('adxTrend');
+    expect(CLI_USAGE).toContain('parabolicSar');
     expect(
       filterTargets(matrix, parseCliArgs(['--entry-type', 'DONCHIANBREAK'])),
     ).toEqual(
@@ -597,6 +639,11 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       filterTargets(matrix, parseCliArgs(['--entry-type', 'ADXTrend'])),
     ).toEqual(
       matrix.filter((target) => target.entryType === 'adxTrend'),
+    );
+    expect(
+      filterTargets(matrix, parseCliArgs(['--entry-type', 'PARABOLICSAR'])),
+    ).toEqual(
+      matrix.filter((target) => target.entryType === 'parabolicSar'),
     );
   });
 
@@ -1597,7 +1644,7 @@ describe('tune-virtual-strategies JSON report', () => {
     expect(evaluatedIds).toEqual(['tune-rsi-eurusd-h1-v1']);
     expect(results).toHaveLength(1);
     expect(cleanupCalled).toBe(true);
-    expect(logs[0]).toBe('チューニング候補: 1/120件');
+    expect(logs[0]).toBe('チューニング候補: 1/132件');
     expect(writtenReport).toMatchObject({
       filters: { pairs: ['EURUSD'], entryTypes: ['rsi'], timeframes: ['h1'] },
       summary: { candidateCount: 1 },

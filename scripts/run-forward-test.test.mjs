@@ -151,6 +151,7 @@ describe('forward test runner', () => {
       'keltnerBreak',
       'cciBreak',
       'adxTrend',
+      'parabolicSar',
     ]);
   });
 
@@ -361,7 +362,7 @@ describe('forward test runner', () => {
             },
           ],
         },
-        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak, adxTrend/,
+        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak, adxTrend, parabolicSar/,
       },
     ];
 
@@ -422,6 +423,7 @@ describe('forward test runner', () => {
     ],
     ['cciBreak', { type: 'cciBreak', period: 14, level: 100 }],
     ['adxTrend', { type: 'adxTrend', period: 14, threshold: 25 }],
+    ['parabolicSar', { type: 'parabolicSar', step: 0.02, maximum: 0.2 }],
   ])('accepts %s entry conditions in virtual strategies', (entryType, entryCondition) => {
     const candidate = JSON.parse(JSON.stringify(strategy));
     candidate.meta.id = `virtual-${entryType}-v1`;
@@ -514,6 +516,8 @@ describe('forward test runner', () => {
     ],
     ['keltnerBreak', { type: 'keltnerBreak', emaPeriod: 20, atrPeriod: 10, multiplier: 2 }],
     ['cciBreak', { type: 'cciBreak', period: 14, level: 100 }],
+    ['adxTrend', { type: 'adxTrend', period: 14, threshold: 25 }],
+    ['parabolicSar', { type: 'parabolicSar', step: 0.02, maximum: 0.2 }],
   ];
 
   it.each(validEntryConditionCases)('accepts every %s condition with valid parameters', (entryType, entryCondition) => {
@@ -659,6 +663,36 @@ describe('forward test runner', () => {
       'adxTrend (degenerate period)',
       { type: 'adxTrend', period: 1, threshold: 25 },
       /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2/,
+    ],
+    [
+      'parabolicSar (step floor)',
+      { type: 'parabolicSar', step: 0.01, maximum: 0.2 },
+      /entryConditions\[0\]\.step must be a finite number greater than or equal to 0\.02 and less than 1/,
+    ],
+    [
+      'parabolicSar (step upper bound)',
+      { type: 'parabolicSar', step: 1, maximum: 1 },
+      /entryConditions\[0\]\.step must be a finite number greater than or equal to 0\.02 and less than 1/,
+    ],
+    [
+      'parabolicSar (non-finite step)',
+      { type: 'parabolicSar', step: Number.NaN, maximum: 0.2 },
+      /entryConditions\[0\]\.step must be a finite number greater than or equal to 0\.02 and less than 1/,
+    ],
+    [
+      'parabolicSar (maximum relation)',
+      { type: 'parabolicSar', step: 0.2, maximum: 0.1 },
+      /entryConditions\[0\]\.maximum must be a finite number greater than or equal to step and less than 1/,
+    ],
+    [
+      'parabolicSar (maximum upper bound)',
+      { type: 'parabolicSar', step: 0.2, maximum: 1 },
+      /entryConditions\[0\]\.maximum must be a finite number greater than or equal to step and less than 1/,
+    ],
+    [
+      'parabolicSar (non-finite maximum)',
+      { type: 'parabolicSar', step: 0.02, maximum: Number.POSITIVE_INFINITY },
+      /entryConditions\[0\]\.maximum must be a finite number greater than or equal to step and less than 1/,
     ],
   ])('rejects invalid %s condition parameters before backtesting', (entryType, entryCondition, expected) => {
     const candidate = JSON.parse(JSON.stringify(strategy));

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateMql4, generateMql5 } from './mql';
+import { SAR_CONVERGENCE_WARMUP_BARS } from './indicators';
 import type { EntryCondition, StrategyDefinition } from './strategy';
 
 const fullStrategy: StrategyDefinition = {
@@ -264,6 +265,7 @@ describe('mql generation', () => {
       { type: 'keltnerBreak', emaPeriod: 20, atrPeriod: 10, multiplier: 2 },
       { type: 'cciBreak', period: 14, level: 100 },
       { type: 'adxTrend', period: 14, threshold: 25 },
+      { type: 'parabolicSar', step: 0.02, maximum: 0.2 },
     ];
     for (const condition of allConditions) {
       const source = generateMql4({
@@ -530,6 +532,70 @@ describe('mql generation', () => {
     expectBalanced(mql4);
     await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-adxTrend.mq5'));
     await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-adxTrend.mq4'));
+  });
+
+  it('generates native iSAR flips with evaluator direction parity, guards, and warm-up', async () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [{ type: 'parabolicSar', step: 0.02, maximum: 0.2 }],
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    expect(mql5).toContain('input double InpSAR1Step = 0.02;');
+    expect(mql5).toContain('input double InpSAR1Maximum = 0.2;');
+    expect(mql5).toContain('int sar1Handle = INVALID_HANDLE;');
+    expect(mql5).toContain('sar1Handle = iSAR(_Symbol, _Period, InpSAR1Step, InpSAR1Maximum);');
+    expect(mql5).toContain('double previousSar = BufferValue(sar1Handle, 0, 2);');
+    expect(mql5).toContain('double currentSar = BufferValue(sar1Handle, 0, 1);');
+    expect(mql5).toContain('bool previousIsLong = SarDirectionIsLong1(previousSar, previousHigh, previousLow);');
+    expect(mql5).toContain('bool currentIsLong = SarDirectionIsLong1(currentSar, currentHigh, currentLow);');
+    expect(mql5).toContain('return sar < high;');
+    expect(mql5).toContain('static datetime cachedBarTime = 0;');
+    expect(mql5).toContain('cachedBarTime == currentBarTime');
+    expect(mql5).toContain('for(int shift = totalBars - 1; shift >= signalShift + 1; shift--)');
+    expect(mql5).toContain('if(reversalCount >= 2)');
+    expect(mql5).toContain('sar > 0.0 && high > 0.0 && low > 0.0');
+    expect(mql5).toContain('if(reversalCount < 2 || firstReversalShift < 0)');
+    expect(mql5).toContain(
+      `cachedResult = firstReversalShift - (signalShift + 1) >= ${SAR_CONVERGENCE_WARMUP_BARS};`,
+    );
+    expect(mql5).toContain('MathIsValidNumber(InpSAR1Step)');
+    expect(mql5).toContain('InpSAR1Maximum < InpSAR1Step');
+    expect(mql5).toContain('InpSAR1Step < 0.02');
+    expect(mql5).toContain('SAR1 warning: step below 0.02');
+    expect(mql5).toContain('ReleaseIndicator(sar1Handle);');
+    expect(mql5).not.toContain('iSAR(NULL, 0');
+
+    expect(mql4).toContain('input double InpSAR1Step = 0.02;');
+    expect(mql4).toContain('input double InpSAR1Maximum = 0.2;');
+    expect(mql4).toContain('double previousSar = iSAR(_Symbol, _Period, step, maximum, 2);');
+    expect(mql4).toContain('double currentSar = iSAR(_Symbol, _Period, step, maximum, 1);');
+    expect(mql4).toContain('double sar = iSAR(_Symbol, _Period, step, maximum, shift);');
+    expect(mql4).toContain('bool previousIsLong = SarDirectionIsLong1(previousSar, previousHigh, previousLow);');
+    expect(mql4).toContain('bool currentIsLong = SarDirectionIsLong1(currentSar, currentHigh, currentLow);');
+    expect(mql4).toContain('return sar < high;');
+    expect(mql4).toContain('static datetime cachedBarTime = 0;');
+    expect(mql4).toContain('cachedBarTime == currentBarTime');
+    expect(mql4).toContain('for(int shift = totalBars - 1; shift >= signalShift + 1; shift--)');
+    expect(mql4).toContain('if(reversalCount >= 2)');
+    expect(mql4).toContain('sar > 0.0 && high > 0.0 && low > 0.0');
+    expect(mql4).toContain('if(reversalCount < 2 || firstReversalShift < 0)');
+    expect(mql4).toContain(
+      `cachedResult = firstReversalShift - (signalShift + 1) >= ${SAR_CONVERGENCE_WARMUP_BARS};`,
+    );
+    expect(mql4).toContain('MathIsValidNumber(step)');
+    expect(mql4).toContain('maximum < step');
+    expect(mql4).toContain('int OnInit()');
+    expect(mql4).toContain('InpSAR1Step < 0.02');
+    expect(mql4).toContain('SAR1 warning: step below 0.02');
+    expect(mql4).not.toContain('iSAR(NULL, 0');
+
+    expectBalanced(mql5);
+    expectBalanced(mql4);
+    await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-parabolicSar.mq5'));
+    await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-parabolicSar.mq4'));
   });
 
   it('generates Ichimoku cross signals with shift parity and mirrored cloud rules for MQL4 and MQL5', () => {

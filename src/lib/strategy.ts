@@ -8,6 +8,7 @@ import {
   ichimoku,
   keltnerBandsFrom,
   macd,
+  parabolicSar,
   rsi,
   sma,
   stochastic,
@@ -20,6 +21,7 @@ import type {
   IchimokuResult,
   KeltnerChannel,
   MacdResult,
+  ParabolicSarResult,
   StochasticResult,
 } from './indicators';
 import type { Bar, Pair } from '../types';
@@ -93,6 +95,12 @@ export interface AdxTrendCondition {
   threshold: number;
 }
 
+export interface ParabolicSarCondition {
+  type: 'parabolicSar';
+  step: number;
+  maximum: number;
+}
+
 export interface StochasticCondition {
   type: 'stochastic';
   kPeriod: number;
@@ -112,7 +120,8 @@ export type EntryCondition =
   | StochasticCondition
   | KeltnerBreakCondition
   | CciBreakCondition
-  | AdxTrendCondition;
+  | AdxTrendCondition
+  | ParabolicSarCondition;
 
 export interface ExitRules {
   stopLossPips: number;
@@ -241,6 +250,9 @@ export const isWithinTradingSession = (
 
 const normalizePeriod = (value: number): number => Math.max(1, Math.round(value));
 
+const parabolicSarKey = (step: number, maximum: number): string =>
+  `${step}:${maximum}`;
+
 const maKey = (type: MovingAverageType, period: number): string =>
   `${type}:${normalizePeriod(period)}`;
 
@@ -269,6 +281,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `CCI${condition.period} ±${condition.level} ブレイク`;
     case 'adxTrend':
       return `ADX${condition.period}/${condition.threshold} DIクロス`;
+    case 'parabolicSar':
+      return `SAR${condition.step}/${condition.maximum} フリップ`;
   }
 };
 
@@ -323,6 +337,7 @@ type CachedDonchianResult = ReadonlyIndicatorResult<DonchianResult>;
 type CachedKeltnerChannel = ReadonlyIndicatorResult<KeltnerChannel>;
 type CachedStochasticResult = ReadonlyIndicatorResult<StochasticResult>;
 type CachedAdxResult = ReadonlyIndicatorResult<AdxResult>;
+type CachedParabolicSarResult = ReadonlyIndicatorResult<ParabolicSarResult>;
 
 type KeltnerEvaluation = {
   readonly channel: CachedKeltnerChannel;
@@ -344,6 +359,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const keltnerCache = new Map<string, KeltnerEvaluation>();
   const stochasticCache = new Map<string, CachedStochasticResult>();
   const adxCache = new Map<number, CachedAdxResult>();
+  const parabolicSarCache = new Map<string, CachedParabolicSarResult>();
 
   const getMa = (type: MovingAverageType, period: number): CachedIndicatorValues => {
     const normalizedPeriod = normalizePeriod(period);
@@ -526,6 +542,17 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
+  const getParabolicSar = (step: number, maximum: number): CachedParabolicSarResult => {
+    const key = parabolicSarKey(step, maximum);
+    const cached = parabolicSarCache.get(key);
+    if (cached) {
+      return cached;
+    }
+    const values = parabolicSar(highs, lows, step, maximum);
+    parabolicSarCache.set(key, values);
+    return values;
+  };
+
   const evaluateCondition = (
     condition: EntryCondition,
     index: number,
@@ -656,6 +683,32 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
               values.plusDi[index],
               values.minusDi[index],
             );
+      }
+      case 'parabolicSar': {
+        if (
+          !Number.isFinite(condition.step) ||
+          condition.step <= 0 ||
+          !Number.isFinite(condition.maximum) ||
+          condition.maximum < condition.step
+        ) {
+          return false;
+        }
+        const values = getParabolicSar(condition.step, condition.maximum);
+        const previousSar = values.sar[index - 1];
+        const currentSar = values.sar[index];
+        const previousIsLong = values.isLong[index - 1];
+        const currentIsLong = values.isLong[index];
+        if (
+          !isNumber(previousSar) ||
+          !isNumber(currentSar) ||
+          typeof previousIsLong !== 'boolean' ||
+          typeof currentIsLong !== 'boolean'
+        ) {
+          return false;
+        }
+        return isShort
+          ? previousIsLong && !currentIsLong
+          : !previousIsLong && currentIsLong;
       }
       case 'stochastic': {
         const values = getStochastic(
