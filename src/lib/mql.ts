@@ -493,9 +493,9 @@ const adxParityComment = `
 `;
 
 type AdxIndicatorExpressions = {
-  plusDi: string;
-  minusDi: string;
-  main: string;
+  plusDi: (shift: number) => string;
+  minusDi: (shift: number) => string;
+  main: (shift: number) => string;
 };
 
 const mqlAdxCondition = (
@@ -515,12 +515,12 @@ ${adxParityComment}bool Condition${index}(bool longSide)
   {
     return false;
   }
-  double previousPlusDi = ${expressions.plusDi.replace(/SHIFT/g, '2')};
-  double previousMinusDi = ${expressions.minusDi.replace(/SHIFT/g, '2')};
-  double previousAdx = ${expressions.main.replace(/SHIFT/g, '2')};
-  double currentPlusDi = ${expressions.plusDi.replace(/SHIFT/g, '1')};
-  double currentMinusDi = ${expressions.minusDi.replace(/SHIFT/g, '1')};
-  double currentAdx = ${expressions.main.replace(/SHIFT/g, '1')};
+  double previousPlusDi = ${expressions.plusDi(2)};
+  double previousMinusDi = ${expressions.minusDi(2)};
+  double previousAdx = ${expressions.main(2)};
+  double currentPlusDi = ${expressions.plusDi(1)};
+  double currentMinusDi = ${expressions.minusDi(1)};
+  double currentAdx = ${expressions.main(1)};
   double threshold = InpADX${index}Threshold;
   if(!ValueReady(previousPlusDi) || !ValueReady(previousMinusDi) || !ValueReady(previousAdx) ||
     !ValueReady(currentPlusDi) || !ValueReady(currentMinusDi) || !ValueReady(currentAdx) ||
@@ -546,16 +546,16 @@ ${adxParityComment}bool Condition${index}(bool longSide)
 
 const mql5AdxCondition = (_condition: AdxTrendCondition, index: number): string =>
   mqlAdxCondition(index, {
-    plusDi: `BufferValue(adx${index}Handle, PLUSDI_LINE, SHIFT)`,
-    minusDi: `BufferValue(adx${index}Handle, MINUSDI_LINE, SHIFT)`,
-    main: `BufferValue(adx${index}Handle, MAIN_LINE, SHIFT)`,
+    plusDi: (shift) => `BufferValue(adx${index}Handle, PLUSDI_LINE, ${shift})`,
+    minusDi: (shift) => `BufferValue(adx${index}Handle, MINUSDI_LINE, ${shift})`,
+    main: (shift) => `BufferValue(adx${index}Handle, MAIN_LINE, ${shift})`,
   });
 
 const mql4AdxCondition = (_condition: AdxTrendCondition, index: number): string =>
   mqlAdxCondition(index, {
-    plusDi: `iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_PLUSDI, SHIFT)`,
-    minusDi: `iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_MINUSDI, SHIFT)`,
-    main: `iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_MAIN, SHIFT)`,
+    plusDi: (shift) => `iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_PLUSDI, ${shift})`,
+    minusDi: (shift) => `iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_MINUSDI, ${shift})`,
+    main: (shift) => `iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_MAIN, ${shift})`,
   });
 
 const mqlStochasticCondition = (condition: StochasticCondition, index: number): string => {

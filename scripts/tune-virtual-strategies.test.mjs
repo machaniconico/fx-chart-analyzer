@@ -14,6 +14,7 @@ import {
   TUNING_PAIRS,
   TUNING_REGISTERED_AT,
   buildCandidateMatrix,
+  candidateMagicNumber,
   createTuningReport,
   eligibilityRejectionReasons,
   evaluateTarget,
@@ -286,10 +287,25 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
       parameterRanges: {
         stopLossPips: { min: 20, max: 110, step: 15 },
-        takeProfitPips: { min: 40, max: 160, step: 20 },
+        takeProfitPips: { min: 40, max: 220, step: 20 },
       },
       trailingStopPips: [null, 25],
     });
+  });
+
+  it('expands the ADX take-profit grid while retaining the legacy points', async () => {
+    const { stopLossPips, takeProfitPips } = ENTRY_TYPE_PROFILES.adxTrend.parameterRanges;
+    // 本番の展開器で検証する(自前の再計算だと小数stepの丸め差でテストだけ緑になりうる)
+    const { valuesFromRange } = await import('../src/lib/optimize.ts');
+    const takeProfitValues = valuesFromRange(takeProfitPips);
+
+    expect(takeProfitValues).toEqual([40, 60, 80, 100, 120, 140, 160, 180, 200, 220]);
+    expect(takeProfitValues.slice(0, 7)).toEqual([40, 60, 80, 100, 120, 140, 160]);
+    expect(
+      (Math.round((stopLossPips.max - stopLossPips.min) / stopLossPips.step) + 1) *
+        takeProfitValues.length *
+        ENTRY_TYPE_PROFILES.adxTrend.trailingStopPips.length,
+    ).toBe(140);
   });
 
   it('covers every pair, entry type, and suitable timeframe exactly once', () => {
@@ -363,6 +379,68 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
         }
       }
     }
+  });
+
+  it('keeps the legacy magic-number formula unchanged for entry-type indexes 0 through 9', () => {
+    for (const pairIndex of TUNING_PAIRS.keys()) {
+      for (let entryTypeIndex = 0; entryTypeIndex < 10; entryTypeIndex += 1) {
+        for (let timeframeIndex = 0; timeframeIndex < 2; timeframeIndex += 1) {
+          expect(candidateMagicNumber(pairIndex, entryTypeIndex, timeframeIndex)).toBe(
+            1783100000 + pairIndex * 100 + entryTypeIndex * 10 + timeframeIndex,
+          );
+        }
+      }
+    }
+  });
+
+  it('encodes the second entry-type block without collisions', () => {
+    expect(candidateMagicNumber(0, 10, 0)).toBe(1783200000);
+
+    const legacyBlock = [];
+    const secondBlock = [];
+    for (const pairIndex of TUNING_PAIRS.keys()) {
+      for (let entryTypeIndex = 0; entryTypeIndex < 10; entryTypeIndex += 1) {
+        for (let timeframeIndex = 0; timeframeIndex < 2; timeframeIndex += 1) {
+          legacyBlock.push(candidateMagicNumber(pairIndex, entryTypeIndex, timeframeIndex));
+        }
+      }
+      for (let entryTypeIndex = 10; entryTypeIndex < 20; entryTypeIndex += 1) {
+        for (let timeframeIndex = 0; timeframeIndex < 2; timeframeIndex += 1) {
+          secondBlock.push(candidateMagicNumber(pairIndex, entryTypeIndex, timeframeIndex));
+        }
+      }
+    }
+
+    expect(new Set(legacyBlock).size).toBe(legacyBlock.length);
+    expect(new Set(secondBlock).size).toBe(secondBlock.length);
+    expect(new Set([...legacyBlock, ...secondBlock]).size).toBe(
+      legacyBlock.length + secondBlock.length,
+    );
+  });
+
+  it('fails closed when a timeframe index is outside the encoding', () => {
+    expect(() => candidateMagicNumber(0, 10, 10)).toThrow(
+      'magicNumber timeframe index out of range',
+    );
+    // 第1ブロック側でも同じ穴が塞がっていること(旧ガードは eti<10 かつ tfi>=10 を素通りさせ衝突していた)
+    expect(() => candidateMagicNumber(0, 0, 10)).toThrow(
+      'magicNumber timeframe index out of range',
+    );
+  });
+
+  it('fails closed on non-integer, negative, or oversized pair indexes', () => {
+    expect(() => candidateMagicNumber(-1, 0, 0)).toThrow(
+      'magicNumber pair index must be a non-negative integer',
+    );
+    expect(() => candidateMagicNumber(0, 0.5, 0)).toThrow(
+      'magicNumber entry-type index must be a non-negative integer',
+    );
+    expect(() => candidateMagicNumber(0, 0, Number.NaN)).toThrow(
+      'magicNumber timeframe index must be a non-negative integer',
+    );
+    expect(() => candidateMagicNumber(1000, 0, 0)).toThrow(
+      'magicNumber pair index out of range',
+    );
   });
 
   it('assigns Keltner candidates to entry-type index 7 without collisions', () => {
