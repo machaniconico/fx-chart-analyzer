@@ -673,10 +673,10 @@ ${ichimokuParityComment}${ichimokuDisplacementWarning(condition)}bool Condition$
   {
     return false;
   }
-  double previousConversion = iIchimoku(NULL, 0, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_TENKANSEN, 2);
-  double previousBase = iIchimoku(NULL, 0, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_KIJUNSEN, 2);
-  double currentConversion = iIchimoku(NULL, 0, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_TENKANSEN, 1);
-  double currentBase = iIchimoku(NULL, 0, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_KIJUNSEN, 1);
+  double previousConversion = iIchimoku(_Symbol, _Period, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_TENKANSEN, 2);
+  double previousBase = iIchimoku(_Symbol, _Period, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_KIJUNSEN, 2);
+  double currentConversion = iIchimoku(_Symbol, _Period, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_TENKANSEN, 1);
+  double currentBase = iIchimoku(_Symbol, _Period, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_KIJUNSEN, 1);
   if(!ValueReady(previousConversion) || !ValueReady(previousBase) || !ValueReady(currentConversion) || !ValueReady(currentBase))
   {
     return false;
@@ -696,9 +696,9 @@ ${ichimokuParityComment}${ichimokuDisplacementWarning(condition)}bool Condition$
   {
     return false;
   }
-  double spanA = iIchimoku(NULL, 0, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_SENKOUSPANA, 1);
-  double spanB = iIchimoku(NULL, 0, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_SENKOUSPANB, 1);
-  double close1 = iClose(NULL, 0, 1);
+  double spanA = iIchimoku(_Symbol, _Period, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_SENKOUSPANA, 1);
+  double spanB = iIchimoku(_Symbol, _Period, InpIchimoku${index}ConversionPeriod, InpIchimoku${index}BasePeriod, InpIchimoku${index}SpanBPeriod, MODE_SENKOUSPANB, 1);
+  double close1 = iClose(_Symbol, _Period, 1);
   if(!ValueReady(spanA) || !ValueReady(spanB) || !ValueReady(close1))
   {
     return false;

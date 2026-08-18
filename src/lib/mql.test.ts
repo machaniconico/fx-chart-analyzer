@@ -245,6 +245,35 @@ describe('mql generation', () => {
     }
   });
 
+  it('emits no legacy NULL, 0 indicator arguments in MQL4 for any condition type', () => {
+    const allConditions: EntryCondition[] = [
+      { type: 'maCross', fastType: 'ema', fastPeriod: 8, slowType: 'sma', slowPeriod: 21 },
+      { type: 'rsi', period: 14, threshold: 30, comparison: 'below' },
+      { type: 'bollinger', period: 20, multiplier: 2, mode: 'touch', band: 'lower' },
+      { type: 'macdCross', fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+      {
+        type: 'ichimokuCross',
+        conversionPeriod: 9,
+        basePeriod: 26,
+        spanBPeriod: 52,
+        displacement: 26,
+        requireCloudFilter: true,
+      },
+      { type: 'donchianBreak', period: 20 },
+      { type: 'stochastic', kPeriod: 14, dPeriod: 3, smoothing: 3, threshold: 20, comparison: 'crossBelow' },
+      { type: 'keltnerBreak', emaPeriod: 20, atrPeriod: 10, multiplier: 2 },
+      { type: 'cciBreak', period: 14, level: 100 },
+    ];
+    for (const condition of allConditions) {
+      const source = generateMql4({
+        ...fullStrategy,
+        id: `null-guard-${condition.type}`,
+        entryConditions: [condition],
+      });
+      expect(source).not.toMatch(/\(NULL, *0\b/);
+    }
+  });
+
   it('rejects non-finite generated numeric values before emitting MQL', () => {
     expect(() =>
       generateMql5({
@@ -501,19 +530,22 @@ describe('mql generation', () => {
     );
 
     expect(mql4).toContain(
-      'double previousConversion = iIchimoku(NULL, 0, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod, MODE_TENKANSEN, 2);',
+      'double previousConversion = iIchimoku(_Symbol, _Period, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod, MODE_TENKANSEN, 2);',
     );
     expect(mql4).toContain(
-      'double currentConversion = iIchimoku(NULL, 0, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod, MODE_TENKANSEN, 1);',
+      'double currentConversion = iIchimoku(_Symbol, _Period, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod, MODE_TENKANSEN, 1);',
     );
     expect(mql4).toContain('int requiredPeriod = InpIchimoku1ConversionPeriod;');
     expect(mql4).toContain('if(iTime(_Symbol, _Period, requiredPeriod + 1) == 0)');
     expect(mql4).toContain(
-      'double spanA = iIchimoku(NULL, 0, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod, MODE_SENKOUSPANA, 1);',
+      'double spanA = iIchimoku(_Symbol, _Period, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod, MODE_SENKOUSPANA, 1);',
     );
     expect(mql4).toContain(
-      'double spanB = iIchimoku(NULL, 0, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod, MODE_SENKOUSPANB, 1);',
+      'double spanB = iIchimoku(_Symbol, _Period, InpIchimoku1ConversionPeriod, InpIchimoku1BasePeriod, InpIchimoku1SpanBPeriod, MODE_SENKOUSPANB, 1);',
     );
+    expect(mql4).toContain('double close1 = iClose(_Symbol, _Period, 1);');
+    expect(mql4).not.toContain('iIchimoku(NULL, 0');
+    expect(mql4).not.toContain('iClose(NULL, 0');
     expect(mql4).toContain('CrossedAbove(previousConversion, previousBase, currentConversion, currentBase)');
     expect(mql4).toContain('CrossedBelow(previousConversion, previousBase, currentConversion, currentBase)');
     expect(mql4).toContain('close1 > MathMax(spanA, spanB)');

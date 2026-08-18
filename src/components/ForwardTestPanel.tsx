@@ -239,7 +239,7 @@ function MetricComparison({
   );
 }
 
-function SelectionEvidenceDetails({ evidence }: { evidence: SelectionEvidence }) {
+export function SelectionEvidenceDetails({ evidence }: { evidence: SelectionEvidence }) {
   const rankLabel = selectionRankLabel(evidence);
 
   return (
@@ -317,7 +317,7 @@ function SelectionEvidenceDetails({ evidence }: { evidence: SelectionEvidence })
   );
 }
 
-function MonthlySummarySection({ summary }: { summary: MonthlySummary }) {
+export function MonthlySummarySection({ summary }: { summary: MonthlySummary }) {
   return (
     <section className="forward-monthly-summary" aria-labelledby="forward-monthly-title">
       <header className="forward-monthly-heading">

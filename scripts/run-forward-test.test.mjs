@@ -10,6 +10,7 @@ import {
   fingerprintStrategyDefinition,
   FORWARD_HISTORY_SCHEMA_VERSION,
   FORWARD_RESULTS_SCHEMA_VERSION,
+  knownEntryConditionTypes,
   mergeForwardHistory,
   splitBarsByRegistration,
   TWO_YEARS_SECONDS,
@@ -408,6 +409,246 @@ describe('forward test runner', () => {
     candidate.id = candidate.meta.id;
     candidate.name = candidate.meta.name;
     candidate.entryConditions = [entryCondition];
+
+    expect(() => buildStrategyReport({
+      strategy: candidate,
+      bars: [bar(registeredAt)],
+      usdJpyBars: [bar(registeredAt)],
+      runBacktest: emptyBacktestResult,
+    })).not.toThrow();
+  });
+
+  const validEntryConditionCases = [
+    [
+      'maCross',
+      {
+        type: 'maCross',
+        fastType: 'ema',
+        fastPeriod: 10,
+        slowType: 'sma',
+        slowPeriod: 20,
+      },
+    ],
+    ['rsi', { type: 'rsi', period: 14, threshold: 30, comparison: 'below' }],
+    [
+      'bollinger',
+      { type: 'bollinger', period: 20, multiplier: 2, mode: 'break', band: 'upper' },
+    ],
+    ['macdCross', { type: 'macdCross', fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 }],
+    [
+      'ichimokuCross',
+      {
+        type: 'ichimokuCross',
+        conversionPeriod: 9,
+        basePeriod: 26,
+        spanBPeriod: 52,
+        displacement: 26,
+        requireCloudFilter: true,
+      },
+    ],
+    ['donchianBreak', { type: 'donchianBreak', period: 20 }],
+    [
+      'stochastic',
+      {
+        type: 'stochastic',
+        kPeriod: 14,
+        dPeriod: 3,
+        smoothing: 3,
+        threshold: 20,
+        comparison: 'crossAbove',
+      },
+    ],
+    ['keltnerBreak', { type: 'keltnerBreak', emaPeriod: 20, atrPeriod: 10, multiplier: 2 }],
+    ['cciBreak', { type: 'cciBreak', period: 14, level: 100 }],
+  ];
+
+  it.each(validEntryConditionCases)('accepts every %s condition with valid parameters', (entryType, entryCondition) => {
+    const candidate = JSON.parse(JSON.stringify(strategy));
+    candidate.meta.id = `valid-${entryType}-v1`;
+    candidate.meta.name = `${entryType} valid test`;
+    candidate.id = candidate.meta.id;
+    candidate.name = candidate.meta.name;
+    candidate.entryConditions = [entryCondition];
+
+    expect(() => buildStrategyReport({
+      strategy: candidate,
+      bars: [bar(registeredAt)],
+      usdJpyBars: [bar(registeredAt)],
+      runBacktest: emptyBacktestResult,
+    })).not.toThrow();
+  });
+
+  it('accepts a stochastic overbought threshold on the RSI 0-100 scale', () => {
+    const candidate = JSON.parse(JSON.stringify(strategy));
+    candidate.entryConditions = [{
+      type: 'stochastic',
+      kPeriod: 14,
+      dPeriod: 3,
+      smoothing: 3,
+      threshold: 80,
+      comparison: 'above',
+    }];
+
+    expect(() => buildStrategyReport({
+      strategy: candidate,
+      bars: [bar(registeredAt)],
+      usdJpyBars: [bar(registeredAt)],
+      runBacktest: emptyBacktestResult,
+    })).not.toThrow();
+  });
+
+  it.each([
+    [
+      'maCross',
+      {
+        type: 'maCross',
+        fastType: 'ema',
+        fastPeriod: 20,
+        slowType: 'sma',
+        slowPeriod: 20,
+      },
+      /entryConditions\[0\]\.fastPeriod must be smaller than slowPeriod/,
+    ],
+    [
+      'rsi',
+      { type: 'rsi', period: 14, comparison: 'below' },
+      /entryConditions\[0\]\.threshold must be a finite number greater than 0 and less than 100/,
+    ],
+    [
+      'bollinger',
+      { type: 'bollinger', period: 20, multiplier: 0, mode: 'break', band: 'upper' },
+      /entryConditions\[0\]\.multiplier must be a positive finite number/,
+    ],
+    [
+      'macdCross',
+      { type: 'macdCross', fastPeriod: 26, slowPeriod: 26, signalPeriod: 9 },
+      /entryConditions\[0\]\.fastPeriod must be smaller than slowPeriod/,
+    ],
+    [
+      'ichimokuCross',
+      {
+        type: 'ichimokuCross',
+        conversionPeriod: 9,
+        basePeriod: 26,
+        spanBPeriod: 52,
+        requireCloudFilter: true,
+      },
+      /entryConditions\[0\]\.displacement must be a positive integer/,
+    ],
+    [
+      'donchianBreak',
+      { type: 'donchianBreak', period: -1 },
+      /entryConditions\[0\]\.period must be a positive integer/,
+    ],
+    [
+      'stochastic',
+      {
+        type: 'stochastic',
+        kPeriod: 14,
+        dPeriod: 3,
+        smoothing: 3,
+        threshold: 0,
+        comparison: 'crossAbove',
+      },
+      /entryConditions\[0\]\.threshold must be a finite number greater than 0 and less than 100/,
+    ],
+    [
+      'stochastic',
+      {
+        type: 'stochastic',
+        kPeriod: 14,
+        dPeriod: 3,
+        smoothing: 3,
+        threshold: 100,
+        comparison: 'above',
+      },
+      /entryConditions\[0\]\.threshold must be a finite number greater than 0 and less than 100/,
+    ],
+    [
+      'keltnerBreak',
+      { type: 'keltnerBreak', emaPeriod: 20, atrPeriod: 10, multiplier: 0 },
+      /entryConditions\[0\]\.multiplier must be a positive finite number/,
+    ],
+    [
+      'cciBreak',
+      { type: 'cciBreak', period: 14, level: 0 },
+      /entryConditions\[0\]\.level must be a positive finite number/,
+    ],
+    [
+      'cciBreak (degenerate period)',
+      { type: 'cciBreak', period: 1, level: 100 },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2/,
+    ],
+  ])('rejects invalid %s condition parameters before backtesting', (entryType, entryCondition, expected) => {
+    const candidate = JSON.parse(JSON.stringify(strategy));
+    candidate.meta.id = `invalid-${entryType}-parameters-v1`;
+    candidate.meta.name = `${entryType} invalid parameter test`;
+    candidate.id = candidate.meta.id;
+    candidate.name = candidate.meta.name;
+    candidate.entryConditions = [entryCondition];
+
+    expect(() => buildStrategyReport({
+      strategy: candidate,
+      bars: [bar(registeredAt)],
+      usdJpyBars: [bar(registeredAt)],
+      runBacktest: emptyBacktestResult,
+    })).toThrow(expected);
+  });
+
+  it.each([
+    [
+      'rsi',
+      { type: 'rsi', period: 1, threshold: 30, comparison: 'below' },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2/,
+    ],
+    [
+      'bollinger',
+      { type: 'bollinger', period: 1, multiplier: 2, mode: 'break', band: 'upper' },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2/,
+    ],
+  ])('rejects degenerate %s period values before backtesting', (entryType, entryCondition, expected) => {
+    const candidate = JSON.parse(JSON.stringify(strategy));
+    candidate.meta.id = `invalid-${entryType}-period-v1`;
+    candidate.meta.name = `${entryType} invalid period test`;
+    candidate.id = candidate.meta.id;
+    candidate.name = candidate.meta.name;
+    candidate.entryConditions = [entryCondition];
+
+    expect(() => buildStrategyReport({
+      strategy: candidate,
+      bars: [bar(registeredAt)],
+      usdJpyBars: [bar(registeredAt)],
+      runBacktest: emptyBacktestResult,
+    })).toThrow(expected);
+  });
+
+  it('rejects every known entry condition with no parameters', () => {
+    for (const entryType of knownEntryConditionTypes) {
+      const candidate = JSON.parse(JSON.stringify(strategy));
+      candidate.meta.id = `invalid-${entryType}-empty-v1`;
+      candidate.meta.name = `${entryType} empty test`;
+      candidate.id = candidate.meta.id;
+      candidate.name = candidate.meta.name;
+      candidate.entryConditions = [{ type: entryType }];
+
+      expect(() => buildStrategyReport({
+        strategy: candidate,
+        bars: [bar(registeredAt)],
+        usdJpyBars: [bar(registeredAt)],
+        runBacktest: emptyBacktestResult,
+      })).toThrow(new RegExp(`invalid-${entryType}-empty-v1: entryConditions\\[0\\]`));
+    }
+  });
+
+  it('allows unknown entry condition fields for forward compatibility', () => {
+    const candidate = JSON.parse(JSON.stringify(strategy));
+    candidate.entryConditions = [{
+      type: 'rsi',
+      period: 14,
+      threshold: 30,
+      comparison: 'below',
+      futureParameter: 'ignored',
+    }];
 
     expect(() => buildStrategyReport({
       strategy: candidate,
