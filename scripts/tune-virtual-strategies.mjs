@@ -326,6 +326,21 @@ export const ENTRY_TYPE_PROFILES = Object.freeze({
     }),
     trailingStopPips: Object.freeze([null, 25]),
   }),
+  ao: Object.freeze({
+    label: 'AOゼロラインクロス順張り',
+    timeframes: Object.freeze(['h1', 'h4']),
+    entryCondition: Object.freeze({
+      type: 'ao',
+      fastPeriod: 5,
+      slowPeriod: 34,
+    }),
+    exit: Object.freeze({ stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true }),
+    parameterRanges: Object.freeze({
+      stopLossPips: Object.freeze(rangeWithSteps(20, 110, 7)),
+      takeProfitPips: Object.freeze(rangeWithSteps(40, 220, 10)),
+    }),
+    trailingStopPips: Object.freeze([null, 25]),
+  }),
 });
 
 export const TUNING_ENTRY_TYPES = Object.freeze(Object.keys(ENTRY_TYPE_PROFILES));

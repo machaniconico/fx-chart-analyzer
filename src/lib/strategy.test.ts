@@ -218,6 +218,12 @@ describe('strategy evaluator', () => {
       expect(
         validEvaluator.isEntrySignal(strategyFor({ ...condition, threshold }), 2),
       ).toBe(false);
+      expect(
+        validEvaluator.isEntrySignal(
+          strategyFor({ ...condition, comparison: 'above' as const, threshold }),
+          2,
+        ),
+      ).toBe(false);
     }
   });
 
@@ -234,15 +240,27 @@ describe('strategy evaluator', () => {
       threshold: 0,
       comparison: 'above' as const,
     };
-    const bars = [bar(0, 10, 10, 10), bar(1, 10, 9, 10), bar(2, 11, 6, 11)];
+    const thirdCondition = {
+      ...firstCondition,
+      period: 2,
+      threshold: 0.1,
+      comparison: 'above' as const,
+    };
+    const bars = [
+      bar(0, 10, 10, 10),
+      bar(1, 10, 9, 10),
+      bar(2, 11, 6, 11),
+    ];
     const strategy = {
       ...strategyFor(firstCondition),
-      entryConditions: [firstCondition, secondCondition],
+      entryConditions: [firstCondition, secondCondition, thirdCondition],
     };
 
     try {
       expect(createStrategyEvaluator(bars).isEntrySignal(strategy, 2)).toBe(true);
-      expect(demarkerSpy).toHaveBeenCalledTimes(1);
+      expect(demarkerSpy).toHaveBeenCalledTimes(2);
+      expect(demarkerSpy).toHaveBeenCalledWith([10, 10, 11], [10, 9, 6], 1);
+      expect(demarkerSpy).toHaveBeenCalledWith([10, 10, 11], [10, 9, 6], 2);
     } finally {
       vi.restoreAllMocks();
     }
@@ -501,6 +519,113 @@ describe('strategy evaluator', () => {
     const withFuture = [...bars, bar(3, 9, 9, 9)];
     expect(createStrategyEvaluator(bars).isEntrySignal(strategyFor(condition), 2)).toBe(true);
     expect(createStrategyEvaluator(withFuture).isEntrySignal(strategyFor(condition), 2)).toBe(true);
+  });
+
+  it('evaluates AO zero-line crosses with exact zero boundaries and short mirroring', () => {
+    const condition = { type: 'ao' as const, fastPeriod: 2, slowPeriod: 3 };
+    const bars = barsFrom([2, 1, 3, 4, 0], [2, 1, 3, 4, 0], [2, 1, 3, 4, 0]);
+    const evaluator = createStrategyEvaluator(bars);
+
+    // AO[2]===0 is allowed on the previous bar; AO[3]>0 is the long cross.
+    expect(evaluator.isEntrySignal(strategyFor(condition), 3)).toBe(true);
+    expect(evaluator.isEntrySignal(strategyFor(condition, 'short'), 3)).toBe(false);
+    // AO[3]>0 followed by AO[4]<0 is the mirrored short cross.
+    expect(evaluator.isEntrySignal(strategyFor(condition, 'short'), 4)).toBe(true);
+    expect(evaluator.isEntrySignal(strategyFor(condition), 4)).toBe(false);
+
+    // Pin the remaining three equality edges (momentum flatAt100 precedent):
+    // each fixture lands AO exactly on 0 on the side whose strictness is
+    // being pinned, so relaxing that comparison flips the expectation.
+    // m=[3,1,3,-1] -> AO[2]=-1/3, AO[3]===0: current must be strictly >0
+    // for the long cross, so a `current >= 0` relaxation would fire here.
+    const flatAtZeroLong = createStrategyEvaluator(
+      barsFrom([3, 1, 3, -1], [3, 1, 3, -1], [3, 1, 3, -1]),
+    );
+    expect(flatAtZeroLong.isEntrySignal(strategyFor(condition), 3)).toBe(false);
+    // m=[1,3,1,5] -> AO[2]=+1/3, AO[3]===0: current must be strictly <0
+    // for the short cross, so a `current <= 0` relaxation would fire here.
+    const flatAtZeroShort = createStrategyEvaluator(
+      barsFrom([1, 3, 1, 5], [1, 3, 1, 5], [1, 3, 1, 5]),
+    );
+    expect(flatAtZeroShort.isEntrySignal(strategyFor(condition, 'short'), 3)).toBe(false);
+    // m=[2,2,2,0] -> AO[2]===0, AO[3]=-1/3: previous===0 must count for the
+    // short cross (>=), so a `previous > 0` tightening would drop this entry.
+    const shortFromZero = createStrategyEvaluator(
+      barsFrom([2, 2, 2, 0], [2, 2, 2, 0], [2, 2, 2, 0]),
+    );
+    expect(shortFromZero.isEntrySignal(strategyFor(condition, 'short'), 3)).toBe(true);
+  });
+
+  it('keeps AO signals look-ahead-safe in the reversal direction', () => {
+    const condition = { type: 'ao' as const, fastPeriod: 2, slowPeriod: 3 };
+    const bars = barsFrom([2, 1, 3, 4], [2, 1, 3, 4], [2, 1, 3, 4]);
+    const withFuture = [
+      ...bars,
+      // This future median makes AO[4] negative.  If index 3 reads the
+      // future bar, the true AO[2]===0 -> AO[3]>0 signal would reverse false.
+      bar(4, 0, 0, 0),
+    ];
+
+    expect(createStrategyEvaluator(bars).isEntrySignal(strategyFor(condition), 3)).toBe(true);
+    expect(createStrategyEvaluator(withFuture).isEntrySignal(strategyFor(condition), 3)).toBe(true);
+  });
+
+  it('fails closed for AO warm-up, invalid periods, and non-finite windows', () => {
+    const condition = { type: 'ao' as const, fastPeriod: 2, slowPeriod: 3 };
+    const warmupBars = barsFrom([2, 1, 3, 4], [2, 1, 3, 4], [2, 1, 3, 4]);
+    const warmupEvaluator = createStrategyEvaluator(warmupBars);
+    expect(warmupEvaluator.isEntrySignal(strategyFor(condition), 1)).toBe(false);
+    expect(warmupEvaluator.isEntrySignal(strategyFor(condition), 2)).toBe(false);
+
+    // With m=[3,1,3,NaN], AO[2] is -1/3.  If the invalid current bar were
+    // relaxed to zero/ignored in the fixed-period sums, AO[3] would be +1/6
+    // and this fixture would incorrectly turn the long cross true.  Keeping
+    // the NaN at the current bar makes the mutation sensitive instead of
+    // letting a NaN comparison pass accidentally as false.
+    const invalidBars = barsFrom(
+      [3, 1, 3, Number.NaN],
+      [3, 1, 3, 4],
+      [3, 1, 3, 4],
+    );
+    expect(
+      createStrategyEvaluator(invalidBars).isEntrySignal(strategyFor(condition), 3),
+    ).toBe(false);
+
+    const validBars = barsFrom([3, 1, 3, 4], [3, 1, 3, 4], [3, 1, 3, 4]);
+    const evaluator = createStrategyEvaluator(validBars);
+    for (const invalidCondition of [
+      { type: 'ao' as const, fastPeriod: 0, slowPeriod: 3 },
+      { type: 'ao' as const, fastPeriod: -1, slowPeriod: 3 },
+      { type: 'ao' as const, fastPeriod: 1.5, slowPeriod: 3 },
+      { type: 'ao' as const, fastPeriod: Number.NaN, slowPeriod: 3 },
+      { type: 'ao' as const, fastPeriod: 2, slowPeriod: 2 },
+      { type: 'ao' as const, fastPeriod: 3, slowPeriod: 2 },
+      { type: 'ao' as const, fastPeriod: 2, slowPeriod: 3.5 },
+      { type: 'ao' as const, fastPeriod: 2, slowPeriod: Number.POSITIVE_INFINITY },
+    ]) {
+      expect(evaluator.isEntrySignal(strategyFor(invalidCondition), 3)).toBe(false);
+    }
+  });
+
+  it('memoizes AO values by the fastPeriod:slowPeriod pair', () => {
+    const aoSpy = vi.spyOn(indicators, 'ao');
+    const firstCondition = { type: 'ao' as const, fastPeriod: 2, slowPeriod: 3 };
+    const samePair = { ...firstCondition };
+    const differentPair = { type: 'ao' as const, fastPeriod: 1, slowPeriod: 3 };
+    const bars = barsFrom([5, 1, 2, 4], [5, 1, 2, 4], [5, 1, 2, 4]);
+    const strategy = {
+      ...strategyFor(firstCondition),
+      entryConditions: [firstCondition, samePair, differentPair],
+    };
+
+    try {
+      expect(createStrategyEvaluator(bars).isEntrySignal(strategy, 3)).toBe(true);
+      expect(aoSpy).toHaveBeenCalledTimes(2);
+      expect(aoSpy).toHaveBeenCalledWith([5, 1, 2, 4], [5, 1, 2, 4], 2, 3);
+      expect(aoSpy).toHaveBeenCalledWith([5, 1, 2, 4], [5, 1, 2, 4], 1, 3);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it('evaluates RVI signal-line crosses with exact equality boundaries and mirror directions', () => {

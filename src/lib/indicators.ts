@@ -476,6 +476,81 @@ export const momentum = (closes: readonly number[], period: number): IndicatorPo
 };
 
 /**
+ * MetaTrader 5 Help, Awesome Oscillator (verbatim):
+ * "MEDIAN PRICE = (HIGH + LOW) / 2"
+ * "AO = SMA (MEDIAN PRICE, 5) - SMA (MEDIAN PRICE, 34)"
+ * Source URL: https://www.metatrader5.com/en/terminal/help/indicators/bw_indicators/awesome
+ * (A legacy path, .../indicators/bill_williams/awesome_oscillator, now returns 404.)
+ *
+ * The median is calculated per bar before either trailing SMA.  Each SMA is
+ * then calculated as its window sum divided by its period, and AO is the
+ * fast-SMA minus the slow-SMA.  Keep this order explicit so later MQL
+ * generation can mirror the same sequence exactly.
+ */
+export const ao = (
+  highs: readonly number[],
+  lows: readonly number[],
+  fastPeriod = 5,
+  slowPeriod = 34,
+): IndicatorPoint[] => {
+  assertPeriod(fastPeriod);
+  assertPeriod(slowPeriod);
+  if (fastPeriod >= slowPeriod) {
+    throw new Error('fastPeriod must be smaller than slowPeriod');
+  }
+  if (highs.length !== lows.length) {
+    throw new Error('highs and lows must have the same length');
+  }
+
+  const medians: IndicatorPoint[] = highs.map((high, index) => {
+    const low = lows[index];
+    if (!Number.isFinite(high) || !Number.isFinite(low)) {
+      return null;
+    }
+    const median = (high + low) / 2;
+    return Number.isFinite(median) ? median : null;
+  });
+  const result: IndicatorPoint[] = Array(highs.length).fill(null);
+
+  for (let i = slowPeriod - 1; i < medians.length; i += 1) {
+    let fastSum = 0;
+    let slowSum = 0;
+    let validWindow = true;
+
+    for (let j = i - fastPeriod + 1; j <= i; j += 1) {
+      const median = medians[j];
+      if (median == null) {
+        validWindow = false;
+        break;
+      }
+      fastSum += median;
+    }
+    if (!validWindow) {
+      continue;
+    }
+
+    for (let j = i - slowPeriod + 1; j <= i; j += 1) {
+      const median = medians[j];
+      if (median == null) {
+        validWindow = false;
+        break;
+      }
+      slowSum += median;
+    }
+    if (!validWindow) {
+      continue;
+    }
+
+    const value = fastSum / fastPeriod - slowSum / slowPeriod;
+    if (Number.isFinite(value)) {
+      result[i] = value;
+    }
+  }
+
+  return result;
+};
+
+/**
  * MetaTrader 5 Relative Vigor Index parity.
  *
  * The official MT5 terminal help describes the numerator as:

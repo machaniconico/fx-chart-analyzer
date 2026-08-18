@@ -33,6 +33,7 @@ export const knownEntryConditionTypes = Object.freeze([
   'adxTrend',
   'parabolicSar',
   'momentum',
+  'ao',
   'rvi',
 ]);
 const knownEntryConditionTypeSet = new Set(knownEntryConditionTypes);
@@ -287,6 +288,30 @@ const assertEntryCondition = (condition, context, index) => {
         (value) => positiveInteger(value) && value >= 2 && value <= 1000,
         'must be a positive integer greater than or equal to 2 and less than or equal to 1000',
       );
+      break;
+    case 'ao':
+      // The evaluator hard domain is both periods >= 1; registration deliberately
+      // adopts the stricter 2..1000 floor/ceiling used by the EA builder policy,
+      // matching the momentum registration precedent.
+      assertConditionField(
+        conditionContext,
+        condition,
+        'fastPeriod',
+        (value) => positiveInteger(value) && value >= 2 && value <= 1000,
+        'must be a positive integer greater than or equal to 2 and less than or equal to 1000',
+      );
+      assertConditionField(
+        conditionContext,
+        condition,
+        'slowPeriod',
+        (value) => positiveInteger(value) && value >= 2 && value <= 1000,
+        'must be a positive integer greater than or equal to 2 and less than or equal to 1000',
+      );
+      if (condition.fastPeriod >= condition.slowPeriod) {
+        throw new Error(
+          `${conditionContext}.fastPeriod must be smaller than slowPeriod`,
+        );
+      }
       break;
     case 'rvi':
       // period 1 has a one-item SUM window, so RVI degenerates to SWMA

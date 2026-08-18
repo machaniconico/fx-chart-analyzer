@@ -267,6 +267,7 @@ describe('mql generation', () => {
       { type: 'adxTrend', period: 14, threshold: 25 },
       { type: 'parabolicSar', step: 0.02, maximum: 0.2 },
       { type: 'momentum', period: 14 },
+      { type: 'ao', fastPeriod: 5, slowPeriod: 34 },
       { type: 'rvi', period: 10 },
       { type: 'demarker', period: 14, threshold: 0.3, comparison: 'below' },
     ];
@@ -652,6 +653,50 @@ describe('mql generation', () => {
     await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-momentum.mq4'));
   });
 
+  it('generates self-calculated AO zero-line crosses with exact TS median/SMA order', async () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [{ type: 'ao', fastPeriod: 5, slowPeriod: 34 }],
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    for (const source of [mql5, mql4]) {
+      expect(source).toContain('input int InpAO1FastPeriod = 5;');
+      expect(source).toContain('input int InpAO1SlowPeriod = 34;');
+      expect(source).toContain('double high = iHigh(_Symbol, _Period, shift);');
+      expect(source).toContain('double low = iLow(_Symbol, _Period, shift);');
+      expect(source).toContain('double value = (high + low) / 2.0;');
+      expect(source).toContain('double fastSma = AoSma1(shift, fastPeriod);');
+      expect(source).toContain('double slowSma = AoSma1(shift, slowPeriod);');
+      expect(source).toContain('double value = fastSma - slowSma;');
+      expect(source).toContain('if(iTime(_Symbol, _Period, shift + slowPeriod - 1) == 0)');
+      expect(source).toContain('int signalShift = 1;');
+      expect(source).toContain('if(iTime(_Symbol, _Period, slowPeriod + signalShift) == 0)');
+      expect(source).toContain('double previous = AoValue1(signalShift + 1);');
+      expect(source).toContain('double current = AoValue1(signalShift);');
+      expect(source).toContain('if(!ValueReady(previous) || !MathIsValidNumber(previous) ||');
+      expect(source).toContain('return previous <= 0.0 && current > 0.0;');
+      expect(source).toContain('return previous >= 0.0 && current < 0.0;');
+      expect(source).toContain('native iAO buffer is intentionally not used');
+      expect(source).not.toContain('iAO(');
+      expect(source).not.toContain('ao1Handle');
+      expectBalanced(source);
+    }
+
+    expect(mql5).toContain('if(InpAO1FastPeriod < 1 || InpAO1SlowPeriod < 1 || InpAO1FastPeriod >= InpAO1SlowPeriod)');
+    expect(mql5).toContain('AO1 rejected: periods must be integers greater than or equal to 1');
+    expect(mql5).toContain('return INIT_FAILED;');
+    expect(mql4).toContain('int OnInit()');
+    expect(mql4).toContain('if(InpAO1FastPeriod < 1 || InpAO1SlowPeriod < 1 || InpAO1FastPeriod >= InpAO1SlowPeriod)');
+    expect(mql4).toContain('AO1 rejected: periods must be integers greater than or equal to 1');
+    expect(mql4).toContain('return INIT_FAILED;');
+
+    await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-ao.mq5'));
+    await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-ao.mq4'));
+  });
+
   it('generates self-calculated RVI signal-line crosses with exact TS arithmetic and guards', async () => {
     const strategy: StrategyDefinition = {
       ...fullStrategy,
@@ -697,6 +742,10 @@ describe('mql generation', () => {
       );
       expect(source).toContain(`double RviNumeratorSwma1(int shift)
 {
+  if(!RviBarsReady1(shift))
+  {
+    return EMPTY_VALUE;
+  }
   double open0 = iOpen(_Symbol, _Period, shift);
   double close0 = iClose(_Symbol, _Period, shift);
   double open1 = iOpen(_Symbol, _Period, shift + 1);
@@ -707,6 +756,10 @@ describe('mql generation', () => {
   double close3 = iClose(_Symbol, _Period, shift + 3);`);
       expect(source).toContain(`double RviRangeSwma1(int shift)
 {
+  if(!RviBarsReady1(shift))
+  {
+    return EMPTY_VALUE;
+  }
   double high0 = iHigh(_Symbol, _Period, shift);
   double low0 = iLow(_Symbol, _Period, shift);
   double high1 = iHigh(_Symbol, _Period, shift + 1);
@@ -715,6 +768,14 @@ describe('mql generation', () => {
   double low2 = iLow(_Symbol, _Period, shift + 2);
   double high3 = iHigh(_Symbol, _Period, shift + 3);
   double low3 = iLow(_Symbol, _Period, shift + 3);`);
+      for (const functionName of ['RviNumeratorSwma1', 'RviRangeSwma1']) {
+        const functionStart = source.indexOf(`double ${functionName}(int shift)`);
+        const guardPosition = source.indexOf('if(!RviBarsReady1(shift))', functionStart);
+        const firstTerminalReadPosition = source.indexOf(' = i', functionStart);
+        expect(functionStart).toBeGreaterThanOrEqual(0);
+        expect(guardPosition).toBeGreaterThan(functionStart);
+        expect(firstTerminalReadPosition).toBeGreaterThan(guardPosition);
+      }
       expect(source).toContain(
         'CrossedAbove(previousRvi, previousSignal, currentRvi, currentSignal)',
       );
@@ -765,12 +826,19 @@ describe('mql generation', () => {
       expect(source).toContain('if(iTime(_Symbol, _Period, period + 1) == 0)');
       expect(source).not.toContain('if(iTime(_Symbol, _Period, period + 2) == 0)');
       expect(source).toContain('if(!ValueReady(current) || !MathIsValidNumber(current))');
-      expect(source).not.toContain(
-        'if(!ValueReady(previous) || !MathIsValidNumber(previous) ||\n    !ValueReady(current) || !MathIsValidNumber(current))',
-      );
-      expect(source).toContain(
+      const previousReadyLines = source
+        .split('\n')
+        .filter((line) => line.includes('ValueReady(previous)'));
+      expect(previousReadyLines).toHaveLength(2);
+      expect(
+        previousReadyLines.every((line) =>
+          line.trimStart().startsWith('return ValueReady(previous) && '),
+        ),
+      ).toBe(true);
+      expect(previousReadyLines.map((line) => line.trim())).toEqual([
         'return ValueReady(previous) && previous > InpDeMarker1Threshold && current <= InpDeMarker1Threshold;',
-      );
+        'return ValueReady(previous) && previous < 1.0 - InpDeMarker1Threshold && current >= 1.0 - InpDeMarker1Threshold;',
+      ]);
       expect(source).toContain('1.0 - InpDeMarker1Threshold');
       expect(source).toContain('native iDeMarker buffer is intentionally not used');
       expect(source).toContain('return EMPTY_VALUE;');
