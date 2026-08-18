@@ -336,8 +336,11 @@ export const ENTRY_TYPE_PROFILES = Object.freeze({
     }),
     exit: Object.freeze({ stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true }),
     parameterRanges: Object.freeze({
-      stopLossPips: Object.freeze(rangeWithSteps(20, 110, 7)),
-      takeProfitPips: Object.freeze(rangeWithSteps(40, 220, 10)),
+      // ウェーブ18(選定ログ エントリ(14))でUSDJPY h4が端点飽和(SL両端+TP220上端に合格行)、
+      // USDJPY h1/EURUSD h1の選択行がTP220上端、EURJPY h4がSL110上端だったため上端側を拡張する。
+      // SL下端20p/TP下端40pの打ち切り疑いは残るが、本ウェーブでは拡張しない(スプレッド実務床として据え置き・上端優先)。
+      stopLossPips: Object.freeze(rangeWithSteps(20, 170, 11)),
+      takeProfitPips: Object.freeze(rangeWithSteps(40, 340, 16)),
     }),
     trailingStopPips: Object.freeze([null, 25]),
   }),

@@ -826,7 +826,12 @@ describe('mql generation', () => {
       expect(source).toContain('if(iTime(_Symbol, _Period, period + 1) == 0)');
       expect(source).not.toContain('if(iTime(_Symbol, _Period, period + 2) == 0)');
       expect(source).toContain('if(!ValueReady(current) || !MathIsValidNumber(current))');
-      const previousReadyLines = source
+      const conditionStart = source.indexOf('bool Condition1(bool longSide)');
+      const conditionEnd = source.indexOf('\n}', conditionStart);
+      expect(conditionStart).toBeGreaterThanOrEqual(0);
+      expect(conditionEnd).toBeGreaterThan(conditionStart);
+      const conditionSource = source.slice(conditionStart, conditionEnd);
+      const previousReadyLines = conditionSource
         .split('\n')
         .filter((line) => line.includes('ValueReady(previous)'));
       expect(previousReadyLines).toHaveLength(2);
