@@ -7,6 +7,7 @@ import {
   demarker,
   donchian,
   ema,
+  envelope,
   ichimoku,
   keltnerBandsFrom,
   macd,
@@ -21,6 +22,7 @@ import type {
   AdxResult,
   BollingerBands,
   DonchianResult,
+  EnvelopeBands,
   IndicatorPoint,
   IchimokuResult,
   KeltnerChannel,
@@ -65,6 +67,12 @@ export interface BollingerCondition {
   multiplier: number;
   mode: BollingerConditionMode;
   band: BollingerBandSide;
+}
+
+export interface EnvelopeCondition {
+  type: 'envelope';
+  period: number;
+  deviation: number;
 }
 
 export interface MacdCrossCondition {
@@ -143,6 +151,7 @@ export type EntryCondition =
   | RsiCondition
   | DeMarkerCondition
   | BollingerCondition
+  | EnvelopeCondition
   | MacdCrossCondition
   | IchimokuCrossCondition
   | DonchianBreakCondition
@@ -301,6 +310,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `DeMarker${condition.period} ${condition.comparison} ${condition.threshold}`;
     case 'bollinger':
       return `BB${condition.period}/${condition.multiplier} ${condition.band} ${condition.mode}`;
+    case 'envelope':
+      return `Envelope${condition.period}/${condition.deviation}% ブレイク`;
     case 'macdCross':
       return `MACD ${condition.fastPeriod}/${condition.slowPeriod}/${condition.signalPeriod} クロス`;
     case 'ichimokuCross':
@@ -371,6 +382,7 @@ type ReadonlyIndicatorResult<T> = {
 };
 
 type CachedBollingerBands = ReadonlyIndicatorResult<BollingerBands>;
+type CachedEnvelopeBands = ReadonlyIndicatorResult<EnvelopeBands>;
 type CachedMacdResult = ReadonlyIndicatorResult<MacdResult>;
 type CachedIchimokuResult = ReadonlyIndicatorResult<IchimokuResult>;
 type CachedDonchianResult = ReadonlyIndicatorResult<DonchianResult>;
@@ -396,6 +408,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const cciCache = new Map<number, CachedIndicatorValues>();
   const atrCache = new Map<number, CachedIndicatorValues>();
   const bbCache = new Map<string, CachedBollingerBands>();
+  const envelopeCache = new Map<string, CachedEnvelopeBands>();
   const macdCache = new Map<string, CachedMacdResult>();
   const ichimokuCache = new Map<string, CachedIchimokuResult>();
   const donchianCache = new Map<number, CachedDonchianResult>();
@@ -472,6 +485,17 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     }
     const values = bollingerBands(closes, normalizedPeriod, multiplier);
     bbCache.set(key, values);
+    return values;
+  };
+
+  const getEnvelope = (period: number, deviation: number): CachedEnvelopeBands => {
+    const key = `${period}:${deviation}`;
+    const cached = envelopeCache.get(key);
+    if (cached) {
+      return cached;
+    }
+    const values = envelope(bars, period, deviation);
+    envelopeCache.set(key, values);
     return values;
   };
 
@@ -693,6 +717,37 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
           return condition.mode === 'touch' ? highs[index] >= bandValue : closes[index] >= bandValue;
         }
         return condition.mode === 'touch' ? lows[index] <= bandValue : closes[index] <= bandValue;
+      }
+      case 'envelope': {
+        if (
+          !Number.isInteger(condition.period) ||
+          condition.period < 2 ||
+          condition.period > 1000 ||
+          !Number.isFinite(condition.deviation) ||
+          condition.deviation <= 0
+        ) {
+          return false;
+        }
+        const bands = getEnvelope(condition.period, condition.deviation);
+        const previousUpper = bands.upper[index - 1];
+        const currentUpper = bands.upper[index];
+        const previousLower = bands.lower[index - 1];
+        const currentLower = bands.lower[index];
+        const previousClose = closes[index - 1];
+        const currentClose = closes[index];
+        if (
+          !isNumber(previousUpper) ||
+          !isNumber(currentUpper) ||
+          !isNumber(previousLower) ||
+          !isNumber(currentLower) ||
+          !isNumber(previousClose) ||
+          !isNumber(currentClose)
+        ) {
+          return false;
+        }
+        return isShort
+          ? previousClose >= previousLower && currentClose < currentLower
+          : previousClose <= previousUpper && currentClose > currentUpper;
       }
       case 'macdCross': {
         const values = getMacd(condition.fastPeriod, condition.slowPeriod, condition.signalPeriod);

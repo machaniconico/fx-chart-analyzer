@@ -26,6 +26,7 @@ import {
   type AoCondition,
   type DeMarkerCondition,
   type DonchianBreakCondition,
+  type EnvelopeCondition,
   type EntryCondition,
   type IchimokuCrossCondition,
   type KeltnerBreakCondition,
@@ -105,6 +106,12 @@ const defaultBollingerCondition = (): BollingerCondition => ({
   multiplier: 2,
   mode: 'touch',
   band: 'lower',
+});
+
+const defaultEnvelopeCondition = (): EnvelopeCondition => ({
+  type: 'envelope',
+  period: 14,
+  deviation: 0.1,
 });
 
 const defaultKeltnerCondition = (): KeltnerBreakCondition => ({
@@ -385,6 +392,16 @@ export const strategyValidationMessages = (strategy: StrategyDefinition): string
       messages.push('RVIの期間は2以上1000以下の整数にしてください。');
     }
     if (
+      condition.type === 'envelope' &&
+      (!Number.isInteger(condition.period) ||
+        condition.period < 2 ||
+        condition.period > 1000 ||
+        !Number.isFinite(condition.deviation) ||
+        condition.deviation <= 0)
+    ) {
+      messages.push('エンベロープの期間は2以上1000以下の整数、乖離率は0より大きい有限値にしてください。');
+    }
+    if (
       condition.type === 'stochastic' &&
       (!Number.isInteger(condition.kPeriod) ||
         condition.kPeriod < 1 ||
@@ -593,6 +610,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const momentumCondition = getCondition('momentum');
   const aoCondition = getCondition('ao');
   const rviCondition = getCondition('rvi');
+  const envelopeCondition = getCondition('envelope');
 
   const updateMoneyManagement = (
     updater: (current: typeof moneyManagement) => typeof moneyManagement,
@@ -943,6 +961,59 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                     }
                   />
                 </label>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('envelope')}
+                onChange={(event) => toggleCondition('envelope', event.target.checked, defaultEnvelopeCondition)}
+              />
+              <span>エンベロープブレイク順張り</span>
+            </label>
+            {envelopeCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>期間</span>
+                  <input
+                    max="1000"
+                    min="2"
+                    type="number"
+                    value={envelopeCondition.period}
+                    onChange={(event) =>
+                      updateCondition('envelope', defaultEnvelopeCondition, (condition) => ({
+                        ...condition,
+                        period: integerInput(event.target.value, condition.period, 14, 2, 1000),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>乖離率%</span>
+                  <input
+                    min="0.0000000000000001"
+                    step="any"
+                    type="number"
+                    value={envelopeCondition.deviation}
+                    onChange={(event) =>
+                      updateCondition('envelope', defaultEnvelopeCondition, (condition) => ({
+                        ...condition,
+                        deviation: numericInput(
+                          event.target.value,
+                          condition.deviation,
+                          0.1,
+                          0.0000000000000001,
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+                <small className="control-hint">
+                  エンベロープの期間は2以上1000以下の整数、乖離率は0より大きい有限値にしてください
+                </small>
               </div>
             )}
           </section>

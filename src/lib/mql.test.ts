@@ -269,6 +269,7 @@ describe('mql generation', () => {
       { type: 'momentum', period: 14 },
       { type: 'ao', fastPeriod: 5, slowPeriod: 34 },
       { type: 'rvi', period: 10 },
+      { type: 'envelope', period: 14, deviation: 0.1 },
       { type: 'demarker', period: 14, threshold: 0.3, comparison: 'below' },
     ];
     for (const condition of allConditions) {
@@ -697,6 +698,47 @@ describe('mql generation', () => {
     await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-ao.mq4'));
   });
 
+  it('generates self-calculated Envelope crosses with exact TS SMA/band order and guards', async () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [{ type: 'envelope', period: 14, deviation: 0.1 }],
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    for (const source of [mql5, mql4]) {
+      expect(source).toContain('input int InpEnvelope1Period = 14;');
+      expect(source).toContain('input double InpEnvelope1Deviation = 0.1;');
+      expect(source).toContain('double close = iClose(_Symbol, _Period, shift + offset);');
+      expect(source).toContain('double value = sum / period;');
+      expect(source).toContain('double value = middle * (1.0 + deviation / 100.0);');
+      expect(source).toContain('double value = middle * (1.0 - deviation / 100.0);');
+      expect(source).toContain('if(iTime(_Symbol, _Period, period + signalShift) == 0)');
+      expect(source).toContain('if(iTime(_Symbol, _Period, period + signalShift + 1) == 0)');
+      expect(source).toContain('requires history through');
+      expect(source).toContain('previousClose <= previousUpper && currentClose > currentUpper');
+      expect(source).toContain('previousClose >= previousLower && currentClose < currentLower');
+      expect(source).toContain('native iEnvelopes buffer is intentionally not used');
+      expect(source).toContain('https://www.mql5.com/en/code/28');
+      expect(source).not.toContain('iEnvelopes(');
+      expectBalanced(source);
+    }
+
+    expect(mql5).toContain(
+      'if(period < 2 || period > 1000 || !MathIsValidNumber(deviation) || !(deviation > 0.0))',
+    );
+    expect(mql5).toContain('InpEnvelope1Deviation');
+    expect(mql5).toContain('return false;');
+    expect(mql4).toContain('int OnInit()');
+    expect(mql4).toContain('if(InpEnvelope1Period < 2 || InpEnvelope1Period > 1000');
+    expect(mql4).toContain('InpEnvelope1Deviation');
+    expect(mql4).toContain('return INIT_FAILED;');
+
+    await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-envelope.mq5'));
+    await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-envelope.mq4'));
+  });
+
   it('generates self-calculated RVI signal-line crosses with exact TS arithmetic and guards', async () => {
     const strategy: StrategyDefinition = {
       ...fullStrategy,
@@ -827,8 +869,9 @@ describe('mql generation', () => {
       expect(source).not.toContain('if(iTime(_Symbol, _Period, period + 2) == 0)');
       expect(source).toContain('if(!ValueReady(current) || !MathIsValidNumber(current))');
       const conditionStart = source.indexOf('bool Condition1(bool longSide)');
-      const conditionEnd = source.indexOf('\n}', conditionStart);
       expect(conditionStart).toBeGreaterThanOrEqual(0);
+      const conditionEnd = source.indexOf('\n}', conditionStart);
+      expect(conditionEnd).not.toBe(-1);
       expect(conditionEnd).toBeGreaterThan(conditionStart);
       const conditionSource = source.slice(conditionStart, conditionEnd);
       const previousReadyLines = conditionSource

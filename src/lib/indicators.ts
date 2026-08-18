@@ -1,3 +1,5 @@
+import type { Bar } from '../types';
+
 export type IndicatorPoint = number | null;
 
 export interface BollingerBands {
@@ -7,6 +9,12 @@ export interface BollingerBands {
 }
 
 export interface KeltnerChannel {
+  middle: IndicatorPoint[];
+  upper: IndicatorPoint[];
+  lower: IndicatorPoint[];
+}
+
+export interface EnvelopeBands {
   middle: IndicatorPoint[];
   upper: IndicatorPoint[];
   lower: IndicatorPoint[];
@@ -277,6 +285,77 @@ export const keltnerChannel = (
   const middle = ema(closes, emaPeriod);
   const volatility = atr(highs, lows, closes, atrPeriod);
   return keltnerBandsFrom(middle, volatility, multiplier);
+};
+
+/**
+ * MetaQuotes Envelopes parity with an explicit TS/MQL arithmetic contract.
+ *
+ * The adopted formula is `SMA(close, period) * (1 +/- deviation / 100)`, where
+ * `deviation` is expressed as a percentage. This follows the official
+ * MetaQuotes Envelopes.mq5 implementation, which states:
+ * `ExtUpBuffer[i]=(1+InpDeviation/100.0)*ExtMABuffer[i];` and applies the
+ * equivalent lower-band multiplier. Source: https://www.mql5.com/en/code/28
+ *
+ * The MT4/MT5 terminal help instead documents `SMA (CLOSE, N) * [1 + K / 1000]`:
+ * https://www.metatrader5.com/en/terminal/help/indicators/trend_indicators/envelopes
+ * That denominator conflicts with the official implementation; the official
+ * page's comments also identify the help-page denominator as an error. This
+ * implementation follows the source implementation, and generated MQL mirrors
+ * the same `deviation / 100.0` operation order. The first `period` points stay
+ * null as the conservative warm-up boundary, and any non-finite close in the
+ * SMA window fails closed for all three returned bands.
+ */
+export const envelope = (
+  bars: readonly Bar[],
+  period: number,
+  deviation: number,
+): EnvelopeBands => {
+  if (!Number.isInteger(period) || period < 2 || period > 1000) {
+    throw new Error(`period must be an integer between 2 and 1000: ${period}`);
+  }
+  if (!Number.isFinite(deviation) || deviation <= 0) {
+    throw new Error(`deviation must be a finite number greater than 0: ${deviation}`);
+  }
+
+  const middle: IndicatorPoint[] = Array(bars.length).fill(null);
+  const upper: IndicatorPoint[] = Array(bars.length).fill(null);
+  const lower: IndicatorPoint[] = Array(bars.length).fill(null);
+
+  // Keep the delayed first exposure explicit: at index i the trailing SMA uses
+  // closes[i-period+1..i], while indices 0..period-1 remain warm-up nulls.
+  // The inner loop order is the same oldest-to-newest accumulation emitted by
+  // mql.ts, so TS and generated MQL cross the same IEEE-754 boundaries.
+  for (let i = period; i < bars.length; i += 1) {
+    let sum = 0;
+    let complete = true;
+    for (let offset = period - 1; offset >= 0; offset -= 1) {
+      const close = bars[i - offset]?.c;
+      if (!Number.isFinite(close)) {
+        complete = false;
+        break;
+      }
+      sum += close;
+    }
+    if (!complete || !Number.isFinite(sum)) {
+      continue;
+    }
+
+    const middleValue = sum / period;
+    const upperValue = middleValue * (1 + deviation / 100);
+    const lowerValue = middleValue * (1 - deviation / 100);
+    if (
+      !Number.isFinite(middleValue) ||
+      !Number.isFinite(upperValue) ||
+      !Number.isFinite(lowerValue)
+    ) {
+      continue;
+    }
+    middle[i] = middleValue;
+    upper[i] = upperValue;
+    lower[i] = lowerValue;
+  }
+
+  return { middle, upper, lower };
 };
 
 export const rsi = (values: readonly number[], period = 14): IndicatorPoint[] => {

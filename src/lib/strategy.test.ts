@@ -214,11 +214,32 @@ describe('strategy evaluator', () => {
         validEvaluator.isEntrySignal(strategyFor({ ...condition, period }), 2),
       ).toBe(false);
     }
+    // A negative threshold with `below` is not mutation-sensitive because a
+    // finite DeMarker value is always >= 0. Use `above -0.1` in both
+    // directions instead: without the range guard, long sees .25 >= -.1 and
+    // short's mirrored comparison sees .25 <= 1.1, so both would turn true.
+    const negativeThreshold = -0.1;
+    expect(
+      validEvaluator.isEntrySignal(
+        strategyFor({ ...condition, comparison: 'above' as const, threshold: negativeThreshold }),
+        2,
+      ),
+    ).toBe(false);
+    expect(
+      validEvaluator.isEntrySignal(
+        strategyFor(
+          { ...condition, comparison: 'above' as const, threshold: negativeThreshold },
+          'short',
+        ),
+        2,
+      ),
+    ).toBe(false);
+
     // NaN is not observable through isEntrySignal alone: both relational
     // comparisons are false. Keep the case as a documented fail-closed check;
     // the explicit !Number.isFinite(condition.threshold) guard is the
     // white-box source of truth for this threshold range validation.
-    for (const threshold of [-0.1, 1.1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const threshold of [1.1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(
         validEvaluator.isEntrySignal(strategyFor({ ...condition, threshold }), 2),
       ).toBe(false);
@@ -405,6 +426,141 @@ describe('strategy evaluator', () => {
     const nonFiniteEvaluator = createStrategyEvaluator(nonFiniteBars);
     expect(nonFiniteEvaluator.isEntrySignal(strategyFor(boundaryCondition), 2)).toBe(false);
     expect(nonFiniteEvaluator.isEntrySignal(strategyFor(boundaryCondition, 'short'), 2)).toBe(false);
+  });
+
+  it('evaluates Envelope band breaks with all four inclusive/exclusive cross edges', () => {
+    const condition = { type: 'envelope' as const, period: 2, deviation: 50 };
+
+    // Upper factor is 1.5. At index 2, SMA(120,360) * 1.5 is exactly 360;
+    // at index 3, SMA(360,1081) * 1.5 is exactly 1080.75.
+    const longPreviousEquality = barsFrom(
+      [40, 120, 360, 1081],
+      [40, 120, 360, 1081],
+      [40, 120, 360, 1081],
+    );
+    expect(createStrategyEvaluator(longPreviousEquality).isEntrySignal(strategyFor(condition), 3)).toBe(
+      true,
+    );
+
+    // The current close is exactly the upper band, so current `>` is required.
+    const longCurrentEquality = barsFrom(
+      [40, 120, 360, 1080],
+      [40, 120, 360, 1080],
+      [40, 120, 360, 1080],
+    );
+    expect(createStrategyEvaluator(longCurrentEquality).isEntrySignal(strategyFor(condition), 3)).toBe(
+      false,
+    );
+
+    // Lower factor is 0.5. At index 2, SMA(12,4) * 0.5 is exactly 4;
+    // at index 3, SMA(4,1) * 0.5 is 1.25.
+    const shortPreviousEquality = barsFrom(
+      [36, 12, 4, 1],
+      [36, 12, 4, 1],
+      [36, 12, 4, 1],
+    );
+    expect(
+      createStrategyEvaluator(shortPreviousEquality).isEntrySignal(
+        strategyFor(condition, 'short'),
+        3,
+      ),
+    ).toBe(true);
+
+    // The current close is exactly the lower band, so current `<` is required.
+    const shortCurrentEquality = barsFrom(
+      [108, 36, 12, 4],
+      [108, 36, 12, 4],
+      [108, 36, 12, 4],
+    );
+    expect(
+      createStrategyEvaluator(shortCurrentEquality).isEntrySignal(
+        strategyFor(condition, 'short'),
+        3,
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps Envelope crosses look-ahead-safe in the reversal direction', () => {
+    const condition = { type: 'envelope' as const, period: 2, deviation: 50 };
+    const bars = barsFrom(
+      [40, 120, 360, 1081],
+      [40, 120, 360, 1081],
+      [40, 120, 360, 1081],
+    );
+    const withFuture = [...bars, bar(4, 1_000_000, 1_000_000, 1_000_000)];
+
+    // The signal at index 3 must remain true. A future close included in the
+    // current SMA would raise the upper band and reverse this fixture to false.
+    expect(createStrategyEvaluator(bars).isEntrySignal(strategyFor(condition), 3)).toBe(true);
+    expect(createStrategyEvaluator(withFuture).isEntrySignal(strategyFor(condition), 3)).toBe(true);
+  });
+
+  it('fails closed for Envelope warm-up, invalid domains, and non-finite close guards', () => {
+    const condition = { type: 'envelope' as const, period: 2, deviation: 50 };
+    const warmupBars = barsFrom([40, 120], [40, 120], [40, 120]);
+    expect(createStrategyEvaluator(warmupBars).isEntrySignal(strategyFor(condition), 1)).toBe(false);
+    expect(
+      createStrategyEvaluator(
+        barsFrom([40, 120, 360], [40, 120, 360], [40, 120, Number.NaN]),
+      ).isEntrySignal(strategyFor(condition), 2),
+    ).toBe(false);
+
+    const validBars = barsFrom(
+      [40, 120, 360, 1081],
+      [40, 120, 360, 1081],
+      [40, 120, 360, 1081],
+    );
+    const boundaryValues = indicators.envelope(validBars, condition.period, condition.deviation);
+    expect(boundaryValues.middle[1]).toBeNull();
+    // At index=period the current band exists but the previous band is still
+    // warm-up null; index=period+1 is the first index that can form a cross.
+    const boundaryEvaluator = createStrategyEvaluator(validBars);
+    expect(boundaryEvaluator.isEntrySignal(strategyFor(condition), condition.period)).toBe(false);
+    expect(boundaryEvaluator.isEntrySignal(strategyFor(condition), condition.period + 1)).toBe(true);
+
+    const finiteBands = {
+      middle: [null, null, 400, 400],
+      upper: [null, null, 400, 400],
+      lower: [null, null, -400, -400],
+    };
+    const envelopeSpy = vi.spyOn(indicators, 'envelope').mockReturnValue(finiteBands);
+    try {
+      const nonFiniteLongCloseBars = [
+        ...validBars.slice(0, 3),
+        bar(3, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY),
+      ];
+      // Without the current-close guard, previousClose=360 <= previousUpper=400
+      // and currentClose=+Infinity > currentUpper=400 would satisfy this break.
+      expect(
+        createStrategyEvaluator(nonFiniteLongCloseBars).isEntrySignal(strategyFor(condition), 3),
+      ).toBe(false);
+
+      const nonFiniteShortCloseBars = [
+        ...validBars.slice(0, 3),
+        bar(3, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY),
+      ];
+      // The short mirror also reaches the comparison: previousClose=360 >=
+      // previousLower=-400 and currentClose=-Infinity < currentLower=-400.
+      expect(
+        createStrategyEvaluator(nonFiniteShortCloseBars).isEntrySignal(
+          strategyFor(condition, 'short'),
+          3,
+        ),
+      ).toBe(false);
+    } finally {
+      envelopeSpy.mockRestore();
+    }
+
+    const evaluator = createStrategyEvaluator(validBars);
+    for (const invalidCondition of [
+      { type: 'envelope' as const, period: 1, deviation: 50 },
+      { type: 'envelope' as const, period: 1001, deviation: 50 },
+      { type: 'envelope' as const, period: 2.5, deviation: 50 },
+      { type: 'envelope' as const, period: 2, deviation: 0 },
+      { type: 'envelope' as const, period: 2, deviation: Number.NaN },
+    ]) {
+      expect(evaluator.isEntrySignal(strategyFor(invalidCondition), 3)).toBe(false);
+    }
   });
 
   it('evaluates CCI breaks with inclusive level boundaries and fails closed on flat or invalid data', () => {
@@ -1228,6 +1384,9 @@ describe('strategy evaluator', () => {
     );
     expect(conditionLabel({ type: 'momentum', period: 14 })).toBe('Momentum14 100クロス');
     expect(conditionLabel({ type: 'rvi', period: 10 })).toBe('RVI10 シグナルクロス');
+    expect(conditionLabel({ type: 'envelope', period: 14, deviation: 0.1 })).toBe(
+      'Envelope14/0.1% ブレイク',
+    );
     expect(
       conditionLabel({ type: 'demarker', period: 14, threshold: 0.5, comparison: 'above' }),
     ).toBe('DeMarker14 above 0.5');
