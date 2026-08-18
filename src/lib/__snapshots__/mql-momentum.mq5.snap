@@ -25,11 +25,10 @@ input int InpTakeProfitPips = 50;
 input bool InpUseTrailingStop = true;
 input int InpTrailingStopPips = 15;
 input bool InpCloseOnOppositeSignal = true;
-input double InpSAR1Step = 0.02;
-input double InpSAR1Maximum = 0.2;
+input int InpMomentum1Period = 14;
 
 datetime lastBarTime = 0;
-int sar1Handle = INVALID_HANDLE;
+
 
 double PipPoint()
 {
@@ -265,18 +264,9 @@ double BufferValue(int handle, int bufferIndex, int shift)
 
 int OnInit()
 {
-  if(InpSAR1Step < 0.02)
+  if(InpMomentum1Period < 1)
   {
-    Print("SAR1 warning: step below 0.02 is outside the evaluator registration domain");
-  }
-  if(!MathIsValidNumber(InpSAR1Step) || !MathIsValidNumber(InpSAR1Maximum) || InpSAR1Step <= 0.0 || InpSAR1Maximum < InpSAR1Step)
-  {
-    Print("SAR1 rejected: step must be > 0 and maximum must be >= step");
-    return INIT_FAILED;
-  }
-  sar1Handle = iSAR(_Symbol, _Period, InpSAR1Step, InpSAR1Maximum);
-  if(!EnsureIndicator(sar1Handle, "SAR1"))
-  {
+    Print("Momentum1 rejected: period must be an integer greater than or equal to 1");
     return INIT_FAILED;
   }
   return INIT_SUCCEEDED;
@@ -284,159 +274,87 @@ int OnInit()
 
 void OnDeinit(const int reason)
 {
-  ReleaseIndicator(sar1Handle);
+
 }
 
 
 
-// Parabolic SAR parity: the TypeScript evaluator starts SHORT and flips to LONG
-// when the SAR is strictly below the current high; it flips to SHORT when the
-// SAR is strictly above the current low. Native iSAR places the flip value on
-// the current low/high, so both platforms reconstruct the post-flip direction
-// with the same strict rule: LONG iff SAR < high, otherwise SHORT. Entry flips
-// are then the same two-point comparison of previous and current direction.
-// The TypeScript evaluator exposes SAR only after two reversals and 100 bars
-// from the first reversal. Native iSAR is seeded from full history, so the
-// generated scan below applies the equivalent reversal-count/bar-distance gate.
-
-bool SarDirectionIsLong1(double sar, double high, double low)
+// Momentum parity: the native iMomentum buffer is intentionally not used.
+// MT implementations can evaluate price[i] * 100 / price[i-period], while
+// the TypeScript evaluator evaluates (close / previousClose) * 100.0. The
+// iClose calculation below preserves that operation order exactly, including
+// the equality boundary at 100 for flat-price bars.
+// iClose can return 0.0 when the requested history is unavailable. Positive
+// close and previousClose guards keep that data gap fail-closed instead of
+// treating the missing value as a sub-100 momentum reading.
+double MomentumValue1(int shift)
 {
-  // MT SAR's invariant is that a long-state SAR is at or below the candle's
-  // low, while a short-state SAR is at or above its high. Therefore the
-  // evaluator's direction is reconstructed by one strict comparison: LONG
-  // iff SAR < high; equality is the short-side boundary.
-  return sar < high;
-}
-
-bool SarWarmupReady1(int signalShift)
-{
-
-  static datetime cachedBarTime = 0;
-  static int cachedSignalShift = -1;
-  static bool cachedResult = false;
-  datetime currentBarTime = iTime(_Symbol, _Period, 0);
-  if(currentBarTime == 0)
+  int period = InpMomentum1Period;
+  if(period < 1)
   {
-    return false;
+    return EMPTY_VALUE;
   }
-  if(cachedBarTime == currentBarTime && cachedSignalShift == signalShift)
+  if(iTime(_Symbol, _Period, shift + period) == 0)
   {
-    return cachedResult;
+    return EMPTY_VALUE;
   }
-  cachedBarTime = currentBarTime;
-  cachedSignalShift = signalShift;
-  // Cache failures as well: the same chart bar must not rescan full history.
-  cachedResult = false;
-  int totalBars = Bars(_Symbol, _Period);
-  if(totalBars <= signalShift + 1)
+  double close = iClose(_Symbol, _Period, shift);
+  double previousClose = iClose(_Symbol, _Period, shift + period);
+  if(!ValueReady(close) || !MathIsValidNumber(close) ||
+    !ValueReady(previousClose) || !MathIsValidNumber(previousClose) ||
+    !(close > 0.0 && previousClose > 0.0))
   {
-    return false;
+    return EMPTY_VALUE;
   }
-  int firstReversalShift = -1;
-  int reversalCount = 0;
-  bool previousIsLong = false;
-  bool hasPrevious = false;
-  for(int shift = totalBars - 1; shift >= signalShift + 1; shift--)
+  double value = (close / previousClose) * 100.0;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
   {
-    if(iTime(_Symbol, _Period, shift) == 0)
-    {
-      return false;
-    }
-    double sar = BufferValue(sar1Handle, 0, shift);
-    double high = iHigh(_Symbol, _Period, shift);
-    double low = iLow(_Symbol, _Period, shift);
-    if(!ValueReady(sar) || !MathIsValidNumber(sar) || !ValueReady(high) || !MathIsValidNumber(high) ||
-      !ValueReady(low) || !MathIsValidNumber(low))
-    {
-      return false;
-    }
-    // MT4 iSAR/iHigh return 0.0 for missing history. FX prices and SAR are
-    // strictly positive, so exact zero is unambiguously unavailable data and
-    // must not be allowed to turn into a false LONG direction.
-    if(!(sar > 0.0 && high > 0.0 && low > 0.0))
-    {
-      return false;
-    }
-    bool currentIsLong = SarDirectionIsLong1(sar, high, low);
-    if(!hasPrevious)
-    {
-      // The TypeScript evaluator seeds its first SAR state as SHORT.
-      hasPrevious = true;
-      continue;
-    }
-    if(currentIsLong != previousIsLong)
-    {
-      reversalCount++;
-      if(firstReversalShift < 0)
-      {
-        firstReversalShift = shift;
-      }
-    }
-    previousIsLong = currentIsLong;
-    if(reversalCount >= 2)
-    {
-      // firstReversalShift is already latched; Condition1 rechecks
-      // shifts 2 and 1. Stop after the second reversal to keep this per-bar
-      // scan bounded without changing the warm-up meaning. Data validation of
-      // bars newer than the second reversal is intentionally dropped here;
-      // the signal bars themselves are revalidated in Condition1.
-      break;
-    }
+    return EMPTY_VALUE;
   }
-  if(reversalCount < 2 || firstReversalShift < 0)
-  {
-    return false;
-  }
-  // The TS signal needs both index-1 and index, so a reversal on signalShift
-  // itself is not countable. Require the older point to be at least
-  // 100 bars after the first reversal (interpolated
-  // from indicators.ts so the TS gate and the generated EA cannot drift).
-  cachedResult = firstReversalShift - (signalShift + 1) >= 100;
-  return cachedResult;
+  return value;
 }
 
 bool Condition1(bool longSide)
 {
-  double step = InpSAR1Step;
-  double maximum = InpSAR1Maximum;
-  // This is exactly the TS evaluator's fail-closed domain. Registration adds
-  // step >= 0.02 and both values < 1; those are pipeline policy, not evaluator
-  // semantics, so the generated EA intentionally rejects only this domain.
-  if(!MathIsValidNumber(step) || !MathIsValidNumber(maximum) || step <= 0.0 || maximum < step)
+  int period = InpMomentum1Period;
+  // The TS evaluator rejects period < 1 and non-integers. This MQL input is
+  // int, so non-integers are unrepresentable; OnInit rejects period < 1.
+  if(period < 1)
   {
     return false;
   }
-  if(!SarWarmupReady1(1))
+  // The signal bar is shift 1, so require its period-length lookback first.
+  if(iTime(_Symbol, _Period, period + 1) == 0)
   {
     return false;
   }
-  double previousSar = BufferValue(sar1Handle, 0, 2);
-  double currentSar = BufferValue(sar1Handle, 0, 1);
-  double previousHigh = iHigh(_Symbol, _Period, 2);
-  double currentHigh = iHigh(_Symbol, _Period, 1);
-  double previousLow = iLow(_Symbol, _Period, 2);
-  double currentLow = iLow(_Symbol, _Period, 1);
-  if(!ValueReady(previousSar) || !MathIsValidNumber(previousSar) ||
-    !ValueReady(currentSar) || !MathIsValidNumber(currentSar) ||
-    !ValueReady(previousHigh) || !MathIsValidNumber(previousHigh) ||
-    !ValueReady(currentHigh) || !MathIsValidNumber(currentHigh) ||
-    !ValueReady(previousLow) || !MathIsValidNumber(previousLow) ||
-    !ValueReady(currentLow) || !MathIsValidNumber(currentLow))
+  // The cross also reads shift 2, so period + 2 is the oldest close required
+  // by the TypeScript evaluator's two-point comparison.
+  if(iTime(_Symbol, _Period, period + 2) == 0)
   {
     return false;
   }
-  if(!(previousSar > 0.0 && currentSar > 0.0 && previousHigh > 0.0 && currentHigh > 0.0 &&
-    previousLow > 0.0 && currentLow > 0.0))
+  double previous = MomentumValue1(2);
+  double current = MomentumValue1(1);
+  if(!ValueReady(previous) || !MathIsValidNumber(previous) ||
+    !ValueReady(current) || !MathIsValidNumber(current))
   {
     return false;
   }
-  bool previousIsLong = SarDirectionIsLong1(previousSar, previousHigh, previousLow);
-  bool currentIsLong = SarDirectionIsLong1(currentSar, currentHigh, currentLow);
+  // 0.0 is a missing-data sentinel on MT4/MT5 and must never be used in a
+  // signal comparison. This mirrors the positive-price guard above and the
+  // TypeScript evaluator's null result for unavailable closes.
+  if(!(previous > 0.0 && current > 0.0))
+  {
+    return false;
+  }
+  // Keep the comparison operators identical to the TypeScript evaluator:
+  // equality is included on the prior bar and strict on the signal bar.
   if(longSide)
   {
-    return !previousIsLong && currentIsLong;
+    return previous <= 100.0 && current > 100.0;
   }
-  return previousIsLong && !currentIsLong;
+  return previous >= 100.0 && current < 100.0;
 }
 
 

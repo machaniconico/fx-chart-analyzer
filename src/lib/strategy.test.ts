@@ -270,6 +270,78 @@ describe('strategy evaluator', () => {
     ).toBe(false);
   });
 
+  it('evaluates Momentum 100 crosses with exact equality boundaries and mirrored directions', () => {
+    const condition = { type: 'momentum' as const, period: 1 };
+    const longCross = [bar(0, 10, 10, 10), bar(1, 10, 10, 10), bar(2, 11, 11, 11)];
+    const shortCross = [bar(0, 10, 10, 10), bar(1, 10, 10, 10), bar(2, 9, 9, 9)];
+    const flatAt100 = [bar(0, 10, 10, 10), bar(1, 10, 10, 10), bar(2, 10, 10, 10)];
+
+    // prev === 100 is included, while current === 100 is not: these fixtures
+    // pin <=/> for long and >=/< for short independently.
+    expect(createStrategyEvaluator(longCross).isEntrySignal(strategyFor(condition), 2)).toBe(true);
+    expect(
+      createStrategyEvaluator(longCross).isEntrySignal(strategyFor(condition, 'short'), 2),
+    ).toBe(false);
+    expect(
+      createStrategyEvaluator(shortCross).isEntrySignal(strategyFor(condition, 'short'), 2),
+    ).toBe(true);
+    expect(createStrategyEvaluator(shortCross).isEntrySignal(strategyFor(condition), 2)).toBe(false);
+    expect(createStrategyEvaluator(flatAt100).isEntrySignal(strategyFor(condition), 2)).toBe(false);
+    expect(
+      createStrategyEvaluator(flatAt100).isEntrySignal(strategyFor(condition, 'short'), 2),
+    ).toBe(false);
+  });
+
+  it('fails closed for Momentum warm-up, invalid periods, and non-finite prices', () => {
+    // period ガードが緩んで period 1 にフォールバックすると momentum 100→110 で
+    // ロング true になる形の fixture(false 断言が偶然通らないようにする)。
+    const bars = [bar(0, 10, 10, 10), bar(1, 10, 10, 10), bar(2, 11, 11, 11)];
+    const evaluator = createStrategyEvaluator(bars);
+    expect(evaluator.isEntrySignal(strategyFor({ type: 'momentum', period: 1 }), 0)).toBe(false);
+
+    for (const period of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(evaluator.isEntrySignal(strategyFor({ type: 'momentum', period }), 2)).toBe(false);
+    }
+
+    const invalidValues = [
+      bar(0, 10, 10, 10),
+      bar(1, 10, 10, 0),
+      bar(2, 12, 12, 12),
+      bar(3, 13, 13, Number.NaN),
+    ];
+    const invalidEvaluator = createStrategyEvaluator(invalidValues);
+    expect(invalidEvaluator.isEntrySignal(strategyFor({ type: 'momentum', period: 2 }), 2)).toBe(
+      false,
+    );
+    expect(invalidEvaluator.isEntrySignal(strategyFor({ type: 'momentum', period: 1 }), 3)).toBe(
+      false,
+    );
+  });
+
+  it('keeps Momentum signals unchanged when future bars are appended and memoizes by period', () => {
+    const momentumSpy = vi.spyOn(indicators, 'momentum');
+    const condition = { type: 'momentum' as const, period: 1 };
+    const secondCondition = { ...condition };
+    const bars = [bar(0, 10, 10, 10), bar(1, 10, 10, 10), bar(2, 11, 11, 11)];
+    const strategy = {
+      ...strategyFor(condition),
+      entryConditions: [condition, secondCondition],
+    };
+
+    try {
+      expect(createStrategyEvaluator(bars).isEntrySignal(strategy, 2)).toBe(true);
+      expect(momentumSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
+
+    // 追加バーは「覗いたら判定が反転する向き」(momentum 9/11*100=81.8<100) にする。
+    // 上昇方向の未来バーだと look-ahead 実装でも true のままでテストが素通りする。
+    const withFuture = [...bars, bar(3, 9, 9, 9)];
+    expect(createStrategyEvaluator(bars).isEntrySignal(strategyFor(condition), 2)).toBe(true);
+    expect(createStrategyEvaluator(withFuture).isEntrySignal(strategyFor(condition), 2)).toBe(true);
+  });
+
   it('memoizes CCI values by normalized period', () => {
     const cciSpy = vi.spyOn(indicators, 'cci');
     const firstCondition = { type: 'cciBreak' as const, period: 3, level: 100 };
@@ -736,5 +808,6 @@ describe('strategy evaluator', () => {
     expect(conditionLabel({ type: 'parabolicSar', step: 0.02, maximum: 0.2 })).toBe(
       'SAR0.02/0.2 フリップ',
     );
+    expect(conditionLabel({ type: 'momentum', period: 14 })).toBe('Momentum14 100クロス');
   });
 });

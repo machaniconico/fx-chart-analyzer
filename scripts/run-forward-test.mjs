@@ -31,10 +31,13 @@ export const knownEntryConditionTypes = Object.freeze([
   'cciBreak',
   'adxTrend',
   'parabolicSar',
+  'momentum',
 ]);
 const knownEntryConditionTypeSet = new Set(knownEntryConditionTypes);
 
 export const TWO_YEARS_SECONDS = 365 * 2 * 24 * 60 * 60;
+// Keep this literal for the plain-Node runner; the Vitest drift guard compares it with indicators.ts.
+export const SAR_MIN_STEP = 0.02;
 export const FORWARD_HISTORY_SCHEMA_VERSION = 1;
 export const FORWARD_RESULTS_SCHEMA_VERSION = 3;
 export const VIRTUAL_PAIRS = ['USDJPY', 'EURUSD', 'GBPJPY', 'EURJPY', 'AUDJPY', 'GBPUSD'];
@@ -242,15 +245,13 @@ const assertEntryCondition = (condition, context, index) => {
       assertThresholdField(conditionContext, condition, 'threshold', 100);
       break;
     case 'parabolicSar':
-      // 実データ計測では step が小さいほど SAR ウォームアップ後の残存乖離が増え、
-      // step=0.01 は既定値 0.02 の 20 倍の誤シグナル率だった。0.01 を許すと
-      // indicators.ts の SAR_CONVERGENCE_WARMUP_BARS 前提が崩れるため、登録時点で拒否する。
+      // Keep the plain-Node validation literal in sync with indicators.ts via the Vitest drift guard.
       assertConditionField(
         conditionContext,
         condition,
         'step',
-        (value) => finiteNumber(value) && value >= 0.02 && value < 1,
-        'must be a finite number greater than or equal to 0.02 and less than 1',
+        (value) => finiteNumber(value) && value >= SAR_MIN_STEP && value < 1,
+        `must be a finite number greater than or equal to ${SAR_MIN_STEP} and less than 1`,
       );
       assertConditionField(
         conditionContext,
@@ -258,6 +259,18 @@ const assertEntryCondition = (condition, context, index) => {
         'maximum',
         (value) => finiteNumber(value) && value >= condition.step && value < 1,
         'must be a finite number greater than or equal to step and less than 1',
+      );
+      break;
+    case 'momentum':
+      // period 1 is a one-bar ROC with maximum noise; keep the same 2-bar
+      // registration floor used by cciBreak/adxTrend while the evaluator
+      // itself remains hard-domain compatible with period >= 1.
+      assertConditionField(
+        conditionContext,
+        condition,
+        'period',
+        (value) => positiveInteger(value) && value >= 2 && value <= 1000,
+        'must be a positive integer greater than or equal to 2 and less than or equal to 1000',
       );
       break;
     default:

@@ -8,6 +8,7 @@ import {
   ichimoku,
   keltnerBandsFrom,
   macd,
+  momentum,
   parabolicSar,
   rsi,
   sma,
@@ -101,6 +102,11 @@ export interface ParabolicSarCondition {
   maximum: number;
 }
 
+export interface MomentumCondition {
+  type: 'momentum';
+  period: number;
+}
+
 export interface StochasticCondition {
   type: 'stochastic';
   kPeriod: number;
@@ -121,7 +127,8 @@ export type EntryCondition =
   | KeltnerBreakCondition
   | CciBreakCondition
   | AdxTrendCondition
-  | ParabolicSarCondition;
+  | ParabolicSarCondition
+  | MomentumCondition;
 
 export interface ExitRules {
   stopLossPips: number;
@@ -283,6 +290,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `ADX${condition.period}/${condition.threshold} DIクロス`;
     case 'parabolicSar':
       return `SAR${condition.step}/${condition.maximum} フリップ`;
+    case 'momentum':
+      return `Momentum${condition.period} 100クロス`;
   }
 };
 
@@ -360,6 +369,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const stochasticCache = new Map<string, CachedStochasticResult>();
   const adxCache = new Map<number, CachedAdxResult>();
   const parabolicSarCache = new Map<string, CachedParabolicSarResult>();
+  const momentumCache = new Map<number, CachedIndicatorValues>();
 
   const getMa = (type: MovingAverageType, period: number): CachedIndicatorValues => {
     const normalizedPeriod = normalizePeriod(period);
@@ -553,6 +563,17 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
+  const getMomentum = (period: number): CachedIndicatorValues => {
+    const normalizedPeriod = normalizePeriod(period);
+    const cached = momentumCache.get(normalizedPeriod);
+    if (cached) {
+      return cached;
+    }
+    const values = momentum(closes, normalizedPeriod);
+    momentumCache.set(normalizedPeriod, values);
+    return values;
+  };
+
   const evaluateCondition = (
     condition: EntryCondition,
     index: number,
@@ -709,6 +730,20 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
         return isShort
           ? previousIsLong && !currentIsLong
           : !previousIsLong && currentIsLong;
+      }
+      case 'momentum': {
+        if (!Number.isInteger(condition.period) || condition.period < 1) {
+          return false;
+        }
+        const values = getMomentum(condition.period);
+        const previous = values[index - 1];
+        const current = values[index];
+        if (!isNumber(previous) || !isNumber(current)) {
+          return false;
+        }
+        // MQL mirror: include equality on the prior bar (<=/>=), but require
+        // a strict move away from the 100 line on the signal bar (>/<).
+        return isShort ? previous >= 100 && current < 100 : previous <= 100 && current > 100;
       }
       case 'stochastic': {
         const values = getStochastic(

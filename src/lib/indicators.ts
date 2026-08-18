@@ -321,6 +321,46 @@ export const rsi = (values: readonly number[], period = 14): IndicatorPoint[] =>
 };
 
 /**
+ * MetaTrader iMomentum parity: Momentum[i] = Close[i] / Close[i-period] * 100.
+ * Primary source (MetaTrader 5 terminal help, verbatim: "MOMENTUM = CLOSE (i)
+ * / CLOSE (i - n) * 100" / "CLOSE (i - n) — close price n bars ago"):
+ * https://www.metatrader5.com/en/terminal/help/indicators/oscillators/momentum
+ * (the MQL5 iMomentum API reference documents only the function signature,
+ * not the formula.)
+ *
+ * The first `period` bars are null as a fail-closed warm-up. A zero or
+ * non-finite denominator/current close also produces null. Unlike path-
+ * dependent SAR, there is no state to converge: once warmed up, full-history
+ * and backtest-window calculations agree immediately.
+ */
+export const momentum = (closes: readonly number[], period: number): IndicatorPoint[] => {
+  assertPeriod(period);
+  const result: IndicatorPoint[] = Array(closes.length).fill(null);
+
+  for (let i = period; i < closes.length; i += 1) {
+    const close = closes[i];
+    const previousClose = closes[i - period];
+    // 生成 MQL の `close > 0.0 && previousClose > 0.0` データギャップガードと
+    // 同一意味論(close<=0 で TS だけがシグナルを出す非対称を防ぐ)。
+    if (
+      !Number.isFinite(close) ||
+      !Number.isFinite(previousClose) ||
+      close <= 0 ||
+      previousClose <= 0
+    ) {
+      continue;
+    }
+
+    const value = (close / previousClose) * 100;
+    if (Number.isFinite(value)) {
+      result[i] = value;
+    }
+  }
+
+  return result;
+};
+
+/**
  * Lambert CCI using Typical Price, an SMA of Typical Price, and the mean
  * absolute deviation from that same current-bar SMA.
  *
@@ -563,6 +603,11 @@ export const adx = (
  */
 // 実データ計測の恒久収束 p99≒103 バーを狙った保守値(max=240 はカバーしない=詳細は上記docコメント)
 export const SAR_CONVERGENCE_WARMUP_BARS = 100;
+
+// 実データ計測で step=0.01 は既定値 step=0.02 の20倍の誤シグナル率だった(step が
+// 小さいほどウォームアップ後の残存乖離が増え、直上の SAR_CONVERGENCE_WARMUP_BARS
+// の前提が崩れる)ため、登録時の下限を一元化する。
+export const SAR_MIN_STEP = 0.02;
 
 export const parabolicSar = (
   highs: readonly number[],

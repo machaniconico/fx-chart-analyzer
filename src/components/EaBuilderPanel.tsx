@@ -8,6 +8,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { runBacktest, type BacktestResult, type BacktestTrade } from '../lib/backtest';
 import { formatPrice } from '../lib/chart-data';
+import { SAR_MIN_STEP } from '../lib/indicators';
 import { generateMql4, generateMql5 } from '../lib/mql';
 import {
   createOptimizationCancelToken,
@@ -30,6 +31,7 @@ import {
   type MaCrossCondition,
   type MacdCrossCondition,
   type MovingAverageType,
+  type MomentumCondition,
   type ParabolicSarCondition,
   type RsiComparison,
   type RsiCondition,
@@ -116,8 +118,13 @@ const defaultAdxCondition = (): AdxTrendCondition => ({
 
 const defaultParabolicSarCondition = (): ParabolicSarCondition => ({
   type: 'parabolicSar',
-  step: 0.02,
+  step: SAR_MIN_STEP,
   maximum: 0.2,
+});
+
+const defaultMomentumCondition = (): MomentumCondition => ({
+  type: 'momentum',
+  period: 14,
 });
 
 const defaultMacdCondition = (): MacdCrossCondition => ({
@@ -292,13 +299,19 @@ const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
     if (
       condition.type === 'parabolicSar' &&
       (!Number.isFinite(condition.step) ||
-        condition.step < 0.02 ||
+        condition.step < SAR_MIN_STEP ||
         condition.step >= 1 ||
         !Number.isFinite(condition.maximum) ||
         condition.maximum < condition.step ||
         condition.maximum >= 1)
     ) {
-      messages.push('パラボリックSARのstepは0.02以上1未満、maximumはstep以上1未満の有限値にしてください。');
+      messages.push(`パラボリックSARのstepは${SAR_MIN_STEP}以上1未満、maximumはstep以上1未満の有限値にしてください。`);
+    }
+    if (
+      condition.type === 'momentum' &&
+      (!Number.isInteger(condition.period) || condition.period < 2 || condition.period > 1000)
+    ) {
+      messages.push('Momentumの期間は2以上1000以下の整数にしてください。');
     }
     if (
       condition.type === 'stochastic' &&
@@ -505,6 +518,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const cciCondition = getCondition('cciBreak');
   const adxCondition = getCondition('adxTrend');
   const parabolicSarCondition = getCondition('parabolicSar');
+  const momentumCondition = getCondition('momentum');
 
   const updateMoneyManagement = (
     updater: (current: typeof moneyManagement) => typeof moneyManagement,
@@ -1439,7 +1453,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                 <label>
                   <span>step</span>
                   <input
-                    min="0.02"
+                    min={SAR_MIN_STEP}
                     max="0.999"
                     step="0.01"
                     type="number"
@@ -1447,7 +1461,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                     onChange={(event) =>
                       updateCondition('parabolicSar', defaultParabolicSarCondition, (condition) => ({
                         ...condition,
-                        step: numericInput(event.target.value, condition.step, 0.02, 0.02, 0.999),
+                        step: numericInput(event.target.value, condition.step, SAR_MIN_STEP, SAR_MIN_STEP, 0.999),
                       }))
                     }
                   />
@@ -1455,7 +1469,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                 <label>
                   <span>maximum</span>
                   <input
-                    min="0.02"
+                    min={parabolicSarCondition.step}
                     max="0.999"
                     step="0.01"
                     type="number"
@@ -1463,13 +1477,48 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                     onChange={(event) =>
                       updateCondition('parabolicSar', defaultParabolicSarCondition, (condition) => ({
                         ...condition,
-                        maximum: numericInput(event.target.value, condition.maximum, 0.2, 0.02, 0.999),
+                        maximum: numericInput(event.target.value, condition.maximum, 0.2, condition.step, 0.999),
                       }))
                     }
                   />
                 </label>
                 <small className="control-hint">
-                  stepは0.02以上1未満、maximumはstep以上1未満にしてください
+                  stepは{SAR_MIN_STEP}以上1未満、maximumはstep以上1未満にしてください
+                </small>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('momentum')}
+                onChange={(event) =>
+                  toggleCondition('momentum', event.target.checked, defaultMomentumCondition)
+                }
+              />
+              <span>Momentum 100クロス</span>
+            </label>
+            {momentumCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>期間</span>
+                  <input
+                    max="1000"
+                    min="2"
+                    type="number"
+                    value={momentumCondition.period}
+                    onChange={(event) =>
+                      updateCondition('momentum', defaultMomentumCondition, (condition) => ({
+                        ...condition,
+                        period: integerInput(event.target.value, condition.period, 14, 2, 1000),
+                      }))
+                    }
+                  />
+                </label>
+                <small className="control-hint">
+                  Momentumの期間は2以上1000以下の整数にしてください
                 </small>
               </div>
             )}
