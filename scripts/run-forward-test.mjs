@@ -35,6 +35,7 @@ export const knownEntryConditionTypes = Object.freeze([
   'momentum',
   'ao',
   'rvi',
+  'envelope',
 ]);
 const knownEntryConditionTypeSet = new Set(knownEntryConditionTypes);
 
@@ -325,6 +326,16 @@ const assertEntryCondition = (condition, context, index) => {
         (value) => positiveInteger(value) && value >= 2 && value <= 1000,
         'must be a positive integer greater than or equal to 2 and less than or equal to 1000',
       );
+      break;
+    case 'envelope':
+      assertConditionField(
+        conditionContext,
+        condition,
+        'period',
+        (value) => positiveInteger(value) && value >= 2 && value <= 1000,
+        'must be a positive integer greater than or equal to 2 and less than or equal to 1000',
+      );
+      assertPositiveFiniteNumberField(conditionContext, condition, 'deviation');
       break;
     default:
       throw new Error(`${conditionContext}.type ${condition.type} has no parameter validation`);

@@ -167,6 +167,7 @@ describe('forward test runner', () => {
       'momentum',
       'ao',
       'rvi',
+      'envelope',
     ]);
   });
 
@@ -377,7 +378,7 @@ describe('forward test runner', () => {
             },
           ],
         },
-        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, demarker, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak, adxTrend, parabolicSar, momentum, ao/,
+        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, demarker, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak, adxTrend, parabolicSar, momentum, ao, rvi, envelope/,
       },
     ];
 
@@ -443,6 +444,7 @@ describe('forward test runner', () => {
     ['ao', { type: 'ao', fastPeriod: 5, slowPeriod: 34 }],
     ['rvi', { type: 'rvi', period: 10 }],
     ['demarker', { type: 'demarker', period: 14, threshold: 0.3, comparison: 'below' }],
+    ['envelope', { type: 'envelope', period: 14, deviation: 0.1 }],
   ])('accepts %s entry conditions in virtual strategies', (entryType, entryCondition) => {
     const candidate = JSON.parse(JSON.stringify(strategy));
     candidate.meta.id = `virtual-${entryType}-v1`;
@@ -541,6 +543,7 @@ describe('forward test runner', () => {
     ['momentum', { type: 'momentum', period: 14 }],
     ['ao', { type: 'ao', fastPeriod: 5, slowPeriod: 34 }],
     ['rvi', { type: 'rvi', period: 10 }],
+    ['envelope', { type: 'envelope', period: 14, deviation: 0.1 }],
   ];
 
   it.each(validEntryConditionCases)('accepts every %s condition with valid parameters', (entryType, entryCondition) => {
@@ -816,6 +819,31 @@ describe('forward test runner', () => {
       'demarker (non-integer)',
       { type: 'demarker', period: 10.5, threshold: 0.3, comparison: 'below' },
       /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'envelope (registration floor)',
+      { type: 'envelope', period: 1, deviation: 0.1 },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'envelope (registration ceiling)',
+      { type: 'envelope', period: 1001, deviation: 0.1 },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'envelope (non-integer)',
+      { type: 'envelope', period: 14.5, deviation: 0.1 },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'envelope (zero deviation)',
+      { type: 'envelope', period: 14, deviation: 0 },
+      /entryConditions\[0\]\.deviation must be a positive finite number/,
+    ],
+    [
+      'envelope (non-finite deviation)',
+      { type: 'envelope', period: 14, deviation: Number.POSITIVE_INFINITY },
+      /entryConditions\[0\]\.deviation must be a positive finite number/,
     ],
   ])('rejects invalid %s condition parameters before backtesting', (entryType, entryCondition, expected) => {
     const candidate = JSON.parse(JSON.stringify(strategy));

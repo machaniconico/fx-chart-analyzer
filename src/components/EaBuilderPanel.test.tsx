@@ -535,6 +535,22 @@ const validationCases: Array<{
     ],
     message: 'RVIの期間は2以上1000以下の整数にしてください。',
   },
+  {
+    type: 'envelope',
+    valid: { type: 'envelope', period: 2, deviation: Number.MIN_VALUE },
+    invalid: [
+      { label: 'period below minimum', condition: { type: 'envelope', period: 1, deviation: 0.1 } },
+      { label: 'period above maximum', condition: { type: 'envelope', period: 1001, deviation: 0.1 } },
+      { label: 'period non-integer', condition: { type: 'envelope', period: 2.5, deviation: 0.1 } },
+      { label: 'period non-finite', condition: { type: 'envelope', period: Number.NaN, deviation: 0.1 } },
+      { label: 'deviation at zero', condition: { type: 'envelope', period: 14, deviation: 0 } },
+      {
+        label: 'deviation non-finite',
+        condition: { type: 'envelope', period: 14, deviation: Number.POSITIVE_INFINITY },
+      },
+    ],
+    message: 'エンベロープの期間は2以上1000以下の整数、乖離率は0より大きい有限値にしてください。',
+  },
 ];
 
 it('covers every registered entry condition type exactly once and in registry order', () => {
@@ -545,6 +561,16 @@ it('covers every registered entry condition type exactly once and in registry or
 
 it.each(validationCases)('$type accepts its valid boundary values', ({ valid }) => {
   expect(strategyValidationMessages(baseStrategy(valid))).toEqual([]);
+});
+
+it('accepts both Envelope period registration boundaries with a positive finite deviation', () => {
+  for (const period of [2, 1000]) {
+    expect(
+      strategyValidationMessages(
+        baseStrategy({ type: 'envelope', period, deviation: Number.MIN_VALUE }),
+      ),
+    ).toEqual([]);
+  }
 });
 
 const invalidValidationCases = validationCases.flatMap(({ type, invalid, message }) =>

@@ -8,6 +8,7 @@ import type {
   AoCondition,
   DeMarkerCondition,
   DonchianBreakCondition,
+  EnvelopeCondition,
   EntryCondition,
   IchimokuCrossCondition,
   KeltnerBreakCondition,
@@ -115,6 +116,11 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input int InpBB${index}Period = ${integerLiteral(condition.period)};`,
         `input double InpBB${index}Deviation = ${numberLiteral(condition.multiplier)};`,
       ];
+    case 'envelope':
+      return [
+        `input int InpEnvelope${index}Period = ${integerLiteral(condition.period)};`,
+        `input double InpEnvelope${index}Deviation = ${numberLiteral(condition.deviation)};`,
+      ];
     case 'macdCross':
       return [
         `input int InpMACD${index}FastPeriod = ${integerLiteral(condition.fastPeriod)};`,
@@ -181,6 +187,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mqlDeMarkerCondition(condition, index);
     case 'bollinger':
       return mql5BollingerCondition(condition, index);
+    case 'envelope':
+      return mqlEnvelopeCondition(condition, index);
     case 'macdCross':
       return mql5MacdCondition(condition, index);
     case 'ichimokuCross':
@@ -218,6 +226,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mqlDeMarkerCondition(condition, index);
     case 'bollinger':
       return mql4BollingerCondition(condition, index);
+    case 'envelope':
+      return mqlEnvelopeCondition(condition, index);
     case 'macdCross':
       return mql4MacdCondition(condition, index);
     case 'ichimokuCross':
@@ -368,6 +378,128 @@ bool Condition${index}(bool longSide)
 }
 `;
 };
+
+const envelopeParityComment = `
+// Envelope parity: the native iEnvelopes buffer is intentionally not used.
+// The adopted official implementation is SMA(CLOSE, period) *
+// (1 +/- deviation / 100.0), with deviation expressed as a percentage.
+// MetaQuotes Envelopes.mq5: https://www.mql5.com/en/code/28
+// The terminal help's /1000 formula conflicts with that source implementation;
+// this generated calculation follows the source and mirrors TS operation order.
+`;
+
+const mqlEnvelopeCondition = (_condition: EnvelopeCondition, index: number): string => `
+${envelopeParityComment}double EnvelopeSma${index}(int shift)
+{
+  int period = InpEnvelope${index}Period;
+  if(period < 2 || period > 1000)
+  {
+    return EMPTY_VALUE;
+  }
+  if(iTime(_Symbol, _Period, shift + period) == 0)
+  {
+    return EMPTY_VALUE;
+  }
+  double sum = 0.0;
+  // Descending MQL shifts visit the SMA window oldest-to-newest, matching the
+  // TypeScript envelope() accumulation order before division by period.
+  for(int offset = period - 1; offset >= 0; offset--)
+  {
+    double close = iClose(_Symbol, _Period, shift + offset);
+    if(!ValueReady(close) || !MathIsValidNumber(close))
+    {
+      return EMPTY_VALUE;
+    }
+    sum += close;
+  }
+  if(!MathIsValidNumber(sum))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = sum / period;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+double EnvelopeUpper${index}(int shift)
+{
+  double middle = EnvelopeSma${index}(shift);
+  double deviation = InpEnvelope${index}Deviation;
+  if(!ValueReady(middle) || !MathIsValidNumber(middle) ||
+    !MathIsValidNumber(deviation) || !(deviation > 0.0))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = middle * (1.0 + deviation / 100.0);
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+double EnvelopeLower${index}(int shift)
+{
+  double middle = EnvelopeSma${index}(shift);
+  double deviation = InpEnvelope${index}Deviation;
+  if(!ValueReady(middle) || !MathIsValidNumber(middle) ||
+    !MathIsValidNumber(deviation) || !(deviation > 0.0))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = middle * (1.0 - deviation / 100.0);
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+bool Condition${index}(bool longSide)
+{
+  int period = InpEnvelope${index}Period;
+  double deviation = InpEnvelope${index}Deviation;
+  int signalShift = 1;
+  if(period < 2 || period > 1000 || !MathIsValidNumber(deviation) || !(deviation > 0.0))
+  {
+    return false;
+  }
+  // The current envelope requires history through period + signalShift; the
+  // previous envelope requires history through period + signalShift + 1.
+  // Keep both gates explicit so the two-point cross cannot read a warm-up bar.
+  if(iTime(_Symbol, _Period, period + signalShift) == 0)
+  {
+    return false;
+  }
+  if(iTime(_Symbol, _Period, period + signalShift + 1) == 0)
+  {
+    return false;
+  }
+  double previousUpper = EnvelopeUpper${index}(signalShift + 1);
+  double currentUpper = EnvelopeUpper${index}(signalShift);
+  double previousLower = EnvelopeLower${index}(signalShift + 1);
+  double currentLower = EnvelopeLower${index}(signalShift);
+  double previousClose = iClose(_Symbol, _Period, signalShift + 1);
+  double currentClose = iClose(_Symbol, _Period, signalShift);
+  if(!ValueReady(previousUpper) || !MathIsValidNumber(previousUpper) ||
+    !ValueReady(currentUpper) || !MathIsValidNumber(currentUpper) ||
+    !ValueReady(previousLower) || !MathIsValidNumber(previousLower) ||
+    !ValueReady(currentLower) || !MathIsValidNumber(currentLower) ||
+    !ValueReady(previousClose) || !MathIsValidNumber(previousClose) ||
+    !ValueReady(currentClose) || !MathIsValidNumber(currentClose))
+  {
+    return false;
+  }
+  if(longSide)
+  {
+    return previousClose <= previousUpper && currentClose > currentUpper;
+  }
+  return previousClose >= previousLower && currentClose < currentLower;
+}
+`;
 
 const mql5DonchianCondition = (condition: DonchianBreakCondition, index: number): string =>
   mqlDonchianCondition(condition, index, 'MQL5');
@@ -1382,6 +1514,17 @@ const mql4EntryConditionOnInit = (conditions: readonly EntryCondition[]): string
         '  }',
       ];
     }
+    if (condition.type === 'envelope') {
+      return [
+        // The evaluator and registry share the hard period/deviation domain;
+        // input int makes non-integer periods unrepresentable in MQL4.
+        `  if(InpEnvelope${conditionIndex}Period < 2 || InpEnvelope${conditionIndex}Period > 1000 || !MathIsValidNumber(InpEnvelope${conditionIndex}Deviation) || !(InpEnvelope${conditionIndex}Deviation > 0.0))`,
+        '  {',
+        `    Print("Envelope${conditionIndex} rejected: period must be an integer between 2 and 1000 and deviation must be finite and greater than 0");`,
+        '    return INIT_FAILED;',
+        '  }',
+      ];
+    }
     if (condition.type === 'demarker') {
       return [
         // The evaluator hard domain is period >= 1; the EA intentionally adopts
@@ -1739,6 +1882,9 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
       case 'rvi':
         // RVI is calculated from OHLC to preserve TypeScript operation order.
         return [];
+      case 'envelope':
+        // Envelopes are calculated from iClose to preserve TypeScript operation order.
+        return [];
       case 'demarker':
         // DeMarker is calculated from iHigh/iLow to preserve TypeScript operation order.
         return [];
@@ -1878,6 +2024,9 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '    return INIT_FAILED;',
           '  }',
         ];
+      case 'envelope':
+        // Envelopes are calculated from iClose; the condition owns its runtime guards.
+        return [];
       case 'demarker':
         return [
           // The evaluator hard domain is period >= 1; input int makes
@@ -1929,6 +2078,8 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
       case 'ao':
         return [];
       case 'rvi':
+        return [];
+      case 'envelope':
         return [];
       case 'demarker':
         return [];
