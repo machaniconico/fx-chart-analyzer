@@ -71,6 +71,7 @@ const row = ({
 const legacyEntryTypeExpectations = [
   {
     entryType: 'maCross',
+    label: 'MAクロス順張り',
     entryCondition: {
       type: 'maCross',
       fastType: 'ema',
@@ -88,6 +89,7 @@ const legacyEntryTypeExpectations = [
   },
   {
     entryType: 'rsi',
+    label: 'RSI逆張り',
     entryCondition: { type: 'rsi', period: 14, threshold: 30, comparison: 'below' },
     exit: { stopLossPips: 25, takeProfitPips: 35, closeOnOppositeSignal: false },
     timeframes: ['m30', 'h1'],
@@ -99,6 +101,7 @@ const legacyEntryTypeExpectations = [
   },
   {
     entryType: 'bollinger',
+    label: 'BBブレイク順張り',
     entryCondition: {
       type: 'bollinger',
       period: 20,
@@ -116,6 +119,7 @@ const legacyEntryTypeExpectations = [
   },
   {
     entryType: 'macdCross',
+    label: 'MACDクロス順張り',
     entryCondition: { type: 'macdCross', fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
     exit: { stopLossPips: 30, takeProfitPips: 60, closeOnOppositeSignal: true },
     timeframes: ['h1', 'h4'],
@@ -127,6 +131,7 @@ const legacyEntryTypeExpectations = [
   },
   {
     entryType: 'donchianBreak',
+    label: 'ドンチアンブレイク順張り',
     entryCondition: { type: 'donchianBreak', period: 20 },
     exit: { stopLossPips: 30, takeProfitPips: 60, closeOnOppositeSignal: false },
     timeframes: ['h1', 'h4'],
@@ -138,6 +143,7 @@ const legacyEntryTypeExpectations = [
   },
   {
     entryType: 'stochastic',
+    label: 'ストキャス逆張り',
     entryCondition: {
       type: 'stochastic',
       kPeriod: 14,
@@ -156,6 +162,7 @@ const legacyEntryTypeExpectations = [
   },
   {
     entryType: 'ichimokuCross',
+    label: '一目クロス順張り',
     entryCondition: {
       type: 'ichimokuCross',
       conversionPeriod: 9,
@@ -172,6 +179,83 @@ const legacyEntryTypeExpectations = [
     },
     trailingStopPips: [null, 20],
   },
+  {
+    entryType: 'keltnerBreak',
+    label: 'ケルトナーブレイク順張り',
+    entryCondition: {
+      type: 'keltnerBreak',
+      emaPeriod: 20,
+      atrPeriod: 10,
+      multiplier: 2.0,
+    },
+    exit: { stopLossPips: 25, takeProfitPips: 50, closeOnOppositeSignal: false },
+    timeframes: ['h1', 'h4'],
+    parameterRanges: {
+      stopLossPips: { min: 15, max: 75, step: 12 },
+      takeProfitPips: { min: 25, max: 125, step: 20 },
+    },
+    trailingStopPips: [null, 20],
+  },
+  {
+    entryType: 'cciBreak',
+    label: 'CCIブレイク順張り',
+    entryCondition: { type: 'cciBreak', period: 14, level: 100 },
+    exit: { stopLossPips: 25, takeProfitPips: 50, closeOnOppositeSignal: false },
+    timeframes: ['m30', 'h1'],
+    parameterRanges: {
+      stopLossPips: { min: 15, max: 105, step: 15 },
+      takeProfitPips: { min: 25, max: 125, step: 20 },
+    },
+    trailingStopPips: [null, 20],
+  },
+  {
+    entryType: 'adxTrend',
+    label: 'ADXトレンド順張り',
+    entryCondition: { type: 'adxTrend', period: 14, threshold: 25 },
+    exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
+    timeframes: ['h1', 'h4'],
+    parameterRanges: {
+      stopLossPips: { min: 20, max: 110, step: 15 },
+      takeProfitPips: { min: 40, max: 220, step: 20 },
+    },
+    trailingStopPips: [null, 25],
+  },
+  {
+    entryType: 'parabolicSar',
+    label: 'パラボリックSARフリップ順張り',
+    entryCondition: { type: 'parabolicSar', step: 0.02, maximum: 0.2 },
+    exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
+    timeframes: ['h1', 'h4'],
+    parameterRanges: {
+      stopLossPips: { min: 20, max: 110, step: 15 },
+      takeProfitPips: { min: 40, max: 220, step: 20 },
+    },
+    trailingStopPips: [null, 25],
+  },
+  {
+    entryType: 'momentum',
+    label: 'モメンタム100クロス順張り',
+    entryCondition: { type: 'momentum', period: 14 },
+    exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
+    timeframes: ['h1', 'h4'],
+    parameterRanges: {
+      stopLossPips: { min: 20, max: 110, step: 15 },
+      takeProfitPips: { min: 40, max: 220, step: 20 },
+    },
+    trailingStopPips: [null, 25],
+  },
+  {
+    entryType: 'rvi',
+    label: 'RVIシグナルラインクロス順張り',
+    entryCondition: { type: 'rvi', period: 10 },
+    exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
+    timeframes: ['h1', 'h4'],
+    parameterRanges: {
+      stopLossPips: { min: 20, max: 110, step: 15 },
+      takeProfitPips: { min: 40, max: 220, step: 20 },
+    },
+    trailingStopPips: [null, 25],
+  },
 ];
 
 const readMagicNumbers = async (directory) => {
@@ -183,6 +267,81 @@ const readMagicNumbers = async (directory) => {
     }),
   );
 };
+
+const legacyMagicBases = [
+  1783100000,
+  1783100010,
+  1783100020,
+  1783100030,
+  1783100040,
+  1783100050,
+  1783100060,
+  1783100070,
+  1783100080,
+  1783100090,
+  1783200000,
+  1783200010,
+  1783200020,
+];
+
+const expectedLegacyCandidateMatrix = () =>
+  TUNING_PAIRS.flatMap((pair, pairIndex) =>
+    legacyEntryTypeExpectations.flatMap((expectation, entryTypeIndex) =>
+      expectation.timeframes.map((timeframe, timeframeIndex) => {
+        const id = `tune-${expectation.entryType.toLowerCase()}-${pair.toLowerCase()}-${timeframe}-v1`;
+        const name = `${pair} ${timeframe} ${expectation.label}`;
+        return {
+          id,
+          entryType: expectation.entryType,
+          strategy: {
+            meta: {
+              id,
+              name,
+              version: 1,
+              pair,
+              timeframe,
+              registeredAt: 1782996300,
+            },
+            id,
+            name,
+            description: `${pair} ${timeframe}の${expectation.label}を買い・売りの両方向で検証します。`,
+            direction: 'long',
+            entryDirections: ['long', 'short'],
+            entryConditions: [{ ...expectation.entryCondition }],
+            exit: {
+              ...expectation.exit,
+              trailingStopPips: expectation.trailingStopPips[0],
+            },
+            sessionFilter: {
+              enabled: false,
+              start: '00:00',
+              end: '23:59',
+              serverUtcOffsetMinutes: 0,
+            },
+            newsFilter: {
+              enabled: false,
+              blockMinutes: 30,
+            },
+            lotSize: 0.1,
+            moneyManagement: {
+              initialBalanceYen: 1000000,
+              lotSizingMode: 'fixedRisk',
+              fixedLot: 0.1,
+              riskPercent: 1,
+              maxLot: 100,
+            },
+            magicNumber: legacyMagicBases[entryTypeIndex] + pairIndex * 100 + timeframeIndex,
+          },
+          parameterRanges: {
+            stopLossPips: { ...expectation.parameterRanges.stopLossPips },
+            takeProfitPips: { ...expectation.parameterRanges.takeProfitPips },
+          },
+          trailingStopPips: [...expectation.trailingStopPips],
+          sessionVariants: null,
+        };
+      }),
+    ),
+  );
 
 describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('keeps the required pair and entry-type coverage explicit', () => {
@@ -208,6 +367,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       'parabolicSar',
       'momentum',
       'rvi',
+      'demarker',
     ]);
     expect(ENTRY_TYPE_PROFILES.rsi.timeframes).toEqual(['m30', 'h1']);
     expect(ENTRY_TYPE_PROFILES.donchianBreak).toEqual({
@@ -328,6 +488,22 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       },
       trailingStopPips: [null, 25],
     });
+    expect(ENTRY_TYPE_PROFILES.demarker).toEqual({
+      label: 'DeMarker逆張り',
+      timeframes: ['h1', 'h4'],
+      entryCondition: {
+        type: 'demarker',
+        period: 14,
+        threshold: 0.3,
+        comparison: 'crossAbove',
+      },
+      exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
+      parameterRanges: {
+        stopLossPips: { min: 20, max: 110, step: 15 },
+        takeProfitPips: { min: 40, max: 220, step: 20 },
+      },
+      trailingStopPips: [null, 25],
+    });
   });
 
   it('keeps the parabolicSar profile step within the SAR_MIN_STEP policy', () => {
@@ -364,11 +540,12 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
         `${target.strategy.meta.pair}:${target.entryType}:${target.strategy.meta.timeframe}`,
     );
 
-    expect(expectedCount).toBe(156);
-    expect(matrix).toHaveLength(156);
-    expect(matrix.filter((target) => target.entryType !== 'rvi')).toHaveLength(144);
+    expect(expectedCount).toBe(168);
+    expect(matrix).toHaveLength(168);
+    expect(matrix.filter((target) => target.entryType !== 'demarker')).toHaveLength(156);
     expect(new Set(triples).size).toBe(expectedCount);
     expect(new Set(matrix.map((target) => target.id)).size).toBe(expectedCount);
+    expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(expectedCount);
     expect(matrix.every((target) => target.strategy.meta.registeredAt === TUNING_REGISTERED_AT)).toBe(
       true,
     );
@@ -396,6 +573,14 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     }
   });
 
+  it('keeps the existing 156 candidates deeply equal after adding DeMarker', () => {
+    const matrix = buildCandidateMatrix();
+
+    expect(matrix.filter((target) => target.entryType !== 'demarker')).toEqual(
+      expectedLegacyCandidateMatrix(),
+    );
+  });
+
   it('keeps every legacy candidate id, magic number, and parameter range unchanged', () => {
     const matrix = buildCandidateMatrix();
 
@@ -413,7 +598,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
             id: `tune-${expectation.entryType.toLowerCase()}-${pair.toLowerCase()}-${timeframe}-v1`,
             entryType: expectation.entryType,
             strategy: {
-              magicNumber: 1783100000 + pairIndex * 100 + entryTypeIndex * 10 + timeframeIndex,
+              magicNumber: legacyMagicBases[entryTypeIndex] + pairIndex * 100 + timeframeIndex,
               entryConditions: [expectation.entryCondition],
               exit: expectation.exit,
             },
@@ -642,6 +827,35 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(matrix.length);
   });
 
+  it('assigns DeMarker candidates to entry-type index 13 with exact triples', () => {
+    const matrix = buildCandidateMatrix();
+    const demarkerCandidates = matrix.filter((target) => target.entryType === 'demarker');
+
+    expect(demarkerCandidates).toHaveLength(12);
+    expect(candidateMagicNumber(0, 13, 0)).toBe(1783200030);
+    expect(
+      demarkerCandidates.map((target) => [
+        target.strategy.meta.pair,
+        target.strategy.meta.timeframe,
+        target.strategy.magicNumber,
+      ]),
+    ).toEqual([
+      ['USDJPY', 'h1', 1783200030],
+      ['USDJPY', 'h4', 1783200031],
+      ['EURUSD', 'h1', 1783200130],
+      ['EURUSD', 'h4', 1783200131],
+      ['GBPJPY', 'h1', 1783200230],
+      ['GBPJPY', 'h4', 1783200231],
+      ['EURJPY', 'h1', 1783200330],
+      ['EURJPY', 'h4', 1783200331],
+      ['GBPUSD', 'h1', 1783200430],
+      ['GBPUSD', 'h4', 1783200431],
+      ['AUDJPY', 'h1', 1783200530],
+      ['AUDJPY', 'h4', 1783200531],
+    ]);
+    expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(matrix.length);
+  });
+
   it('parses repeated and comma-separated filters and applies them together', () => {
     const filters = parseCliArgs([
       '--pair=usdjpy,EURUSD',
@@ -674,7 +888,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('supports each filter independently', () => {
     const matrix = buildCandidateMatrix();
 
-    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(26);
+    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(28);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'rsi']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'donchianBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'stochastic']))).toHaveLength(12);
@@ -684,7 +898,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'adxTrend']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'parabolicSar']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'm30']))).toHaveLength(24);
-    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(78);
+    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(84);
     expect(() => parseCliArgs(['--timeframe', 'm15'])).toThrow(/Invalid value for --timeframe/);
   });
 
@@ -700,6 +914,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(CLI_USAGE).toContain('parabolicSar');
     expect(CLI_USAGE).toContain('momentum');
     expect(CLI_USAGE).toContain('rvi');
+    expect(CLI_USAGE).toContain('demarker');
     expect(
       filterTargets(matrix, parseCliArgs(['--entry-type', 'DONCHIANBREAK'])),
     ).toEqual(
@@ -744,6 +959,11 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       filterTargets(matrix, parseCliArgs(['--entry-type', 'RVI'])),
     ).toEqual(
       matrix.filter((target) => target.entryType === 'rvi'),
+    );
+    expect(
+      filterTargets(matrix, parseCliArgs(['--entry-type', 'DEMARKER'])),
+    ).toEqual(
+      matrix.filter((target) => target.entryType === 'demarker'),
     );
   });
 
@@ -1744,7 +1964,7 @@ describe('tune-virtual-strategies JSON report', () => {
     expect(evaluatedIds).toEqual(['tune-rsi-eurusd-h1-v1']);
     expect(results).toHaveLength(1);
     expect(cleanupCalled).toBe(true);
-    expect(logs[0]).toBe('チューニング候補: 1/156件');
+    expect(logs[0]).toBe('チューニング候補: 1/168件');
     expect(writtenReport).toMatchObject({
       filters: { pairs: ['EURUSD'], entryTypes: ['rsi'], timeframes: ['h1'] },
       summary: { candidateCount: 1 },

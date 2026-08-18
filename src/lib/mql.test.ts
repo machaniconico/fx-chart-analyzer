@@ -268,6 +268,7 @@ describe('mql generation', () => {
       { type: 'parabolicSar', step: 0.02, maximum: 0.2 },
       { type: 'momentum', period: 14 },
       { type: 'rvi', period: 10 },
+      { type: 'demarker', period: 14, threshold: 0.3, comparison: 'below' },
     ];
     for (const condition of allConditions) {
       const source = generateMql4({
@@ -666,6 +667,8 @@ describe('mql generation', () => {
       expect(source).toContain('double high0 = iHigh(_Symbol, _Period, shift);');
       expect(source).toContain('double low0 = iLow(_Symbol, _Period, shift);');
       expect(source).toContain('double close0 = iClose(_Symbol, _Period, shift);');
+      expect(source).toContain('bool RviBarsReady1(int shift)');
+      expect(source).toContain('if(!RviBarsReady1(shift))');
       expect(source).toContain('return ((close0 - open0) +');
       expect(source).toContain('2 * (close1 - open1)');
       expect(source).toContain('2 * (high2 - low2)');
@@ -675,9 +678,43 @@ describe('mql generation', () => {
       expect(source).toContain('double value = numeratorSum / rangeSum;');
       expect(source).toContain('rangeSum == 0.0');
       expect(source).toContain('double value = (current + 2 * previous + 2 * twoBarsAgo + threeBarsAgo) / 6.0;');
-      expect(source).toContain('period + 6 + signalShift');
+      expect(source).toContain('if(iTime(_Symbol, _Period, period + 6 + signalShift) == 0)');
+      expect(source).toContain('if(iTime(_Symbol, _Period, period + 7 + signalShift) == 0)');
       expect(source).toContain('shift + period + 6');
-      expect(source).toContain('open0 > 0.0 && high0 > 0.0 && low0 > 0.0 && close0 > 0.0');
+      expect(source).toContain(
+        `if(!ValueReady(open0) || !MathIsValidNumber(open0) || !ValueReady(high0) || !MathIsValidNumber(high0) ||
+    !ValueReady(low0) || !MathIsValidNumber(low0) || !ValueReady(close0) || !MathIsValidNumber(close0) ||
+    !ValueReady(open1) || !MathIsValidNumber(open1) || !ValueReady(high1) || !MathIsValidNumber(high1) ||
+    !ValueReady(low1) || !MathIsValidNumber(low1) || !ValueReady(close1) || !MathIsValidNumber(close1) ||
+    !ValueReady(open2) || !MathIsValidNumber(open2) || !ValueReady(high2) || !MathIsValidNumber(high2) ||
+    !ValueReady(low2) || !MathIsValidNumber(low2) || !ValueReady(close2) || !MathIsValidNumber(close2) ||
+    !ValueReady(open3) || !MathIsValidNumber(open3) || !ValueReady(high3) || !MathIsValidNumber(high3) ||
+    !ValueReady(low3) || !MathIsValidNumber(low3) || !ValueReady(close3) || !MathIsValidNumber(close3) ||
+    !(open0 > 0.0 && high0 > 0.0 && low0 > 0.0 && close0 > 0.0 &&
+      open1 > 0.0 && high1 > 0.0 && low1 > 0.0 && close1 > 0.0 &&
+      open2 > 0.0 && high2 > 0.0 && low2 > 0.0 && close2 > 0.0 &&
+      open3 > 0.0 && high3 > 0.0 && low3 > 0.0 && close3 > 0.0))`,
+      );
+      expect(source).toContain(`double RviNumeratorSwma1(int shift)
+{
+  double open0 = iOpen(_Symbol, _Period, shift);
+  double close0 = iClose(_Symbol, _Period, shift);
+  double open1 = iOpen(_Symbol, _Period, shift + 1);
+  double close1 = iClose(_Symbol, _Period, shift + 1);
+  double open2 = iOpen(_Symbol, _Period, shift + 2);
+  double close2 = iClose(_Symbol, _Period, shift + 2);
+  double open3 = iOpen(_Symbol, _Period, shift + 3);
+  double close3 = iClose(_Symbol, _Period, shift + 3);`);
+      expect(source).toContain(`double RviRangeSwma1(int shift)
+{
+  double high0 = iHigh(_Symbol, _Period, shift);
+  double low0 = iLow(_Symbol, _Period, shift);
+  double high1 = iHigh(_Symbol, _Period, shift + 1);
+  double low1 = iLow(_Symbol, _Period, shift + 1);
+  double high2 = iHigh(_Symbol, _Period, shift + 2);
+  double low2 = iLow(_Symbol, _Period, shift + 2);
+  double high3 = iHigh(_Symbol, _Period, shift + 3);
+  double low3 = iLow(_Symbol, _Period, shift + 3);`);
       expect(source).toContain(
         'CrossedAbove(previousRvi, previousSignal, currentRvi, currentSignal)',
       );
@@ -700,6 +737,55 @@ describe('mql generation', () => {
 
     await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-rvi.mq5'));
     await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-rvi.mq4'));
+  });
+
+  it('generates self-calculated DeMarker threshold signals with exact TS arithmetic and guards', async () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [{ type: 'demarker', period: 14, threshold: 0.3, comparison: 'crossBelow' }],
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    for (const source of [mql5, mql4]) {
+      expect(source).toContain('input int InpDeMarker1Period = 14;');
+      expect(source).toContain('input double InpDeMarker1Threshold = 0.3;');
+      expect(source).toContain('double high = iHigh(_Symbol, _Period, shift);');
+      expect(source).toContain('double previousHigh = iHigh(_Symbol, _Period, shift + 1);');
+      expect(source).toContain('double low = iLow(_Symbol, _Period, shift);');
+      expect(source).toContain('double previousLow = iLow(_Symbol, _Period, shift + 1);');
+      expect(source).toContain('double value = high > previousHigh ? high - previousHigh : 0.0;');
+      expect(source).toContain('double value = low < previousLow ? previousLow - low : 0.0;');
+      expect(source).toContain('double deMaxSma = deMaxSum / period;');
+      expect(source).toContain('double deMinSma = deMinSum / period;');
+      expect(source).toContain('double denominator = deMaxSma + deMinSma;');
+      expect(source).toContain('denominator == 0.0');
+      expect(source).toContain('for(int offset = period - 1; offset >= 0; offset--)');
+      expect(source).toContain('if(iTime(_Symbol, _Period, period + 1) == 0)');
+      expect(source).not.toContain('if(iTime(_Symbol, _Period, period + 2) == 0)');
+      expect(source).toContain('if(!ValueReady(current) || !MathIsValidNumber(current))');
+      expect(source).not.toContain(
+        'if(!ValueReady(previous) || !MathIsValidNumber(previous) ||\n    !ValueReady(current) || !MathIsValidNumber(current))',
+      );
+      expect(source).toContain(
+        'return ValueReady(previous) && previous > InpDeMarker1Threshold && current <= InpDeMarker1Threshold;',
+      );
+      expect(source).toContain('1.0 - InpDeMarker1Threshold');
+      expect(source).toContain('native iDeMarker buffer is intentionally not used');
+      expect(source).toContain('return EMPTY_VALUE;');
+      expect(source).not.toContain('iDeMarker(');
+      expectBalanced(source);
+    }
+
+    expect(mql5).toContain('DeMarker1 rejected: period must be an integer greater than or equal to 1');
+    expect(mql5).toContain('return INIT_FAILED;');
+    expect(mql4).toContain('int OnInit()');
+    expect(mql4).toContain('DeMarker1 rejected: period must be an integer greater than or equal to 1');
+    expect(mql4).toContain('return INIT_FAILED;');
+
+    await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-demarker.mq5'));
+    await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-demarker.mq4'));
   });
 
   it('generates Ichimoku cross signals with shift parity and mirrored cloud rules for MQL4 and MQL5', () => {

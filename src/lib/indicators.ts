@@ -326,6 +326,116 @@ export const rsi = (values: readonly number[], period = 14): IndicatorPoint[] =>
 };
 
 /**
+ * MetaTrader 5 DeMarker parity.
+ *
+ * The MT5 terminal help defines the component series as:
+ * `DeMax[i] = high[i] > high[i-1] ? high[i] - high[i-1] : 0` and
+ * `DeMin[i] = low[i] < low[i-1] ? low[i-1] - low[i] : 0`, followed by
+ * `DeMarker[i] = SMA(DeMax, period) /
+ * (SMA(DeMax, period) + SMA(DeMin, period))`.
+ * Source (MetaTrader 5 terminal help):
+ * https://www.metatrader5.com/en/terminal/help/indicators/oscillators/demarker
+ *
+ * This project adopts that exact form. Each SMA is calculated as its window
+ * sum divided by `period` first, and only then are the two SMA values added
+ * and used for the ratio. Keeping that operation order lets generated MQL
+ * mirror the same arithmetic. DeMax/DeMin are undefined at index 0, so the
+ * first exposed DeMarker value is index `period`.
+ *
+ * Flat-window divergence (deliberate): when SMA(DeMax) + SMA(DeMin) == 0 the
+ * terminal-bundled DeMarker is understood to write 0.0 into its buffer, while
+ * this implementation returns null (fail-closed — 0.0 would satisfy any
+ * `below`-style condition on every flat window). Generated MQL must mirror
+ * the null semantics with a `denominator == 0 -> no signal` guard, not 0.0.
+ */
+export const demarker = (
+  highs: readonly number[],
+  lows: readonly number[],
+  period: number,
+): IndicatorPoint[] => {
+  assertPeriod(period);
+  if (highs.length !== lows.length) {
+    throw new Error('highs and lows must have the same length');
+  }
+
+  const deMax: IndicatorPoint[] = Array(highs.length).fill(null);
+  const deMin: IndicatorPoint[] = Array(highs.length).fill(null);
+
+  for (let i = 1; i < highs.length; i += 1) {
+    const high = highs[i];
+    const previousHigh = highs[i - 1];
+    const low = lows[i];
+    const previousLow = lows[i - 1];
+    if (
+      !Number.isFinite(high) ||
+      !Number.isFinite(previousHigh) ||
+      !Number.isFinite(low) ||
+      !Number.isFinite(previousLow)
+    ) {
+      continue;
+    }
+
+    const positiveMovement = high > previousHigh ? high - previousHigh : 0;
+    const negativeMovement = low < previousLow ? previousLow - low : 0;
+    if (Number.isFinite(positiveMovement) && Number.isFinite(negativeMovement)) {
+      deMax[i] = positiveMovement;
+      deMin[i] = negativeMovement;
+    }
+  }
+
+  const result: IndicatorPoint[] = Array(highs.length).fill(null);
+  for (let i = period; i < highs.length; i += 1) {
+    let deMaxSum = 0;
+    let deMinSum = 0;
+    let complete = true;
+
+    for (let offset = i - period + 1; offset <= i; offset += 1) {
+      const deMaxValue = deMax[offset];
+      const deMinValue = deMin[offset];
+      if (
+        typeof deMaxValue !== 'number' ||
+        !Number.isFinite(deMaxValue) ||
+        typeof deMinValue !== 'number' ||
+        !Number.isFinite(deMinValue)
+      ) {
+        complete = false;
+        break;
+      }
+      deMaxSum += deMaxValue;
+      deMinSum += deMinValue;
+    }
+
+    if (
+      !complete ||
+      !Number.isFinite(deMaxSum) ||
+      !Number.isFinite(deMinSum)
+    ) {
+      continue;
+    }
+
+    // Keep the generated-MQL order: calculate each SMA before the ratio.
+    const deMaxSma = deMaxSum / period;
+    const deMinSma = deMinSum / period;
+    const denominator = deMaxSma + deMinSma;
+    if (
+      !Number.isFinite(deMaxSma) ||
+      !Number.isFinite(deMinSma) ||
+      !Number.isFinite(denominator) ||
+      denominator === 0
+    ) {
+      continue;
+    }
+
+    const value = deMaxSma / denominator;
+    if (Number.isFinite(value)) {
+      result[i] = value;
+    }
+  }
+
+  return result;
+};
+
+/**
  * MetaTrader iMomentum parity: Momentum[i] = Close[i] / Close[i-period] * 100.
  * Primary source (MetaTrader 5 terminal help, verbatim: "MOMENTUM = CLOSE (i)
  * / CLOSE (i - n) * 100" / "CLOSE (i - n) — close price n bars ago"):
@@ -395,9 +505,15 @@ export const momentum = (closes: readonly number[], period: number): IndicatorPo
  * rounding. Our parity contract is TS ↔ generated MQL (US-1502 mirrors this
  * exact /6 order), not TS ↔ terminal display.
  *
- * MT5's first RVI value is exposed at `period + 3`, and its signal line needs
- * three more RVI values. Any incomplete/non-finite source window or a zero
- * denominator sum remains null (fail-closed).
+ * This implementation exposes its first RVI value at `period + 3`, and its
+ * signal line needs three more RVI values. Any incomplete/non-finite source
+ * window or a zero denominator sum remains null (fail-closed).
+ *
+ * Observation (not stated explicitly in the primary source above): the native
+ * terminal exposes its first RVI value at `period + 2`, while this
+ * implementation starts at `period + 3`. This is a display-only difference for
+ * the first series bar and does not affect the TS ↔ generated-MQL parity
+ * contract.
  */
 export const rvi = (
   opens: readonly number[],

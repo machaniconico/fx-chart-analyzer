@@ -23,6 +23,7 @@ import {
   type BollingerCondition,
   type CciBreakCondition,
   type AdxTrendCondition,
+  type DeMarkerCondition,
   type DonchianBreakCondition,
   type EntryCondition,
   type IchimokuCrossCondition,
@@ -87,6 +88,13 @@ const defaultRsiCondition = (): RsiCondition => ({
   type: 'rsi',
   period: 14,
   threshold: 30,
+  comparison: 'below',
+});
+
+const defaultDeMarkerCondition = (): DeMarkerCondition => ({
+  type: 'demarker',
+  period: 14,
+  threshold: 0.3,
   comparison: 'below',
 });
 
@@ -265,6 +273,17 @@ export const strategyValidationMessages = (strategy: StrategyDefinition): string
     ) {
       // RSI period 1 degenerates to 0/100; two samples are the minimum useful window.
       messages.push('RSIの期間は2以上の整数、閾値は0より大きく100未満の有限値にしてください。');
+    }
+    if (
+      condition.type === 'demarker' &&
+      (!Number.isInteger(condition.period) ||
+        condition.period < 2 ||
+        condition.period > 1000 ||
+        !Number.isFinite(condition.threshold) ||
+        condition.threshold <= 0 ||
+        condition.threshold >= 1)
+    ) {
+      messages.push('DeMarkerの期間は2以上1000以下の整数、閾値は0より大きく1未満の有限値にしてください。');
     }
     if (
       condition.type === 'bollinger' &&
@@ -542,6 +561,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
 
   const maCondition = getCondition('maCross');
   const rsiCondition = getCondition('rsi');
+  const demarkerCondition = getCondition('demarker');
   const bbCondition = getCondition('bollinger');
   const macdCondition = getCondition('macdCross');
   const ichimokuCondition = getCondition('ichimokuCross');
@@ -903,6 +923,79 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                     }
                   />
                 </label>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('demarker')}
+                onChange={(event) =>
+                  toggleCondition('demarker', event.target.checked, defaultDeMarkerCondition)
+                }
+              />
+              <span>DeMarker閾値</span>
+            </label>
+            {demarkerCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>期間</span>
+                  <input
+                    max="1000"
+                    min="2"
+                    type="number"
+                    value={demarkerCondition.period}
+                    onChange={(event) =>
+                      updateCondition('demarker', defaultDeMarkerCondition, (condition) => ({
+                        ...condition,
+                        period: integerInput(event.target.value, condition.period, 14, 2, 1000),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>判定</span>
+                  <select
+                    value={demarkerCondition.comparison}
+                    onChange={(event) =>
+                      updateCondition('demarker', defaultDeMarkerCondition, (condition) => ({
+                        ...condition,
+                        comparison: event.target.value as RsiComparison,
+                      }))
+                    }
+                  >
+                    <option value="below">以下</option>
+                    <option value="above">以上</option>
+                    <option value="crossBelow">下抜け</option>
+                    <option value="crossAbove">上抜け</option>
+                  </select>
+                </label>
+                <label>
+                  <span>閾値</span>
+                  <input
+                    max="0.9999999999999999"
+                    min="0.0000000000000001"
+                    type="number"
+                    value={demarkerCondition.threshold}
+                    onChange={(event) =>
+                      updateCondition('demarker', defaultDeMarkerCondition, (condition) => ({
+                        ...condition,
+                        threshold: numericInput(
+                          event.target.value,
+                          condition.threshold,
+                          0.3,
+                          0.0000000000000001,
+                          0.9999999999999999,
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+                <small className="control-hint">
+                  DeMarkerの期間は2以上1000以下の整数、閾値は0より大きく1未満にしてください
+                </small>
               </div>
             )}
           </section>

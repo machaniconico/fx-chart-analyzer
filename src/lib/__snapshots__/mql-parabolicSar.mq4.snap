@@ -200,6 +200,8 @@ bool SarWarmupReady1(int signalShift)
 {
   double step = InpSAR1Step;
   double maximum = InpSAR1Maximum;
+  // This cache assumes one SarWarmupReady call site. Additional call sites
+  // with different (barTime, signalShift) keys can cause cache thrashing.
   static datetime cachedBarTime = 0;
   static int cachedSignalShift = -1;
   static bool cachedResult = false;
