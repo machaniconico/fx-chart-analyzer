@@ -289,80 +289,76 @@ void OnDeinit(const int reason)
 // Every referenced OHLC value is therefore required to be finite and > 0.0,
 // which is the generated equivalent of the TS null data-gap result.
 // A zero SUM(RANGE) is also returned as EMPTY_VALUE, matching TS null.
-bool RviBarsReady1(int shift)
+struct RviBarValues1
 {
-  double open0 = iOpen(_Symbol, _Period, shift);
-  double high0 = iHigh(_Symbol, _Period, shift);
-  double low0 = iLow(_Symbol, _Period, shift);
-  double close0 = iClose(_Symbol, _Period, shift);
-  double open1 = iOpen(_Symbol, _Period, shift + 1);
-  double high1 = iHigh(_Symbol, _Period, shift + 1);
-  double low1 = iLow(_Symbol, _Period, shift + 1);
-  double close1 = iClose(_Symbol, _Period, shift + 1);
-  double open2 = iOpen(_Symbol, _Period, shift + 2);
-  double high2 = iHigh(_Symbol, _Period, shift + 2);
-  double low2 = iLow(_Symbol, _Period, shift + 2);
-  double close2 = iClose(_Symbol, _Period, shift + 2);
-  double open3 = iOpen(_Symbol, _Period, shift + 3);
-  double high3 = iHigh(_Symbol, _Period, shift + 3);
-  double low3 = iLow(_Symbol, _Period, shift + 3);
-  double close3 = iClose(_Symbol, _Period, shift + 3);
-  if(!ValueReady(open0) || !MathIsValidNumber(open0) || !ValueReady(high0) || !MathIsValidNumber(high0) ||
-    !ValueReady(low0) || !MathIsValidNumber(low0) || !ValueReady(close0) || !MathIsValidNumber(close0) ||
-    !ValueReady(open1) || !MathIsValidNumber(open1) || !ValueReady(high1) || !MathIsValidNumber(high1) ||
-    !ValueReady(low1) || !MathIsValidNumber(low1) || !ValueReady(close1) || !MathIsValidNumber(close1) ||
-    !ValueReady(open2) || !MathIsValidNumber(open2) || !ValueReady(high2) || !MathIsValidNumber(high2) ||
-    !ValueReady(low2) || !MathIsValidNumber(low2) || !ValueReady(close2) || !MathIsValidNumber(close2) ||
-    !ValueReady(open3) || !MathIsValidNumber(open3) || !ValueReady(high3) || !MathIsValidNumber(high3) ||
-    !ValueReady(low3) || !MathIsValidNumber(low3) || !ValueReady(close3) || !MathIsValidNumber(close3) ||
-    !(open0 > 0.0 && high0 > 0.0 && low0 > 0.0 && close0 > 0.0 &&
-      open1 > 0.0 && high1 > 0.0 && low1 > 0.0 && close1 > 0.0 &&
-      open2 > 0.0 && high2 > 0.0 && low2 > 0.0 && close2 > 0.0 &&
-      open3 > 0.0 && high3 > 0.0 && low3 > 0.0 && close3 > 0.0))
+  double open0;
+  double high0;
+  double low0;
+  double close0;
+  double open1;
+  double high1;
+  double low1;
+  double close1;
+  double open2;
+  double high2;
+  double low2;
+  double close2;
+  double open3;
+  double high3;
+  double low3;
+  double close3;
+};
+
+bool RviBarsReady1(int shift, RviBarValues1 &bars)
+{
+  bars.open0 = iOpen(_Symbol, _Period, shift);
+  bars.high0 = iHigh(_Symbol, _Period, shift);
+  bars.low0 = iLow(_Symbol, _Period, shift);
+  bars.close0 = iClose(_Symbol, _Period, shift);
+  bars.open1 = iOpen(_Symbol, _Period, shift + 1);
+  bars.high1 = iHigh(_Symbol, _Period, shift + 1);
+  bars.low1 = iLow(_Symbol, _Period, shift + 1);
+  bars.close1 = iClose(_Symbol, _Period, shift + 1);
+  bars.open2 = iOpen(_Symbol, _Period, shift + 2);
+  bars.high2 = iHigh(_Symbol, _Period, shift + 2);
+  bars.low2 = iLow(_Symbol, _Period, shift + 2);
+  bars.close2 = iClose(_Symbol, _Period, shift + 2);
+  bars.open3 = iOpen(_Symbol, _Period, shift + 3);
+  bars.high3 = iHigh(_Symbol, _Period, shift + 3);
+  bars.low3 = iLow(_Symbol, _Period, shift + 3);
+  bars.close3 = iClose(_Symbol, _Period, shift + 3);
+  if(!ValueReady(bars.open0) || !MathIsValidNumber(bars.open0) || !ValueReady(bars.high0) || !MathIsValidNumber(bars.high0) ||
+    !ValueReady(bars.low0) || !MathIsValidNumber(bars.low0) || !ValueReady(bars.close0) || !MathIsValidNumber(bars.close0) ||
+    !ValueReady(bars.open1) || !MathIsValidNumber(bars.open1) || !ValueReady(bars.high1) || !MathIsValidNumber(bars.high1) ||
+    !ValueReady(bars.low1) || !MathIsValidNumber(bars.low1) || !ValueReady(bars.close1) || !MathIsValidNumber(bars.close1) ||
+    !ValueReady(bars.open2) || !MathIsValidNumber(bars.open2) || !ValueReady(bars.high2) || !MathIsValidNumber(bars.high2) ||
+    !ValueReady(bars.low2) || !MathIsValidNumber(bars.low2) || !ValueReady(bars.close2) || !MathIsValidNumber(bars.close2) ||
+    !ValueReady(bars.open3) || !MathIsValidNumber(bars.open3) || !ValueReady(bars.high3) || !MathIsValidNumber(bars.high3) ||
+    !ValueReady(bars.low3) || !MathIsValidNumber(bars.low3) || !ValueReady(bars.close3) || !MathIsValidNumber(bars.close3) ||
+    !(bars.open0 > 0.0 && bars.high0 > 0.0 && bars.low0 > 0.0 && bars.close0 > 0.0 &&
+      bars.open1 > 0.0 && bars.high1 > 0.0 && bars.low1 > 0.0 && bars.close1 > 0.0 &&
+      bars.open2 > 0.0 && bars.high2 > 0.0 && bars.low2 > 0.0 && bars.close2 > 0.0 &&
+      bars.open3 > 0.0 && bars.high3 > 0.0 && bars.low3 > 0.0 && bars.close3 > 0.0))
   {
     return false;
   }
   return true;
 }
 
-double RviNumeratorSwma1(int shift)
+double RviNumeratorSwma1(RviBarValues1 &bars)
 {
-  if(!RviBarsReady1(shift))
-  {
-    return EMPTY_VALUE;
-  }
-  double open0 = iOpen(_Symbol, _Period, shift);
-  double close0 = iClose(_Symbol, _Period, shift);
-  double open1 = iOpen(_Symbol, _Period, shift + 1);
-  double close1 = iClose(_Symbol, _Period, shift + 1);
-  double open2 = iOpen(_Symbol, _Period, shift + 2);
-  double close2 = iClose(_Symbol, _Period, shift + 2);
-  double open3 = iOpen(_Symbol, _Period, shift + 3);
-  double close3 = iClose(_Symbol, _Period, shift + 3);
-  return ((close0 - open0) +
-    2 * (close1 - open1) +
-    2 * (close2 - open2) +
-    (close3 - open3)) / 6.0;
+  return ((bars.close0 - bars.open0) +
+    2 * (bars.close1 - bars.open1) +
+    2 * (bars.close2 - bars.open2) +
+    (bars.close3 - bars.open3)) / 6.0;
 }
 
-double RviRangeSwma1(int shift)
+double RviRangeSwma1(RviBarValues1 &bars)
 {
-  if(!RviBarsReady1(shift))
-  {
-    return EMPTY_VALUE;
-  }
-  double high0 = iHigh(_Symbol, _Period, shift);
-  double low0 = iLow(_Symbol, _Period, shift);
-  double high1 = iHigh(_Symbol, _Period, shift + 1);
-  double low1 = iLow(_Symbol, _Period, shift + 1);
-  double high2 = iHigh(_Symbol, _Period, shift + 2);
-  double low2 = iLow(_Symbol, _Period, shift + 2);
-  double high3 = iHigh(_Symbol, _Period, shift + 3);
-  double low3 = iLow(_Symbol, _Period, shift + 3);
-  return ((high0 - low0) +
-    2 * (high1 - low1) +
-    2 * (high2 - low2) +
-    (high3 - low3)) / 6.0;
+  return ((bars.high0 - bars.low0) +
+    2 * (bars.high1 - bars.low1) +
+    2 * (bars.high2 - bars.low2) +
+    (bars.high3 - bars.low3)) / 6.0;
 }
 
 double RviValue1(int shift)
@@ -384,8 +380,13 @@ double RviValue1(int shift)
   // item. Descending MQL shifts preserve that same chronological order.
   for(int offset = period - 1; offset >= 0; offset--)
   {
-    double numeratorAverage = RviNumeratorSwma1(shift + offset);
-    double rangeAverage = RviRangeSwma1(shift + offset);
+    RviBarValues1 bars;
+    if(!RviBarsReady1(shift + offset, bars))
+    {
+      return EMPTY_VALUE;
+    }
+    double numeratorAverage = RviNumeratorSwma1(bars);
+    double rangeAverage = RviRangeSwma1(bars);
     if(!ValueReady(numeratorAverage) || !MathIsValidNumber(numeratorAverage) ||
       !ValueReady(rangeAverage) || !MathIsValidNumber(rangeAverage))
     {

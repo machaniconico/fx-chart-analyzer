@@ -805,17 +805,22 @@ describe('mql generation', () => {
 
     for (const source of [mql5, mql4]) {
       expect(source).toContain('input int InpRVI1Period = 10;');
-      expect(source).toContain('double open0 = iOpen(_Symbol, _Period, shift);');
-      expect(source).toContain('double high0 = iHigh(_Symbol, _Period, shift);');
-      expect(source).toContain('double low0 = iLow(_Symbol, _Period, shift);');
-      expect(source).toContain('double close0 = iClose(_Symbol, _Period, shift);');
-      expect(source).toContain('bool RviBarsReady1(int shift)');
-      expect(source).toContain('if(!RviBarsReady1(shift))');
-      expect(source).toContain('return ((close0 - open0) +');
-      expect(source).toContain('2 * (close1 - open1)');
-      expect(source).toContain('2 * (high2 - low2)');
-      expect(source).toContain('double numeratorAverage = RviNumeratorSwma1(shift + offset);');
-      expect(source).toContain('double rangeAverage = RviRangeSwma1(shift + offset);');
+      expect(source).toContain('struct RviBarValues1');
+      expect(source).toContain('bool RviBarsReady1(int shift, RviBarValues1 &bars)');
+      // The one-argument legacy helpers were removed as unreachable dead code
+      // (US-2203 review): only the struct forms may appear in generated EAs.
+      expect(source).not.toContain('bool RviBarsReady1(int shift)\n');
+      expect(source).not.toContain('double RviNumeratorSwma1(int shift)');
+      expect(source).not.toContain('double RviRangeSwma1(int shift)');
+      expect(source).toContain('bars.open0 = iOpen(_Symbol, _Period, shift);');
+      expect(source).toContain('bars.high0 = iHigh(_Symbol, _Period, shift);');
+      expect(source).toContain('bars.low0 = iLow(_Symbol, _Period, shift);');
+      expect(source).toContain('bars.close0 = iClose(_Symbol, _Period, shift);');
+      expect(source).toContain('return ((bars.close0 - bars.open0) +');
+      expect(source).toContain('2 * (bars.close1 - bars.open1)');
+      expect(source).toContain('2 * (bars.high2 - bars.low2)');
+      expect(source).toContain('double numeratorAverage = RviNumeratorSwma1(bars);');
+      expect(source).toContain('double rangeAverage = RviRangeSwma1(bars);');
       expect(source).toContain('for(int offset = period - 1; offset >= 0; offset--)');
       expect(source).toContain('double value = numeratorSum / rangeSum;');
       expect(source).toContain('rangeSum == 0.0');
@@ -824,55 +829,46 @@ describe('mql generation', () => {
       expect(source).toContain('if(iTime(_Symbol, _Period, period + 7 + signalShift) == 0)');
       expect(source).toContain('shift + period + 6');
       expect(source).toContain(
-        `if(!ValueReady(open0) || !MathIsValidNumber(open0) || !ValueReady(high0) || !MathIsValidNumber(high0) ||
-    !ValueReady(low0) || !MathIsValidNumber(low0) || !ValueReady(close0) || !MathIsValidNumber(close0) ||
-    !ValueReady(open1) || !MathIsValidNumber(open1) || !ValueReady(high1) || !MathIsValidNumber(high1) ||
-    !ValueReady(low1) || !MathIsValidNumber(low1) || !ValueReady(close1) || !MathIsValidNumber(close1) ||
-    !ValueReady(open2) || !MathIsValidNumber(open2) || !ValueReady(high2) || !MathIsValidNumber(high2) ||
-    !ValueReady(low2) || !MathIsValidNumber(low2) || !ValueReady(close2) || !MathIsValidNumber(close2) ||
-    !ValueReady(open3) || !MathIsValidNumber(open3) || !ValueReady(high3) || !MathIsValidNumber(high3) ||
-    !ValueReady(low3) || !MathIsValidNumber(low3) || !ValueReady(close3) || !MathIsValidNumber(close3) ||
-    !(open0 > 0.0 && high0 > 0.0 && low0 > 0.0 && close0 > 0.0 &&
-      open1 > 0.0 && high1 > 0.0 && low1 > 0.0 && close1 > 0.0 &&
-      open2 > 0.0 && high2 > 0.0 && low2 > 0.0 && close2 > 0.0 &&
-      open3 > 0.0 && high3 > 0.0 && low3 > 0.0 && close3 > 0.0))`,
+        `if(!ValueReady(bars.open0) || !MathIsValidNumber(bars.open0) || !ValueReady(bars.high0) || !MathIsValidNumber(bars.high0) ||
+    !ValueReady(bars.low0) || !MathIsValidNumber(bars.low0) || !ValueReady(bars.close0) || !MathIsValidNumber(bars.close0) ||
+    !ValueReady(bars.open1) || !MathIsValidNumber(bars.open1) || !ValueReady(bars.high1) || !MathIsValidNumber(bars.high1) ||
+    !ValueReady(bars.low1) || !MathIsValidNumber(bars.low1) || !ValueReady(bars.close1) || !MathIsValidNumber(bars.close1) ||
+    !ValueReady(bars.open2) || !MathIsValidNumber(bars.open2) || !ValueReady(bars.high2) || !MathIsValidNumber(bars.high2) ||
+    !ValueReady(bars.low2) || !MathIsValidNumber(bars.low2) || !ValueReady(bars.close2) || !MathIsValidNumber(bars.close2) ||
+    !ValueReady(bars.open3) || !MathIsValidNumber(bars.open3) || !ValueReady(bars.high3) || !MathIsValidNumber(bars.high3) ||
+    !ValueReady(bars.low3) || !MathIsValidNumber(bars.low3) || !ValueReady(bars.close3) || !MathIsValidNumber(bars.close3) ||
+    !(bars.open0 > 0.0 && bars.high0 > 0.0 && bars.low0 > 0.0 && bars.close0 > 0.0 &&
+      bars.open1 > 0.0 && bars.high1 > 0.0 && bars.low1 > 0.0 && bars.close1 > 0.0 &&
+      bars.open2 > 0.0 && bars.high2 > 0.0 && bars.low2 > 0.0 && bars.close2 > 0.0 &&
+      bars.open3 > 0.0 && bars.high3 > 0.0 && bars.low3 > 0.0 && bars.close3 > 0.0))`,
       );
-      expect(source).toContain(`double RviNumeratorSwma1(int shift)
-{
-  if(!RviBarsReady1(shift))
-  {
-    return EMPTY_VALUE;
-  }
-  double open0 = iOpen(_Symbol, _Period, shift);
-  double close0 = iClose(_Symbol, _Period, shift);
-  double open1 = iOpen(_Symbol, _Period, shift + 1);
-  double close1 = iClose(_Symbol, _Period, shift + 1);
-  double open2 = iOpen(_Symbol, _Period, shift + 2);
-  double close2 = iClose(_Symbol, _Period, shift + 2);
-  double open3 = iOpen(_Symbol, _Period, shift + 3);
-  double close3 = iClose(_Symbol, _Period, shift + 3);`);
-      expect(source).toContain(`double RviRangeSwma1(int shift)
-{
-  if(!RviBarsReady1(shift))
-  {
-    return EMPTY_VALUE;
-  }
-  double high0 = iHigh(_Symbol, _Period, shift);
-  double low0 = iLow(_Symbol, _Period, shift);
-  double high1 = iHigh(_Symbol, _Period, shift + 1);
-  double low1 = iLow(_Symbol, _Period, shift + 1);
-  double high2 = iHigh(_Symbol, _Period, shift + 2);
-  double low2 = iLow(_Symbol, _Period, shift + 2);
-  double high3 = iHigh(_Symbol, _Period, shift + 3);
-  double low3 = iLow(_Symbol, _Period, shift + 3);`);
+      const readyStart = source.indexOf('bool RviBarsReady1(int shift, RviBarValues1 &bars)');
+      // Anchor the body end on the next declaration signature instead of a
+      // prose comment so wording edits cannot silently move the slice.
+      const readyEnd = source.indexOf('\ndouble RviNumeratorSwma1(', readyStart);
+      expect(readyStart).toBeGreaterThanOrEqual(0);
+      expect(readyEnd).toBeGreaterThan(readyStart);
+      const readyBody = source.slice(readyStart, readyEnd);
+      expect(readyBody.match(/\bi(Open|High|Low|Close)\(/g) ?? []).toHaveLength(16);
+      expect(readyBody.indexOf('bars.close3 = iClose')).toBeLessThan(
+        readyBody.indexOf('if(!ValueReady(bars.open0)'));
+      expect(source).not.toContain('iOpen(_Symbol, _Period, shift + offset)');
+      expect(source).not.toContain('iHigh(_Symbol, _Period, shift + offset)');
+      expect(source).not.toContain('iLow(_Symbol, _Period, shift + offset)');
+      expect(source).not.toContain('iClose(_Symbol, _Period, shift + offset)');
       for (const functionName of ['RviNumeratorSwma1', 'RviRangeSwma1']) {
-        const functionStart = source.indexOf(`double ${functionName}(int shift)`);
-        const guardPosition = source.indexOf('if(!RviBarsReady1(shift))', functionStart);
-        const firstTerminalReadPosition = source.indexOf(' = i', functionStart);
+        const functionStart = source.indexOf(`double ${functionName}(RviBarValues1 &bars)`);
+        const functionEnd = source.indexOf('\n}\n\n', functionStart) + 2;
+        const functionBody = source.slice(functionStart, functionEnd);
         expect(functionStart).toBeGreaterThanOrEqual(0);
-        expect(guardPosition).toBeGreaterThan(functionStart);
-        expect(firstTerminalReadPosition).toBeGreaterThan(guardPosition);
+        expect(functionBody).not.toMatch(/\bi(Open|High|Low|Close)\(/);
       }
+      const valueStart = source.indexOf('double RviValue1(int shift)');
+      const signalStart = source.indexOf('double RviSignalValue1(int shift)', valueStart);
+      const valueBody = source.slice(valueStart, signalStart);
+      expect(valueBody).toContain('if(!RviBarsReady1(shift + offset, bars))');
+      expect(valueBody.match(/RviBarsReady1\(shift \+ offset, bars\)/g) ?? []).toHaveLength(1);
+      expect(valueBody).not.toMatch(/\bi(Open|High|Low|Close)\(/);
       expect(source).toContain(
         'CrossedAbove(previousRvi, previousSignal, currentRvi, currentSignal)',
       );
@@ -892,6 +888,13 @@ describe('mql generation', () => {
     expect(mql4).toContain('if(InpRVI1Period < 1)');
     expect(mql4).toContain('RVI1 rejected: period must be an integer greater than or equal to 1');
     expect(mql4).toContain('return INIT_FAILED;');
+
+    const currentGuard = mql5.indexOf('if(iTime(_Symbol, _Period, period + 6 + signalShift) == 0)');
+    const previousGuard = mql5.indexOf('if(iTime(_Symbol, _Period, period + 7 + signalShift) == 0)');
+    const previousRvi = mql5.indexOf('double previousRvi = RviValue1(signalShift + 1);');
+    expect(currentGuard).toBeGreaterThanOrEqual(0);
+    expect(previousGuard).toBeGreaterThan(currentGuard);
+    expect(previousRvi).toBeGreaterThan(previousGuard);
 
     await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-rvi.mq5'));
     await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-rvi.mq4'));
