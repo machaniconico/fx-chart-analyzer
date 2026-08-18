@@ -9,6 +9,7 @@ import {
   ichimoku,
   keltnerChannel,
   macd,
+  momentum,
   parabolicSar,
   rsi,
   sma,
@@ -95,6 +96,38 @@ describe('indicators', () => {
     expect(values.slice(0, 3)).toEqual([null, null, null]);
     expectNullableCloseTo(values[3], 133.33333333333334);
     expectNullableCloseTo(cci([10, 10, 10], [10, 10, 10], [10, 10, 10], 3)[2], 0);
+  });
+
+  it('calculates MetaTrader iMomentum values with a fail-closed warm-up', () => {
+    const values = momentum([10, 11, 12, 8, 15, 20], 2);
+
+    expect(values[0]).toBeNull();
+    expect(values[1]).toBeNull();
+    // Fixed measured doubles: keep the exact values to catch arithmetic drift.
+    expect(values[2]).toBe(120);
+    expect(values[3]).toBe(72.72727272727273);
+    expect(values[4]).toBe(125);
+    expect(values[5]).toBe(250);
+  });
+
+  it('fails closed for zero/non-finite momentum inputs and stays look-ahead invariant', () => {
+    const closes = [0, 11, 12, Number.NaN, 15, 30];
+    const values = momentum(closes, 2);
+    expect(values[2]).toBeNull();
+    expect(values[3]).toBeNull();
+    expect(values[4]).toBe(125);
+    expect(values[5]).toBeNull();
+
+    // 入力は有限だが商が非有限になる経路 (1 / 5e-324 = Infinity) も null。
+    expect(momentum([Number.MIN_VALUE, 1], 1)[1]).toBeNull();
+
+    // 現在 close が 0 以下(欠損バー相当)は null =生成 MQL の close>0.0 ガードと対称。
+    expect(momentum([10, 10, 0], 1)[2]).toBeNull();
+    expect(momentum([10, 10, -5], 1)[2]).toBeNull();
+
+    const base = momentum([10, 11, 12, 8, 15], 2);
+    const withFuture = momentum([10, 11, 12, 8, 15, 1_000], 2);
+    expect(withFuture.slice(0, base.length)).toEqual(base);
   });
 
   it('calculates MetaTrader iADX EMA buffers with staged warm-up and safe zero divisions', () => {

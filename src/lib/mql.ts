@@ -1,4 +1,4 @@
-import { SAR_CONVERGENCE_WARMUP_BARS } from './indicators';
+import { SAR_CONVERGENCE_WARMUP_BARS, SAR_MIN_STEP } from './indicators';
 import type {
   BollingerBandSide,
   BollingerCondition,
@@ -14,6 +14,7 @@ import type {
   MoneyManagementSettings,
   MacdCrossCondition,
   MovingAverageType,
+  MomentumCondition,
   ParabolicSarCondition,
   RsiComparison,
   RsiCondition,
@@ -143,6 +144,8 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input double InpSAR${index}Step = ${numberLiteral(condition.step)};`,
         `input double InpSAR${index}Maximum = ${numberLiteral(condition.maximum)};`,
       ];
+    case 'momentum':
+      return [`input int InpMomentum${index}Period = ${integerLiteral(condition.period)};`];
     case 'stochastic':
       return [
         `input int InpStoch${index}KPeriod = ${integerLiteral(condition.kPeriod)};`,
@@ -179,6 +182,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mql5AdxCondition(condition, index);
     case 'parabolicSar':
       return mql5ParabolicSarCondition(condition, index);
+    case 'momentum':
+      return mqlMomentumCondition(condition, index);
   }
 };
 
@@ -208,6 +213,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mql4AdxCondition(condition, index);
     case 'parabolicSar':
       return mql4ParabolicSarCondition(condition, index);
+    case 'momentum':
+      return mqlMomentumCondition(condition, index);
   }
 };
 
@@ -496,6 +503,89 @@ const mql5CciCondition = (_condition: CciBreakCondition, index: number): string 
 const mql4CciCondition = (_condition: CciBreakCondition, index: number): string =>
   mqlCciCondition(index, 'iCCI(_Symbol, _Period, period, PRICE_TYPICAL, 1)');
 
+const momentumParityComment = `
+// Momentum parity: the native iMomentum buffer is intentionally not used.
+// MT implementations can evaluate price[i] * 100 / price[i-period], while
+// the TypeScript evaluator evaluates (close / previousClose) * 100.0. The
+// iClose calculation below preserves that operation order exactly, including
+// the equality boundary at 100 for flat-price bars.
+// iClose can return 0.0 when the requested history is unavailable. Positive
+// close and previousClose guards keep that data gap fail-closed instead of
+// treating the missing value as a sub-100 momentum reading.
+`;
+
+const mqlMomentumCondition = (_condition: MomentumCondition, index: number): string => `
+${momentumParityComment}double MomentumValue${index}(int shift)
+{
+  int period = InpMomentum${index}Period;
+  if(period < 1)
+  {
+    return EMPTY_VALUE;
+  }
+  if(iTime(_Symbol, _Period, shift + period) == 0)
+  {
+    return EMPTY_VALUE;
+  }
+  double close = iClose(_Symbol, _Period, shift);
+  double previousClose = iClose(_Symbol, _Period, shift + period);
+  if(!ValueReady(close) || !MathIsValidNumber(close) ||
+    !ValueReady(previousClose) || !MathIsValidNumber(previousClose) ||
+    !(close > 0.0 && previousClose > 0.0))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = (close / previousClose) * 100.0;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+bool Condition${index}(bool longSide)
+{
+  int period = InpMomentum${index}Period;
+  // The TS evaluator rejects period < 1 and non-integers. This MQL input is
+  // int, so non-integers are unrepresentable; OnInit rejects period < 1.
+  if(period < 1)
+  {
+    return false;
+  }
+  // The signal bar is shift 1, so require its period-length lookback first.
+  if(iTime(_Symbol, _Period, period + 1) == 0)
+  {
+    return false;
+  }
+  // The cross also reads shift 2, so period + 2 is the oldest close required
+  // by the TypeScript evaluator's two-point comparison.
+  if(iTime(_Symbol, _Period, period + 2) == 0)
+  {
+    return false;
+  }
+  double previous = MomentumValue${index}(2);
+  double current = MomentumValue${index}(1);
+  if(!ValueReady(previous) || !MathIsValidNumber(previous) ||
+    !ValueReady(current) || !MathIsValidNumber(current))
+  {
+    return false;
+  }
+  // 0.0 is a missing-data sentinel on MT4/MT5 and must never be used in a
+  // signal comparison. This mirrors the positive-price guard above and the
+  // TypeScript evaluator's null result for unavailable closes.
+  if(!(previous > 0.0 && current > 0.0))
+  {
+    return false;
+  }
+  // Keep the comparison operators identical to the TypeScript evaluator:
+  // equality is included on the prior bar and strict on the signal bar.
+  if(longSide)
+  {
+    return previous <= 100.0 && current > 100.0;
+  }
+  return previous >= 100.0 && current < 100.0;
+}
+`;
+
 const adxParityComment = `
 // Native iADX exposes +DI, -DI, and ADX with zero-seeded values before the
 // TypeScript evaluator's warm-up boundary. The generated history guard keeps
@@ -604,17 +694,19 @@ bool SarWarmupReady${index}(int signalShift)
 {
 ${expressions.warmupPrelude}
   static datetime cachedBarTime = 0;
+  static int cachedSignalShift = -1;
   static bool cachedResult = false;
   datetime currentBarTime = iTime(_Symbol, _Period, 0);
   if(currentBarTime == 0)
   {
     return false;
   }
-  if(cachedBarTime == currentBarTime)
+  if(cachedBarTime == currentBarTime && cachedSignalShift == signalShift)
   {
     return cachedResult;
   }
   cachedBarTime = currentBarTime;
+  cachedSignalShift = signalShift;
   // Cache failures as well: the same chart bar must not rescan full history.
   cachedResult = false;
   int totalBars = Bars(_Symbol, _Period);
@@ -690,7 +782,7 @@ bool Condition${index}(bool longSide)
   double step = InpSAR${index}Step;
   double maximum = InpSAR${index}Maximum;
   // This is exactly the TS evaluator's fail-closed domain. Registration adds
-  // step >= 0.02 and both values < 1; those are pipeline policy, not evaluator
+  // step >= ${SAR_MIN_STEP} and both values < 1; those are pipeline policy, not evaluator
   // semantics, so the generated EA intentionally rejects only this domain.
   if(!MathIsValidNumber(step) || !MathIsValidNumber(maximum) || step <= 0.0 || maximum < step)
   {
@@ -742,26 +834,44 @@ const mql4ParabolicSarCondition = (_condition: ParabolicSarCondition, index: num
     warmupPrelude: `  double step = InpSAR${index}Step;\n  double maximum = InpSAR${index}Maximum;`,
   });
 
-const mql4ParabolicSarOnInit = (conditions: readonly EntryCondition[]): string => {
-  const warningLines = conditions.flatMap((condition, index) => {
-    if (condition.type !== 'parabolicSar') {
-      return [];
-    }
+const mql4EntryConditionOnInit = (conditions: readonly EntryCondition[]): string => {
+  const initGuardLines = conditions.flatMap((condition, index) => {
     const conditionIndex = index + 1;
-    return [
-      `  if(InpSAR${conditionIndex}Step < 0.02)`,
-      '  {',
-      `    Print("SAR${conditionIndex} warning: step below 0.02 is outside the evaluator registration domain");`,
-      '  }',
-    ];
+    if (condition.type === 'parabolicSar') {
+      // SAR_MIN_STEP is pipeline policy and remains warning-only below it;
+      // the separate evaluator-domain guard must fail initialization.
+      return [
+        `  if(InpSAR${conditionIndex}Step < ${SAR_MIN_STEP})`,
+        '  {',
+        `    Print("SAR${conditionIndex} warning: step below ${SAR_MIN_STEP} is outside the evaluator registration domain");`,
+        '  }',
+        `  if(!MathIsValidNumber(InpSAR${conditionIndex}Step) || !MathIsValidNumber(InpSAR${conditionIndex}Maximum) || InpSAR${conditionIndex}Step <= 0.0 || InpSAR${conditionIndex}Maximum < InpSAR${conditionIndex}Step)`,
+        '  {',
+        `    Print("SAR${conditionIndex} rejected: step must be > 0 and maximum must be >= step");`,
+        '    return INIT_FAILED;',
+        '  }',
+      ];
+    }
+    if (condition.type === 'momentum') {
+      return [
+        // The evaluator hard domain is period >= 1; input int makes
+        // non-integer values unrepresentable, so reject the remaining invalid range here.
+        `  if(InpMomentum${conditionIndex}Period < 1)`,
+        '  {',
+        `    Print("Momentum${conditionIndex} rejected: period must be an integer greater than or equal to 1");`,
+        '    return INIT_FAILED;',
+        '  }',
+      ];
+    }
+    return [];
   });
-  if (warningLines.length === 0) {
+  if (initGuardLines.length === 0) {
     return '';
   }
   return `
 int OnInit()
 {
-${warningLines.join('\n')}
+${initGuardLines.join('\n')}
   return INIT_SUCCEEDED;
 }
 `;
@@ -1089,6 +1199,9 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
         return [`int adx${conditionIndex}Handle = INVALID_HANDLE;`];
       case 'parabolicSar':
         return [`int sar${conditionIndex}Handle = INVALID_HANDLE;`];
+      case 'momentum':
+        // Momentum is calculated from iClose to preserve TypeScript operation order.
+        return [];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -1177,9 +1290,11 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
         ];
       case 'parabolicSar':
         return [
-          `  if(InpSAR${conditionIndex}Step < 0.02)`,
+          // SAR_MIN_STEP is pipeline policy and remains warning-only below it;
+          // this separate evaluator-domain guard returns INIT_FAILED.
+          `  if(InpSAR${conditionIndex}Step < ${SAR_MIN_STEP})`,
           '  {',
-          `    Print("SAR${conditionIndex} warning: step below 0.02 is outside the evaluator registration domain");`,
+          `    Print("SAR${conditionIndex} warning: step below ${SAR_MIN_STEP} is outside the evaluator registration domain");`,
           '  }',
           `  if(!MathIsValidNumber(InpSAR${conditionIndex}Step) || !MathIsValidNumber(InpSAR${conditionIndex}Maximum) || InpSAR${conditionIndex}Step <= 0.0 || InpSAR${conditionIndex}Maximum < InpSAR${conditionIndex}Step)`,
           '  {',
@@ -1189,6 +1304,16 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           `  sar${conditionIndex}Handle = iSAR(_Symbol, _Period, InpSAR${conditionIndex}Step, InpSAR${conditionIndex}Maximum);`,
           `  if(!EnsureIndicator(sar${conditionIndex}Handle, "SAR${conditionIndex}"))`,
           '  {',
+          '    return INIT_FAILED;',
+          '  }',
+        ];
+      case 'momentum':
+        return [
+          // The evaluator hard domain is period >= 1; input int makes
+          // non-integer values unrepresentable, so reject the remaining invalid range here.
+          `  if(InpMomentum${conditionIndex}Period < 1)`,
+          '  {',
+          `    Print("Momentum${conditionIndex} rejected: period must be an integer greater than or equal to 1");`,
           '    return INIT_FAILED;',
           '  }',
         ];
@@ -1226,6 +1351,8 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
         return [`  ReleaseIndicator(adx${conditionIndex}Handle);`];
       case 'parabolicSar':
         return [`  ReleaseIndicator(sar${conditionIndex}Handle);`];
+      case 'momentum':
+        return [];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -1640,7 +1767,7 @@ export const generateMql4 = (strategy: StrategyDefinition): string => {
 ${inputs}
 
 datetime lastBarTime = 0;
-${mql4ParabolicSarOnInit(strategy.entryConditions)}
+${mql4EntryConditionOnInit(strategy.entryConditions)}
 double PipPoint()
 {
   if(Digits == 3 || Digits == 5)

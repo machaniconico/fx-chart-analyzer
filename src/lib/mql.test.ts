@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateMql4, generateMql5 } from './mql';
-import { SAR_CONVERGENCE_WARMUP_BARS } from './indicators';
+import { SAR_CONVERGENCE_WARMUP_BARS, SAR_MIN_STEP } from './indicators';
 import type { EntryCondition, StrategyDefinition } from './strategy';
 
 const fullStrategy: StrategyDefinition = {
@@ -266,6 +266,7 @@ describe('mql generation', () => {
       { type: 'cciBreak', period: 14, level: 100 },
       { type: 'adxTrend', period: 14, threshold: 25 },
       { type: 'parabolicSar', step: 0.02, maximum: 0.2 },
+      { type: 'momentum', period: 14 },
     ];
     for (const condition of allConditions) {
       const source = generateMql4({
@@ -553,7 +554,10 @@ describe('mql generation', () => {
     expect(mql5).toContain('bool currentIsLong = SarDirectionIsLong1(currentSar, currentHigh, currentLow);');
     expect(mql5).toContain('return sar < high;');
     expect(mql5).toContain('static datetime cachedBarTime = 0;');
+    expect(mql5).toContain('static int cachedSignalShift = -1;');
     expect(mql5).toContain('cachedBarTime == currentBarTime');
+    expect(mql5).toContain('cachedBarTime == currentBarTime && cachedSignalShift == signalShift');
+    expect(mql5).toContain('cachedSignalShift = signalShift;');
     expect(mql5).toContain('for(int shift = totalBars - 1; shift >= signalShift + 1; shift--)');
     expect(mql5).toContain('if(reversalCount >= 2)');
     expect(mql5).toContain('sar > 0.0 && high > 0.0 && low > 0.0');
@@ -563,8 +567,8 @@ describe('mql generation', () => {
     );
     expect(mql5).toContain('MathIsValidNumber(InpSAR1Step)');
     expect(mql5).toContain('InpSAR1Maximum < InpSAR1Step');
-    expect(mql5).toContain('InpSAR1Step < 0.02');
-    expect(mql5).toContain('SAR1 warning: step below 0.02');
+    expect(mql5).toContain(`InpSAR1Step < ${SAR_MIN_STEP}`);
+    expect(mql5).toContain(`SAR1 warning: step below ${SAR_MIN_STEP}`);
     expect(mql5).toContain('ReleaseIndicator(sar1Handle);');
     expect(mql5).not.toContain('iSAR(NULL, 0');
 
@@ -577,7 +581,10 @@ describe('mql generation', () => {
     expect(mql4).toContain('bool currentIsLong = SarDirectionIsLong1(currentSar, currentHigh, currentLow);');
     expect(mql4).toContain('return sar < high;');
     expect(mql4).toContain('static datetime cachedBarTime = 0;');
+    expect(mql4).toContain('static int cachedSignalShift = -1;');
     expect(mql4).toContain('cachedBarTime == currentBarTime');
+    expect(mql4).toContain('cachedBarTime == currentBarTime && cachedSignalShift == signalShift');
+    expect(mql4).toContain('cachedSignalShift = signalShift;');
     expect(mql4).toContain('for(int shift = totalBars - 1; shift >= signalShift + 1; shift--)');
     expect(mql4).toContain('if(reversalCount >= 2)');
     expect(mql4).toContain('sar > 0.0 && high > 0.0 && low > 0.0');
@@ -588,14 +595,59 @@ describe('mql generation', () => {
     expect(mql4).toContain('MathIsValidNumber(step)');
     expect(mql4).toContain('maximum < step');
     expect(mql4).toContain('int OnInit()');
-    expect(mql4).toContain('InpSAR1Step < 0.02');
-    expect(mql4).toContain('SAR1 warning: step below 0.02');
+    expect(mql4).toContain(`InpSAR1Step < ${SAR_MIN_STEP}`);
+    expect(mql4).toContain(`SAR1 warning: step below ${SAR_MIN_STEP}`);
+    expect(mql4).toContain(
+      'if(!MathIsValidNumber(InpSAR1Step) || !MathIsValidNumber(InpSAR1Maximum) || InpSAR1Step <= 0.0 || InpSAR1Maximum < InpSAR1Step)',
+    );
+    expect(mql4).toContain('SAR1 rejected: step must be > 0 and maximum must be >= step');
+    expect(mql4).toContain('return INIT_FAILED;');
     expect(mql4).not.toContain('iSAR(NULL, 0');
 
     expectBalanced(mql5);
     expectBalanced(mql4);
+    // Snapshot changes are intentionally limited to the signalShift cache key
+    // in both outputs and the MQL4 hard-domain INIT_FAILED mirror.
     await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-parabolicSar.mq5'));
     await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-parabolicSar.mq4'));
+  });
+
+  it('generates iClose-computed Momentum 100 crosses with exact TS parity guards', async () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [{ type: 'momentum', period: 14 }],
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    for (const source of [mql5, mql4]) {
+      expect(source).toContain('input int InpMomentum1Period = 14;');
+      expect(source).toContain('double close = iClose(_Symbol, _Period, shift);');
+      expect(source).toContain('double previousClose = iClose(_Symbol, _Period, shift + period);');
+      expect(source).toContain('double value = (close / previousClose) * 100.0;');
+      expect(source).toContain('if(iTime(_Symbol, _Period, period + 1) == 0)');
+      expect(source).toContain('if(iTime(_Symbol, _Period, period + 2) == 0)');
+      expect(source).toContain('if(!(previous > 0.0 && current > 0.0))');
+      expect(source).toContain('return previous <= 100.0 && current > 100.0;');
+      expect(source).toContain('return previous >= 100.0 && current < 100.0;');
+      expect(source).toContain('native iMomentum buffer is intentionally not used');
+      expect(source).toContain('iClose can return 0.0');
+      expect(source).not.toContain('iMomentum(_Symbol');
+      expect(source).not.toContain('momentum1Handle');
+      expectBalanced(source);
+    }
+
+    expect(mql5).toContain('if(InpMomentum1Period < 1)');
+    expect(mql5).toContain('Momentum1 rejected: period must be an integer greater than or equal to 1');
+    expect(mql5).toContain('return INIT_FAILED;');
+    expect(mql4).toContain('int OnInit()');
+    expect(mql4).toContain('if(InpMomentum1Period < 1)');
+    expect(mql4).toContain('Momentum1 rejected: period must be an integer greater than or equal to 1');
+    expect(mql4).toContain('return INIT_FAILED;');
+
+    await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-momentum.mq5'));
+    await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-momentum.mq4'));
   });
 
   it('generates Ichimoku cross signals with shift parity and mirrored cloud rules for MQL4 and MQL5', () => {

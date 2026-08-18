@@ -11,12 +11,14 @@ import {
   fingerprintStrategyDefinition,
   FORWARD_HISTORY_SCHEMA_VERSION,
   FORWARD_RESULTS_SCHEMA_VERSION,
+  SAR_MIN_STEP as FORWARD_SAR_MIN_STEP,
   knownEntryConditionTypes,
   mergeForwardHistory,
   splitBarsByRegistration,
   TWO_YEARS_SECONDS,
 } from './run-forward-test.mjs';
 import { retiredStrategyLedgerKey, retireStrategy } from './retire-strategy.mjs';
+import { SAR_MIN_STEP as INDICATOR_SAR_MIN_STEP } from '../src/lib/indicators';
 
 const registeredAt = 1782996300;
 const UTC_DAY_SECONDS = 24 * 60 * 60;
@@ -136,6 +138,15 @@ const emptyBacktestResult = (bars) => ({
 });
 
 describe('forward test runner', () => {
+  it('keeps the plain-Node SAR step literal aligned with the indicator policy', () => {
+    // run-forward-test.mjs cannot import TypeScript in its plain-Node workflow;
+    // this guard prevents its validation floor from drifting from indicators.ts.
+    expect(FORWARD_SAR_MIN_STEP).toBe(INDICATOR_SAR_MIN_STEP);
+    // 方針ピン: 両者が同時に動いても意図的な変更としてここで一度止める
+    // (生成側と検証側が同一定数由来のため、絶対値の固定がここ以外に無い)。
+    expect(INDICATOR_SAR_MIN_STEP).toBe(0.02);
+  });
+
   it('exports a frozen entry condition type registry', () => {
     expect(Array.isArray(knownEntryConditionTypes)).toBe(true);
     expect(Object.isFrozen(knownEntryConditionTypes)).toBe(true);
@@ -152,6 +163,7 @@ describe('forward test runner', () => {
       'cciBreak',
       'adxTrend',
       'parabolicSar',
+      'momentum',
     ]);
   });
 
@@ -362,7 +374,7 @@ describe('forward test runner', () => {
             },
           ],
         },
-        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak, adxTrend, parabolicSar/,
+        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak, adxTrend, parabolicSar, momentum/,
       },
     ];
 
@@ -424,6 +436,7 @@ describe('forward test runner', () => {
     ['cciBreak', { type: 'cciBreak', period: 14, level: 100 }],
     ['adxTrend', { type: 'adxTrend', period: 14, threshold: 25 }],
     ['parabolicSar', { type: 'parabolicSar', step: 0.02, maximum: 0.2 }],
+    ['momentum', { type: 'momentum', period: 14 }],
   ])('accepts %s entry conditions in virtual strategies', (entryType, entryCondition) => {
     const candidate = JSON.parse(JSON.stringify(strategy));
     candidate.meta.id = `virtual-${entryType}-v1`;
@@ -518,6 +531,7 @@ describe('forward test runner', () => {
     ['cciBreak', { type: 'cciBreak', period: 14, level: 100 }],
     ['adxTrend', { type: 'adxTrend', period: 14, threshold: 25 }],
     ['parabolicSar', { type: 'parabolicSar', step: 0.02, maximum: 0.2 }],
+    ['momentum', { type: 'momentum', period: 14 }],
   ];
 
   it.each(validEntryConditionCases)('accepts every %s condition with valid parameters', (entryType, entryCondition) => {
@@ -693,6 +707,21 @@ describe('forward test runner', () => {
       'parabolicSar (non-finite maximum)',
       { type: 'parabolicSar', step: 0.02, maximum: Number.POSITIVE_INFINITY },
       /entryConditions\[0\]\.maximum must be a finite number greater than or equal to step and less than 1/,
+    ],
+    [
+      'momentum (registration floor)',
+      { type: 'momentum', period: 1 },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'momentum (registration ceiling)',
+      { type: 'momentum', period: 1001 },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'momentum (non-integer)',
+      { type: 'momentum', period: 14.5 },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
     ],
   ])('rejects invalid %s condition parameters before backtesting', (entryType, entryCondition, expected) => {
     const candidate = JSON.parse(JSON.stringify(strategy));
