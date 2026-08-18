@@ -160,6 +160,7 @@ describe('forward test runner', () => {
       'ichimokuCross',
       'donchianBreak',
       'stochastic',
+      'stochCross',
       'keltnerBreak',
       'cciBreak',
       'adxTrend',
@@ -378,7 +379,7 @@ describe('forward test runner', () => {
             },
           ],
         },
-        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, demarker, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak, adxTrend, parabolicSar, momentum, ao, rvi, envelope/,
+        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, demarker, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, stochCross, keltnerBreak, cciBreak, adxTrend, parabolicSar, momentum, ao, rvi, envelope/,
       },
     ];
 
@@ -428,6 +429,7 @@ describe('forward test runner', () => {
         comparison: 'crossAbove',
       },
     ],
+    ['stochCross', { type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 }],
     [
       'keltnerBreak',
       {
@@ -536,6 +538,7 @@ describe('forward test runner', () => {
         comparison: 'crossAbove',
       },
     ],
+    ['stochCross', { type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 }],
     ['keltnerBreak', { type: 'keltnerBreak', emaPeriod: 20, atrPeriod: 10, multiplier: 2 }],
     ['cciBreak', { type: 'cciBreak', period: 14, level: 100 }],
     ['adxTrend', { type: 'adxTrend', period: 14, threshold: 25 }],
@@ -597,6 +600,31 @@ describe('forward test runner', () => {
       'rsi',
       { type: 'rsi', period: 14, comparison: 'below' },
       /entryConditions\[0\]\.threshold must be a finite number greater than 0 and less than 100/,
+    ],
+    [
+      'stochCross (K registration floor)',
+      { type: 'stochCross', kPeriod: 1, dPeriod: 3, smoothing: 3 },
+      /entryConditions\[0\]\.kPeriod must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'stochCross (K registration ceiling)',
+      { type: 'stochCross', kPeriod: 1001, dPeriod: 3, smoothing: 3 },
+      /entryConditions\[0\]\.kPeriod must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'stochCross (D registration floor)',
+      { type: 'stochCross', kPeriod: 2, dPeriod: 1, smoothing: 3 },
+      /entryConditions\[0\]\.dPeriod must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'stochCross (D registration ceiling)',
+      { type: 'stochCross', kPeriod: 2, dPeriod: 1001, smoothing: 3 },
+      /entryConditions\[0\]\.dPeriod must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'stochCross (smoothing non-integer)',
+      { type: 'stochCross', kPeriod: 2, dPeriod: 2, smoothing: 1.5 },
+      /entryConditions\[0\]\.smoothing must be a positive integer/,
     ],
     [
       'demarker (threshold floor)',

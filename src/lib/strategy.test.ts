@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Bar } from '../types';
 import * as indicators from './indicators';
 import {
+  computeStochCrossSeries,
   conditionLabel,
   createStrategyEvaluator,
   type EntryCondition,
@@ -1208,6 +1209,287 @@ describe('strategy evaluator', () => {
     expect(shortEvaluator.isEntrySignal(shortStrategy, 2)).toBe(true);
   });
 
+  it('detects stochCross with all four equality boundaries and mirrored directions', () => {
+    const condition = { type: 'stochCross' as const, kPeriod: 2, dPeriod: 2, smoothing: 1 };
+    const makeBars = (
+      highs: readonly number[],
+      lows: readonly number[],
+      closes: readonly number[],
+    ): Bar[] => barsFrom(highs, lows, closes);
+
+    // With K=2, D=2, smoothing=1, these are hand-calculated exact values:
+    // flat previous windows give K=[50, 50, 100], D[2]=50, D[3]=75. This
+    // pins previous K===D and current K>D without relying on a 1-ULP coincidence.
+    const longPreviousEquality = makeBars(
+      [10, 10, 10, 20],
+      [10, 10, 10, 0],
+      [10, 10, 10, 20],
+    );
+    const longPreviousK = indicators.stochastic(
+      longPreviousEquality.map((item) => item.h),
+      longPreviousEquality.map((item) => item.l),
+      longPreviousEquality.map((item) => item.c),
+      2,
+      2,
+      1,
+    );
+    expect(longPreviousK.k[2]).toBe(50);
+    expect(longPreviousK.k[3]).toBe(100);
+    // StochCross's fresh D windows are (50 + 50) / 2 = 50 and
+    // (50 + 100) / 2 = 75. These are hand-calculated values, not a
+    // 1-ULP equality borrowed from the legacy sliding D series.
+    expect((longPreviousK.k[1]! + longPreviousK.k[2]!) / 2).toBe(50);
+    expect((longPreviousK.k[2]! + longPreviousK.k[3]!) / 2).toBe(75);
+    expect(
+      createStrategyEvaluator(longPreviousEquality).isEntrySignal(
+        strategyFor(condition),
+        3,
+      ),
+    ).toBe(true);
+
+    // The current window is flat, so K===D exactly. Previous K<D, but current
+    // equality must not satisfy the strict `>` boundary.
+    const longCurrentEquality = makeBars(
+      [20, 20, 10, 10],
+      [0, 0, 10, 10],
+      [0, 20, 10, 10],
+    );
+    expect(
+      createStrategyEvaluator(longCurrentEquality).isEntrySignal(strategyFor(condition), 3),
+    ).toBe(false);
+
+    // Previous K===D and current K<D: the short mirror accepts previous `>=`
+    // and current strict `<`.
+    const shortPreviousEquality = makeBars(
+      [10, 10, 10, 20],
+      [10, 10, 10, 0],
+      [10, 10, 10, 0],
+    );
+    expect(
+      createStrategyEvaluator(shortPreviousEquality).isEntrySignal(
+        strategyFor(condition, 'short'),
+        3,
+      ),
+    ).toBe(true);
+
+    // The current window is flat, so K===D exactly. Previous K>D, but current
+    // equality must not satisfy the strict `<` boundary.
+    const shortCurrentEquality = makeBars(
+      [20, 20, 10, 10],
+      [0, 0, 10, 10],
+      [20, 0, 10, 10],
+    );
+    expect(
+      createStrategyEvaluator(shortCurrentEquality).isEntrySignal(
+        strategyFor(condition, 'short'),
+        3,
+      ),
+    ).toBe(false);
+  });
+
+  it('builds StochCross %K and %D fresh without consuming stochastic() at all', () => {
+    const condition = { type: 'stochCross' as const, kPeriod: 2, dPeriod: 2, smoothing: 1 };
+    const bars = barsFrom([10, 10, 10, 10], [0, 0, 0, 0], [5, 5, 5, 10]);
+    // If the evaluator consumed either sliding series from stochastic(), this
+    // poisoned mock would corrupt the otherwise-valid fresh-window cross.
+    const stochasticSpy = vi.spyOn(indicators, 'stochastic').mockReturnValue({
+      k: [null, 0, 0, 0],
+      d: [null, 0, 0, 0],
+    });
+    try {
+      expect(createStrategyEvaluator(bars).isEntrySignal(strategyFor(condition), 3)).toBe(true);
+      expect(stochasticSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('pins the raw %K operation order bit-for-bit against an in-test oracle', () => {
+    // With smoothing=1 the fresh per-window SMA is exact (sum of one value,
+    // divided by 1), so computeStochCrossSeries().k equals raw %K bit for
+    // bit. The oracle below intentionally duplicates the canonical
+    // ((close - lowest) / range) * 100 expression: on drift-prone
+    // non-terminating-binary floats, rewriting the production side as
+    // ((close - lowest) * 100) / range is algebraically equal but
+    // floating-point different, which is exactly the 1-ULP phantom-cross
+    // defect class from the US-2201 reviews. (indicators.stochastic() cannot
+    // serve as the oracle: its sliding smaFromNullable drifts even at
+    // period 1 because it adds before subtracting.)
+    const kPeriod = 14;
+    const highs: number[] = [];
+    const lows: number[] = [];
+    const closes: number[] = [];
+    for (let i = 0; i < 200; i += 1) {
+      const mid = 0.66 + Math.sin(i) * 0.01;
+      const span = 0.005 + Math.cos(i * 1.7) ** 2 * 0.003;
+      highs.push(mid + span);
+      lows.push(mid - span);
+      closes.push(mid + Math.sin(i * 2.3) * span * 0.9);
+    }
+    const oracle: (number | null)[] = Array(closes.length).fill(null);
+    for (let i = kPeriod - 1; i < closes.length; i += 1) {
+      let highest = -Infinity;
+      let lowest = Infinity;
+      for (let offset = i - kPeriod + 1; offset <= i; offset += 1) {
+        highest = Math.max(highest, highs[offset]);
+        lowest = Math.min(lowest, lows[offset]);
+      }
+      const range = highest - lowest;
+      oracle[i] = range === 0 ? 50 : ((closes[i] - lowest) / range) * 100;
+    }
+    const fresh = computeStochCrossSeries(highs, lows, closes, kPeriod, 2, 1).k;
+    expect(fresh).toHaveLength(oracle.length);
+    for (let index = 0; index < fresh.length; index += 1) {
+      expect(Object.is(fresh[index], oracle[index])).toBe(true);
+    }
+  });
+
+  it('keeps exact %K === %D ties on flat windows built from drift-prone floats', () => {
+    // Regression fixture minimized from real GBPJPY data by the US-2201
+    // re-review: one moving bar followed by five identical float bars. The
+    // sliding smaFromNullable recurrence carries ~1e-13 residue into the flat
+    // region (k=49.999999999999986 while a fresh window gives exactly 50), so
+    // an implementation that consumes either sliding series fires a phantom
+    // cross here while the generated MQL (fresh per-window sums) stays quiet.
+    const flatFloat = 0.662467425714624;
+    const bars = [
+      bar(0, 0.6632641447645959, 0.6528053803111171, 0.6599011045281127),
+      bar(1, flatFloat, flatFloat, flatFloat),
+      bar(2, flatFloat, flatFloat, flatFloat),
+      bar(3, flatFloat, flatFloat, flatFloat),
+      bar(4, flatFloat, flatFloat, flatFloat),
+      bar(5, flatFloat, flatFloat, flatFloat),
+    ];
+    const condition = { type: 'stochCross' as const, kPeriod: 2, dPeriod: 3, smoothing: 1 };
+    const evaluator = createStrategyEvaluator(bars);
+    // Inside the flat region %K and %D are exact ties, so neither direction
+    // may fire on any bar of the tail.
+    for (const index of [3, 4, 5]) {
+      expect(evaluator.isEntrySignal(strategyFor(condition), index)).toBe(false);
+      expect(evaluator.isEntrySignal(strategyFor(condition, 'short'), index)).toBe(false);
+    }
+  });
+
+  it('keeps stochCross look-ahead-safe against K-side and D-side shocks', () => {
+    const condition = { type: 'stochCross' as const, kPeriod: 2, dPeriod: 2, smoothing: 1 };
+    const bars = barsFrom([10, 10, 10, 10], [0, 0, 0, 0], [5, 5, 5, 10]);
+    const futureDownShock = bar(4, 20, 0, 0);
+    const futureUpShock = bar(4, 20, 0, 20);
+
+    expect(createStrategyEvaluator(bars).isEntrySignal(strategyFor(condition), 3)).toBe(true);
+    // A downward future shock changes the future %K side. If %K at the signal
+    // bar accidentally reads index+1, it reverses the long cross to false.
+    expect(
+      createStrategyEvaluator([...bars, futureDownShock]).isEntrySignal(
+        strategyFor(condition),
+        3,
+      ),
+    ).toBe(true);
+    // An upward future shock changes the future %D side. The denominator high
+    // and low are intentionally different from the existing bars, so a
+    // look-ahead in the range cannot hide behind a constant high-low window.
+    expect(
+      createStrategyEvaluator([...bars, futureUpShock]).isEntrySignal(
+        strategyFor(condition),
+        3,
+      ),
+    ).toBe(true);
+  });
+
+  it('keeps the previous %D window independent from the current %D window', () => {
+    const condition = { type: 'stochCross' as const, kPeriod: 2, dPeriod: 3, smoothing: 1 };
+    const bars = barsFrom(
+      [10, 10, 10, 10, 10],
+      [0, 0, 0, 0, 0],
+      [10, 10, 0, 5, 7],
+    );
+    const values = indicators.stochastic(
+      bars.map((item) => item.h),
+      bars.map((item) => item.l),
+      bars.map((item) => item.c),
+      condition.kPeriod,
+      condition.dPeriod,
+      condition.smoothing,
+    );
+    expect(values.k.slice(1)).toEqual([100, 0, 50, 70]);
+    // At index 4, previous K/D are 50/50 and current K/D are 70/40.
+    // A look-ahead mutation from values.d[index - 1] to values.d[index]
+    // would compare 50 <= 40 and make this otherwise-valid long cross false.
+    expect((values.k[1]! + values.k[2]! + values.k[3]!) / 3).toBe(50);
+    expect((values.k[2]! + values.k[3]! + values.k[4]!) / 3).toBe(40);
+    expect(createStrategyEvaluator(bars).isEntrySignal(strategyFor(condition), 4)).toBe(true);
+  });
+
+  it('fails closed for stochCross warm-up, flat windows, and invalid domains', () => {
+    const condition = { type: 'stochCross' as const, kPeriod: 2, dPeriod: 2, smoothing: 1 };
+    const warmupBars = barsFrom([10, 10], [0, 0], [5, 9]);
+    // At index 1, %K is 90 while both previous %K/%D and current %D are null.
+    // If the four-value finite guard is removed, JavaScript's relational
+    // coercion makes null <= null and 90 > null true; the real evaluator must
+    // fail closed before evaluating either cross edge.
+    expect(createStrategyEvaluator(warmupBars).isEntrySignal(strategyFor(condition), 1)).toBe(
+      false,
+    );
+
+    const flatBars = barsFrom([10, 10, 10, 10], [10, 10, 10, 10], [10, 10, 10, 10]);
+    const flatValues = indicators.stochastic(
+      flatBars.map((item) => item.h),
+      flatBars.map((item) => item.l),
+      flatBars.map((item) => item.c),
+      2,
+      2,
+      1,
+    );
+    expect(flatValues.k[2]).toBe(50);
+    expect(flatValues.d[2]).toBe(50);
+    expect(createStrategyEvaluator(flatBars).isEntrySignal(strategyFor(condition), 3)).toBe(
+      false,
+    );
+
+    const signalBars = barsFrom([10, 10, 10, 10], [0, 0, 0, 0], [5, 5, 5, 10]);
+    const evaluator = createStrategyEvaluator(signalBars);
+    // Each invalid assertion is mutation-sensitive: removing the smoothing
+    // guard or the K-period guard would normalize the value and make this
+    // otherwise-valid long cross true. dPeriod=1 is separately rejected as a
+    // %D===%K degeneracy even though that exact degeneration cannot cross.
+    expect(
+      evaluator.isEntrySignal(
+        strategyFor({ ...condition, smoothing: 0 }),
+        3,
+      ),
+    ).toBe(false);
+    expect(
+      evaluator.isEntrySignal(
+        strategyFor({ ...condition, kPeriod: 1 }),
+        3,
+      ),
+    ).toBe(false);
+    for (const invalidCondition of [
+      { ...condition, kPeriod: 1001 },
+      { ...condition, dPeriod: 1 },
+      { ...condition, dPeriod: 1001 },
+      { ...condition, smoothing: 1.5 },
+      { ...condition, smoothing: Number.NaN },
+    ]) {
+      expect(evaluator.isEntrySignal(strategyFor(invalidCondition), 3)).toBe(false);
+    }
+  });
+
+  it('separates stochCross memoization keys by dPeriod', () => {
+    const firstCondition = { type: 'stochCross' as const, kPeriod: 2, dPeriod: 2, smoothing: 1 };
+    const differentDPeriod = { ...firstCondition, dPeriod: 3 };
+    const bars = barsFrom([10, 10, 10, 10], [0, 0, 0, 0], [5, 5, 5, 10]);
+    const evaluator = createStrategyEvaluator(bars);
+
+    // Evaluate dPeriod=2 first so its series lands in the cache. dPeriod=2
+    // fires the long cross at index 3, while dPeriod=3 must fail closed there
+    // (its previous %D needs %K at index 0, which is still null). If the
+    // memoization key ignored dPeriod, the second call would reuse the
+    // dPeriod=2 series and flip this assertion to true.
+    expect(evaluator.isEntrySignal(strategyFor(firstCondition), 3)).toBe(true);
+    expect(evaluator.isEntrySignal(strategyFor(differentDPeriod), 3)).toBe(false);
+  });
+
   it('requires an Ichimoku cross and the displaced cloud filter for long entries', () => {
     const bars = [
       bar(0, 11, 9, 10),
@@ -1373,6 +1655,9 @@ describe('strategy evaluator', () => {
         comparison: 'crossAbove',
       }),
     ).toBe('Stoch14/3/3 crossAbove 20');
+    expect(
+      conditionLabel({ type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 }),
+    ).toBe('Stoch14/3/3 %K/%D クロス');
     expect(conditionLabel({ type: 'cciBreak', period: 14, level: 100 })).toBe(
       'CCI14 ±100 ブレイク',
     );

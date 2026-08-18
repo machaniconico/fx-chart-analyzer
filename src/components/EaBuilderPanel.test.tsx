@@ -397,6 +397,71 @@ const validationCases: Array<{
     message: 'ストキャスティクスの期間は1以上の整数にしてください。',
   },
   {
+    type: 'stochCross',
+    valid: {
+      type: 'stochCross',
+      kPeriod: 2,
+      dPeriod: 1000,
+      smoothing: 1,
+    },
+    invalid: [
+      ...(['kPeriod', 'dPeriod'] as const).flatMap((field) => [
+        {
+          label: `${field} below minimum`,
+          condition: alter(
+            { type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 },
+            { [field]: 1 },
+          ),
+        },
+        {
+          label: `${field} above maximum`,
+          condition: alter(
+            { type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 },
+            { [field]: 1001 },
+          ),
+        },
+        {
+          label: `${field} non-integer`,
+          condition: alter(
+            { type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 },
+            { [field]: 1.5 },
+          ),
+        },
+        {
+          label: `${field} non-finite`,
+          condition: alter(
+            { type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 },
+            { [field]: Number.POSITIVE_INFINITY },
+          ),
+        },
+      ]),
+      ...(['smoothing'] as const).flatMap((field) => [
+        {
+          label: `${field} below legacy minimum`,
+          condition: alter(
+            { type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 },
+            { [field]: 0 },
+          ),
+        },
+        {
+          label: `${field} non-integer`,
+          condition: alter(
+            { type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 },
+            { [field]: 1.5 },
+          ),
+        },
+        {
+          label: `${field} non-finite`,
+          condition: alter(
+            { type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 },
+            { [field]: Number.POSITIVE_INFINITY },
+          ),
+        },
+      ]),
+    ],
+    message: 'ストキャス%K/%DクロスのK期間とD期間は2以上1000以下の整数、平滑化は1以上の整数にしてください。',
+  },
+  {
     type: 'keltnerBreak',
     valid: { type: 'keltnerBreak', emaPeriod: 1, atrPeriod: 1, multiplier: 0.1 },
     invalid: [
@@ -561,6 +626,18 @@ it('covers every registered entry condition type exactly once and in registry or
 
 it.each(validationCases)('$type accepts its valid boundary values', ({ valid }) => {
   expect(strategyValidationMessages(baseStrategy(valid))).toEqual([]);
+});
+
+it.each([
+  [2, 2, 1],
+  [1000, 1000, 1000],
+  [2, 1000, 1],
+])('accepts stochCross boundary mix K=%i D=%i smoothing=%i', (kPeriod, dPeriod, smoothing) => {
+  expect(
+    strategyValidationMessages(
+      baseStrategy({ type: 'stochCross', kPeriod, dPeriod, smoothing }),
+    ),
+  ).toEqual([]);
 });
 
 it('accepts both Envelope period registration boundaries with a positive finite deviation', () => {

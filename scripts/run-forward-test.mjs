@@ -28,6 +28,7 @@ export const knownEntryConditionTypes = Object.freeze([
   'ichimokuCross',
   'donchianBreak',
   'stochastic',
+  'stochCross',
   'keltnerBreak',
   'cciBreak',
   'adxTrend',
@@ -245,6 +246,23 @@ const assertEntryCondition = (condition, context, index) => {
       assertPositiveIntegerField(conditionContext, condition, 'smoothing');
       assertThresholdField(conditionContext, condition, 'threshold', 100);
       assertConditionEnum(conditionContext, condition, 'comparison', rsiComparisons);
+      break;
+    case 'stochCross':
+      // %D is meaningful here for the first time. Reject K/D=1 because
+      // dPeriod=1 makes %D identical to %K and a cross is impossible.
+      // The legacy stochastic condition above intentionally keeps its dPeriod
+      // >= 1 contract; this is a type-specific domain difference.
+      for (const field of ['kPeriod', 'dPeriod']) {
+        assertConditionField(
+          conditionContext,
+          condition,
+          field,
+          (value) => positiveInteger(value) && value >= 2 && value <= 1000,
+          'must be a positive integer greater than or equal to 2 and less than or equal to 1000',
+        );
+      }
+      // smoothing shares the existing stochastic type's positive-integer domain.
+      assertPositiveIntegerField(conditionContext, condition, 'smoothing');
       break;
     case 'keltnerBreak':
       assertPositiveIntegerField(conditionContext, condition, 'emaPeriod');

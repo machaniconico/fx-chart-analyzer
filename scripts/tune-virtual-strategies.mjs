@@ -364,6 +364,22 @@ export const ENTRY_TYPE_PROFILES = Object.freeze({
     }),
     trailingStopPips: Object.freeze([null, 25]),
   }),
+  stochCross: Object.freeze({
+    label: 'ストキャス%K/%Dクロス順張り',
+    timeframes: Object.freeze(['m30', 'h1']),
+    entryCondition: Object.freeze({
+      type: 'stochCross',
+      kPeriod: 14,
+      dPeriod: 3,
+      smoothing: 3,
+    }),
+    exit: Object.freeze({ stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true }),
+    parameterRanges: Object.freeze({
+      stopLossPips: Object.freeze(rangeWithSteps(20, 110, 7)),
+      takeProfitPips: Object.freeze(rangeWithSteps(40, 220, 10)),
+    }),
+    trailingStopPips: Object.freeze([null, 25]),
+  }),
 });
 
 export const TUNING_ENTRY_TYPES = Object.freeze(Object.keys(ENTRY_TYPE_PROFILES));

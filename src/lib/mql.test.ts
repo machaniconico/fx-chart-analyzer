@@ -262,6 +262,7 @@ describe('mql generation', () => {
       },
       { type: 'donchianBreak', period: 20 },
       { type: 'stochastic', kPeriod: 14, dPeriod: 3, smoothing: 3, threshold: 20, comparison: 'crossBelow' },
+      { type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 },
       { type: 'keltnerBreak', emaPeriod: 20, atrPeriod: 10, multiplier: 2 },
       { type: 'cciBreak', period: 14, level: 100 },
       { type: 'adxTrend', period: 14, threshold: 25 },
@@ -402,6 +403,60 @@ describe('mql generation', () => {
       );
       expectBalanced(source);
     }
+  });
+
+  it('generates self-calculated stochCross %K/%D crosses with exact SMA order and guards', async () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [{ type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 }],
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    for (const source of [mql5, mql4]) {
+      expect(source).toContain('input int InpStoch1KPeriod = 14;');
+      expect(source).toContain('input int InpStoch1DPeriod = 3;');
+      expect(source).toContain('input int InpStoch1Smoothing = 3;');
+      expect(source).not.toContain('InpStoch1Threshold');
+      expect(source).toContain('double StochCrossRawK1(int shift)');
+      expect(source).toContain('double StochCrossK1(int shift)');
+      expect(source).toContain('double StochCrossD1(int shift)');
+      expect(source).toContain('if(range == 0.0)');
+      expect(source).toContain('return 50.0;');
+      // Both smoothed series must sum oldest-to-newest (largest shift first)
+      // to match the TypeScript freshWindowSmaFromNullable operation order.
+      expect(source).toContain('for(int offset = smoothing - 1; offset >= 0; offset--)');
+      expect(source).toContain('for(int offset = dPeriod - 1; offset >= 0; offset--)');
+      expect(source).not.toContain('for(int offset = 0; offset < smoothing; offset++)');
+      expect(source).not.toContain('for(int offset = 0; offset < dPeriod; offset++)');
+      expect(source).toContain('double previousK = StochCrossK1(signalShift + 1);');
+      expect(source).toContain('double previousD = StochCrossD1(signalShift + 1);');
+      expect(source).toContain('double currentK = StochCrossK1(signalShift);');
+      expect(source).toContain('double currentD = StochCrossD1(signalShift);');
+      expect(source).toContain('int currentKRequiredShift = signalShift + kPeriod + smoothing - 2;');
+      expect(source).toContain('int previousDRequiredShift = signalShift + 1 + kPeriod + smoothing + dPeriod - 3;');
+      expect(source).toContain('requires history through');
+      expect(source).toContain('return previousK <= previousD && currentK > currentD;');
+      expect(source).toContain('return previousK >= previousD && currentK < currentD;');
+      expect(source).not.toContain('iStochastic(');
+      expectBalanced(source);
+    }
+
+    expect(mql5).toContain(
+      'if(InpStoch1KPeriod < 2 || InpStoch1KPeriod > 1000 || InpStoch1DPeriod < 2 || InpStoch1DPeriod > 1000 || InpStoch1Smoothing < 1)',
+    );
+    expect(mql5).toContain('StochCross1 rejected: K and D periods must be integers between 2 and 1000');
+    expect(mql5).toContain('return INIT_FAILED;');
+    expect(mql4).toContain('int OnInit()');
+    expect(mql4).toContain(
+      'if(InpStoch1KPeriod < 2 || InpStoch1KPeriod > 1000 || InpStoch1DPeriod < 2 || InpStoch1DPeriod > 1000 || InpStoch1Smoothing < 1)',
+    );
+    expect(mql4).toContain('StochCross1 rejected: K and D periods must be integers between 2 and 1000');
+    expect(mql4).toContain('return INIT_FAILED;');
+
+    await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-stochCross.mq4'));
+    await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-stochCross.mq5'));
   });
 
   it('generates shift-1 Keltner breakout signals with platform indicator guards', async () => {

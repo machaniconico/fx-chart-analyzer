@@ -39,6 +39,7 @@ import {
   type RviCondition,
   type RsiComparison,
   type RsiCondition,
+  type StochCrossCondition,
   type StochasticCondition,
   type StrategyDefinition,
 } from '../lib/strategy';
@@ -183,6 +184,13 @@ const defaultStochasticCondition = (): StochasticCondition => ({
   smoothing: 3,
   threshold: 20,
   comparison: 'below',
+});
+
+const defaultStochCrossCondition = (): StochCrossCondition => ({
+  type: 'stochCross',
+  kPeriod: 14,
+  dPeriod: 3,
+  smoothing: 3,
 });
 
 type ConditionType = EntryCondition['type'];
@@ -412,6 +420,21 @@ export const strategyValidationMessages = (strategy: StrategyDefinition): string
     ) {
       messages.push('ストキャスティクスの期間は1以上の整数にしてください。');
     }
+    if (
+      condition.type === 'stochCross' &&
+      (!Number.isInteger(condition.kPeriod) ||
+        condition.kPeriod < 2 ||
+        condition.kPeriod > 1000 ||
+        !Number.isInteger(condition.dPeriod) ||
+        condition.dPeriod < 2 ||
+        condition.dPeriod > 1000 ||
+        !Number.isInteger(condition.smoothing) ||
+        condition.smoothing < 1)
+    ) {
+      // K/D has a stricter 2..1000 domain than the legacy stochastic type;
+      // smoothing intentionally shares that type's 1+ domain.
+      messages.push('ストキャス%K/%DクロスのK期間とD期間は2以上1000以下の整数、平滑化は1以上の整数にしてください。');
+    }
   }
   if (
     strategy.sessionFilter.enabled &&
@@ -603,6 +626,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const ichimokuCondition = getCondition('ichimokuCross');
   const donchianCondition = getCondition('donchianBreak');
   const stochasticCondition = getCondition('stochastic');
+  const stochCrossCondition = getCondition('stochCross');
   const keltnerCondition = getCondition('keltnerBreak');
   const cciCondition = getCondition('cciBreak');
   const adxCondition = getCondition('adxTrend');
@@ -960,6 +984,68 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                       }))
                     }
                   />
+                </label>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('stochCross')}
+                onChange={(event) =>
+                  toggleCondition('stochCross', event.target.checked, defaultStochCrossCondition)
+                }
+              />
+              <span>ストキャス%K/%Dクロス</span>
+            </label>
+            {stochCrossCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>K期間</span>
+                  <input
+                    min="2"
+                    max="1000"
+                    type="number"
+                    value={stochCrossCondition.kPeriod}
+                    onChange={(event) =>
+                      updateCondition('stochCross', defaultStochCrossCondition, (condition) => ({
+                        ...condition,
+                        kPeriod: integerInput(event.target.value, condition.kPeriod, 14, 2, 1000),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>D期間</span>
+                  <input
+                    min="2"
+                    max="1000"
+                    type="number"
+                    value={stochCrossCondition.dPeriod}
+                    onChange={(event) =>
+                      updateCondition('stochCross', defaultStochCrossCondition, (condition) => ({
+                        ...condition,
+                        dPeriod: integerInput(event.target.value, condition.dPeriod, 3, 2, 1000),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>平滑化</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={stochCrossCondition.smoothing}
+                    onChange={(event) =>
+                      updateCondition('stochCross', defaultStochCrossCondition, (condition) => ({
+                        ...condition,
+                        smoothing: integerInput(event.target.value, condition.smoothing, 3, 1),
+                      }))
+                    }
+                  />
+                  <small className="control-hint">%Kと%Dのクロスで判定します</small>
                 </label>
               </div>
             )}

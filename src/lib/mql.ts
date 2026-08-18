@@ -22,6 +22,7 @@ import type {
   RviCondition,
   RsiComparison,
   RsiCondition,
+  StochCrossCondition,
   StochasticCondition,
   StrategyDefinition,
 } from './strategy';
@@ -174,6 +175,12 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input int InpStoch${index}Smoothing = ${integerLiteral(condition.smoothing)};`,
         `input double InpStoch${index}Threshold = ${numberLiteral(condition.threshold)};`,
       ];
+    case 'stochCross':
+      return [
+        `input int InpStoch${index}KPeriod = ${integerLiteral(condition.kPeriod)};`,
+        `input int InpStoch${index}DPeriod = ${integerLiteral(condition.dPeriod)};`,
+        `input int InpStoch${index}Smoothing = ${integerLiteral(condition.smoothing)};`,
+      ];
   }
 };
 
@@ -199,6 +206,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mql5DonchianCondition(condition, index);
     case 'stochastic':
       return mqlStochasticCondition(condition, index);
+    case 'stochCross':
+      return mqlStochCrossCondition(condition, index);
     case 'keltnerBreak':
       return mql5KeltnerCondition(condition, index);
     case 'cciBreak':
@@ -238,6 +247,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mql4DonchianCondition(condition, index);
     case 'stochastic':
       return mqlStochasticCondition(condition, index);
+    case 'stochCross':
+      return mqlStochCrossCondition(condition, index);
     case 'keltnerBreak':
       return mql4KeltnerCondition(condition, index);
     case 'cciBreak':
@@ -1537,6 +1548,17 @@ const mql4EntryConditionOnInit = (conditions: readonly EntryCondition[]): string
         '  }',
       ];
     }
+    if (condition.type === 'stochCross') {
+      return [
+        // K/D use the registration domain 2..1000; smoothing deliberately
+        // follows the legacy stochastic positive-integer domain.
+        `  if(InpStoch${conditionIndex}KPeriod < 2 || InpStoch${conditionIndex}KPeriod > 1000 || InpStoch${conditionIndex}DPeriod < 2 || InpStoch${conditionIndex}DPeriod > 1000 || InpStoch${conditionIndex}Smoothing < 1)`,
+        '  {',
+        `    Print("StochCross${conditionIndex} rejected: K and D periods must be integers between 2 and 1000 and smoothing must be an integer greater than or equal to 1");`,
+        '    return INIT_FAILED;',
+        '  }',
+      ];
+    }
     return [];
   });
   if (initGuardLines.length === 0) {
@@ -1625,6 +1647,168 @@ bool Condition${index}(bool longSide)
 }
 `;
 };
+
+const mqlStochCrossCondition = (_condition: StochCrossCondition, index: number): string => `
+// StochCross parity: calculate the same raw %K, smoothed %K, and fresh-window
+// %D sequence as the TypeScript evaluator without using the terminal
+// stochastic buffer. The TypeScript side recomputes all three series with
+// fresh per-window oldest-to-newest sums (it does not consume the sliding
+// stochastic() recurrence), so StochCrossK and StochCrossD below both sum
+// oldest-to-newest to stay operation-order identical. Flat windows produce
+// an exact %K=50 tie on both sides, so the cross equality edges never fire
+// there.
+double StochCrossRawK${index}(int shift)
+{
+  int kPeriod = InpStoch${index}KPeriod;
+  if(kPeriod < 2 || kPeriod > 1000)
+  {
+    return EMPTY_VALUE;
+  }
+  if(iTime(_Symbol, _Period, shift + kPeriod - 1) == 0)
+  {
+    return EMPTY_VALUE;
+  }
+  int highestShift = iHighest(_Symbol, _Period, MODE_HIGH, kPeriod, shift);
+  int lowestShift = iLowest(_Symbol, _Period, MODE_LOW, kPeriod, shift);
+  if(highestShift < 0 || lowestShift < 0)
+  {
+    return EMPTY_VALUE;
+  }
+  double highest = iHigh(_Symbol, _Period, highestShift);
+  double lowest = iLow(_Symbol, _Period, lowestShift);
+  double closeAtShift = iClose(_Symbol, _Period, shift);
+  if(!ValueReady(highest) || !MathIsValidNumber(highest) ||
+    !ValueReady(lowest) || !MathIsValidNumber(lowest) ||
+    !ValueReady(closeAtShift) || !MathIsValidNumber(closeAtShift))
+  {
+    return EMPTY_VALUE;
+  }
+  double range = highest - lowest;
+  if(!MathIsValidNumber(range))
+  {
+    return EMPTY_VALUE;
+  }
+  if(range == 0.0)
+  {
+    return 50.0;
+  }
+  double value = (closeAtShift - lowest) / range * 100.0;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+double StochCrossK${index}(int shift)
+{
+  int smoothing = InpStoch${index}Smoothing;
+  if(smoothing < 1)
+  {
+    return EMPTY_VALUE;
+  }
+  double sum = 0.0;
+  // Sum oldest-to-newest (largest shift first) to match the TypeScript
+  // freshWindowSmaFromNullable operation order exactly.
+  for(int offset = smoothing - 1; offset >= 0; offset--)
+  {
+    double raw = StochCrossRawK${index}(shift + offset);
+    if(!ValueReady(raw) || !MathIsValidNumber(raw))
+    {
+      return EMPTY_VALUE;
+    }
+    sum += raw;
+  }
+  if(!MathIsValidNumber(sum))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = sum / smoothing;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+double StochCrossD${index}(int shift)
+{
+  int dPeriod = InpStoch${index}DPeriod;
+  if(dPeriod < 2 || dPeriod > 1000)
+  {
+    return EMPTY_VALUE;
+  }
+  double sum = 0.0;
+  // %D is a fresh SMA of the already-smoothed %K sequence. Visit its window
+  // oldest-to-newest so the sum/division order matches the dedicated
+  // TypeScript fresh-window implementation exactly.
+  for(int offset = dPeriod - 1; offset >= 0; offset--)
+  {
+    double k = StochCrossK${index}(shift + offset);
+    if(!ValueReady(k) || !MathIsValidNumber(k))
+    {
+      return EMPTY_VALUE;
+    }
+    sum += k;
+  }
+  if(!MathIsValidNumber(sum))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = sum / dPeriod;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+bool Condition${index}(bool longSide)
+{
+  int kPeriod = InpStoch${index}KPeriod;
+  int dPeriod = InpStoch${index}DPeriod;
+  int smoothing = InpStoch${index}Smoothing;
+  int signalShift = 1;
+  if(kPeriod < 2 || kPeriod > 1000 || dPeriod < 2 || dPeriod > 1000 || smoothing < 1)
+  {
+    return false;
+  }
+  // The current %K requires history through signalShift + kPeriod + smoothing - 2.
+  // Its %D then requires dPeriod %K values, through signalShift + kPeriod +
+  // smoothing + dPeriod - 3. The previous %D is one bar older and therefore
+  // requires history through the same expression plus one (dPeriod+1 %K values).
+  int currentKRequiredShift = signalShift + kPeriod + smoothing - 2;
+  int previousKRequiredShift = signalShift + 1 + kPeriod + smoothing - 2;
+  int currentDRequiredShift = signalShift + kPeriod + smoothing + dPeriod - 3;
+  int previousDRequiredShift = signalShift + 1 + kPeriod + smoothing + dPeriod - 3;
+  if(iTime(_Symbol, _Period, currentKRequiredShift) == 0 ||
+    iTime(_Symbol, _Period, currentDRequiredShift) == 0)
+  {
+    return false;
+  }
+  if(iTime(_Symbol, _Period, previousKRequiredShift) == 0 ||
+    iTime(_Symbol, _Period, previousDRequiredShift) == 0)
+  {
+    return false;
+  }
+  double previousK = StochCrossK${index}(signalShift + 1);
+  double previousD = StochCrossD${index}(signalShift + 1);
+  double currentK = StochCrossK${index}(signalShift);
+  double currentD = StochCrossD${index}(signalShift);
+  if(!ValueReady(previousK) || !MathIsValidNumber(previousK) ||
+    !ValueReady(previousD) || !MathIsValidNumber(previousD) ||
+    !ValueReady(currentK) || !MathIsValidNumber(currentK) ||
+    !ValueReady(currentD) || !MathIsValidNumber(currentD))
+  {
+    return false;
+  }
+  if(longSide)
+  {
+    return previousK <= previousD && currentK > currentD;
+  }
+  return previousK >= previousD && currentK < currentD;
+}
+`;
 
 const mql5MacdCondition = (_condition: MacdCrossCondition, index: number): string => `
 bool Condition${index}(bool longSide)
@@ -1889,7 +2073,10 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
         // DeMarker is calculated from iHigh/iLow to preserve TypeScript operation order.
         return [];
       case 'donchianBreak':
+        return [];
       case 'stochastic':
+        return [];
+      case 'stochCross':
         return [];
     }
   });
@@ -2040,8 +2227,19 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '  }',
         ];
       case 'donchianBreak':
+        return [];
       case 'stochastic':
         return [];
+      case 'stochCross':
+        return [
+          // The evaluator and registration policy share K/D=2..1000;
+          // smoothing keeps the legacy stochastic domain (positive integer).
+          `  if(InpStoch${conditionIndex}KPeriod < 2 || InpStoch${conditionIndex}KPeriod > 1000 || InpStoch${conditionIndex}DPeriod < 2 || InpStoch${conditionIndex}DPeriod > 1000 || InpStoch${conditionIndex}Smoothing < 1)`,
+          '  {',
+          `    Print("StochCross${conditionIndex} rejected: K and D periods must be integers between 2 and 1000 and smoothing must be an integer greater than or equal to 1");`,
+          '    return INIT_FAILED;',
+          '  }',
+        ];
     }
   });
 
@@ -2084,7 +2282,10 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
       case 'demarker':
         return [];
       case 'donchianBreak':
+        return [];
       case 'stochastic':
+        return [];
+      case 'stochCross':
         return [];
     }
   });
