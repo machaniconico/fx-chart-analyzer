@@ -1,3 +1,4 @@
+import { SAR_CONVERGENCE_WARMUP_BARS } from './indicators';
 import type {
   BollingerBandSide,
   BollingerCondition,
@@ -13,6 +14,7 @@ import type {
   MoneyManagementSettings,
   MacdCrossCondition,
   MovingAverageType,
+  ParabolicSarCondition,
   RsiComparison,
   RsiCondition,
   StochasticCondition,
@@ -136,6 +138,11 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input int InpADX${index}Period = ${integerLiteral(condition.period)};`,
         `input double InpADX${index}Threshold = ${numberLiteral(condition.threshold)};`,
       ];
+    case 'parabolicSar':
+      return [
+        `input double InpSAR${index}Step = ${numberLiteral(condition.step)};`,
+        `input double InpSAR${index}Maximum = ${numberLiteral(condition.maximum)};`,
+      ];
     case 'stochastic':
       return [
         `input int InpStoch${index}KPeriod = ${integerLiteral(condition.kPeriod)};`,
@@ -170,6 +177,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mql5CciCondition(condition, index);
     case 'adxTrend':
       return mql5AdxCondition(condition, index);
+    case 'parabolicSar':
+      return mql5ParabolicSarCondition(condition, index);
   }
 };
 
@@ -197,6 +206,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mql4CciCondition(condition, index);
     case 'adxTrend':
       return mql4AdxCondition(condition, index);
+    case 'parabolicSar':
+      return mql4ParabolicSarCondition(condition, index);
   }
 };
 
@@ -558,6 +569,204 @@ const mql4AdxCondition = (_condition: AdxTrendCondition, index: number): string 
     main: (shift) => `iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_MAIN, ${shift})`,
   });
 
+const parabolicSarParityComment = `
+// Parabolic SAR parity: the TypeScript evaluator starts SHORT and flips to LONG
+// when the SAR is strictly below the current high; it flips to SHORT when the
+// SAR is strictly above the current low. Native iSAR places the flip value on
+// the current low/high, so both platforms reconstruct the post-flip direction
+// with the same strict rule: LONG iff SAR < high, otherwise SHORT. Entry flips
+// are then the same two-point comparison of previous and current direction.
+// The TypeScript evaluator exposes SAR only after two reversals and 100 bars
+// from the first reversal. Native iSAR is seeded from full history, so the
+// generated scan below applies the equivalent reversal-count/bar-distance gate.
+`;
+
+type ParabolicSarIndicatorExpressions = {
+  value: (shift: string) => string;
+  warmupPrelude: string;
+};
+
+const mqlParabolicSarCondition = (
+  index: number,
+  expressions: ParabolicSarIndicatorExpressions,
+): string => `
+${parabolicSarParityComment}
+bool SarDirectionIsLong${index}(double sar, double high, double low)
+{
+  // MT SAR's invariant is that a long-state SAR is at or below the candle's
+  // low, while a short-state SAR is at or above its high. Therefore the
+  // evaluator's direction is reconstructed by one strict comparison: LONG
+  // iff SAR < high; equality is the short-side boundary.
+  return sar < high;
+}
+
+bool SarWarmupReady${index}(int signalShift)
+{
+${expressions.warmupPrelude}
+  static datetime cachedBarTime = 0;
+  static bool cachedResult = false;
+  datetime currentBarTime = iTime(_Symbol, _Period, 0);
+  if(currentBarTime == 0)
+  {
+    return false;
+  }
+  if(cachedBarTime == currentBarTime)
+  {
+    return cachedResult;
+  }
+  cachedBarTime = currentBarTime;
+  // Cache failures as well: the same chart bar must not rescan full history.
+  cachedResult = false;
+  int totalBars = Bars(_Symbol, _Period);
+  if(totalBars <= signalShift + 1)
+  {
+    return false;
+  }
+  int firstReversalShift = -1;
+  int reversalCount = 0;
+  bool previousIsLong = false;
+  bool hasPrevious = false;
+  for(int shift = totalBars - 1; shift >= signalShift + 1; shift--)
+  {
+    if(iTime(_Symbol, _Period, shift) == 0)
+    {
+      return false;
+    }
+    double sar = ${expressions.value('shift')};
+    double high = iHigh(_Symbol, _Period, shift);
+    double low = iLow(_Symbol, _Period, shift);
+    if(!ValueReady(sar) || !MathIsValidNumber(sar) || !ValueReady(high) || !MathIsValidNumber(high) ||
+      !ValueReady(low) || !MathIsValidNumber(low))
+    {
+      return false;
+    }
+    // MT4 iSAR/iHigh return 0.0 for missing history. FX prices and SAR are
+    // strictly positive, so exact zero is unambiguously unavailable data and
+    // must not be allowed to turn into a false LONG direction.
+    if(!(sar > 0.0 && high > 0.0 && low > 0.0))
+    {
+      return false;
+    }
+    bool currentIsLong = SarDirectionIsLong${index}(sar, high, low);
+    if(!hasPrevious)
+    {
+      // The TypeScript evaluator seeds its first SAR state as SHORT.
+      hasPrevious = true;
+      continue;
+    }
+    if(currentIsLong != previousIsLong)
+    {
+      reversalCount++;
+      if(firstReversalShift < 0)
+      {
+        firstReversalShift = shift;
+      }
+    }
+    previousIsLong = currentIsLong;
+    if(reversalCount >= 2)
+    {
+      // firstReversalShift is already latched; Condition${index} rechecks
+      // shifts 2 and 1. Stop after the second reversal to keep this per-bar
+      // scan bounded without changing the warm-up meaning. Data validation of
+      // bars newer than the second reversal is intentionally dropped here;
+      // the signal bars themselves are revalidated in Condition${index}.
+      break;
+    }
+  }
+  if(reversalCount < 2 || firstReversalShift < 0)
+  {
+    return false;
+  }
+  // The TS signal needs both index-1 and index, so a reversal on signalShift
+  // itself is not countable. Require the older point to be at least
+  // ${SAR_CONVERGENCE_WARMUP_BARS} bars after the first reversal (interpolated
+  // from indicators.ts so the TS gate and the generated EA cannot drift).
+  cachedResult = firstReversalShift - (signalShift + 1) >= ${SAR_CONVERGENCE_WARMUP_BARS};
+  return cachedResult;
+}
+
+bool Condition${index}(bool longSide)
+{
+  double step = InpSAR${index}Step;
+  double maximum = InpSAR${index}Maximum;
+  // This is exactly the TS evaluator's fail-closed domain. Registration adds
+  // step >= 0.02 and both values < 1; those are pipeline policy, not evaluator
+  // semantics, so the generated EA intentionally rejects only this domain.
+  if(!MathIsValidNumber(step) || !MathIsValidNumber(maximum) || step <= 0.0 || maximum < step)
+  {
+    return false;
+  }
+  if(!SarWarmupReady${index}(1))
+  {
+    return false;
+  }
+  double previousSar = ${expressions.value('2')};
+  double currentSar = ${expressions.value('1')};
+  double previousHigh = iHigh(_Symbol, _Period, 2);
+  double currentHigh = iHigh(_Symbol, _Period, 1);
+  double previousLow = iLow(_Symbol, _Period, 2);
+  double currentLow = iLow(_Symbol, _Period, 1);
+  if(!ValueReady(previousSar) || !MathIsValidNumber(previousSar) ||
+    !ValueReady(currentSar) || !MathIsValidNumber(currentSar) ||
+    !ValueReady(previousHigh) || !MathIsValidNumber(previousHigh) ||
+    !ValueReady(currentHigh) || !MathIsValidNumber(currentHigh) ||
+    !ValueReady(previousLow) || !MathIsValidNumber(previousLow) ||
+    !ValueReady(currentLow) || !MathIsValidNumber(currentLow))
+  {
+    return false;
+  }
+  if(!(previousSar > 0.0 && currentSar > 0.0 && previousHigh > 0.0 && currentHigh > 0.0 &&
+    previousLow > 0.0 && currentLow > 0.0))
+  {
+    return false;
+  }
+  bool previousIsLong = SarDirectionIsLong${index}(previousSar, previousHigh, previousLow);
+  bool currentIsLong = SarDirectionIsLong${index}(currentSar, currentHigh, currentLow);
+  if(longSide)
+  {
+    return !previousIsLong && currentIsLong;
+  }
+  return previousIsLong && !currentIsLong;
+}
+`;
+
+const mql5ParabolicSarCondition = (_condition: ParabolicSarCondition, index: number): string =>
+  mqlParabolicSarCondition(index, {
+    value: (shift) => `BufferValue(sar${index}Handle, 0, ${shift})`,
+    warmupPrelude: '',
+  });
+
+const mql4ParabolicSarCondition = (_condition: ParabolicSarCondition, index: number): string =>
+  mqlParabolicSarCondition(index, {
+    value: (shift) => `iSAR(_Symbol, _Period, step, maximum, ${shift})`,
+    warmupPrelude: `  double step = InpSAR${index}Step;\n  double maximum = InpSAR${index}Maximum;`,
+  });
+
+const mql4ParabolicSarOnInit = (conditions: readonly EntryCondition[]): string => {
+  const warningLines = conditions.flatMap((condition, index) => {
+    if (condition.type !== 'parabolicSar') {
+      return [];
+    }
+    const conditionIndex = index + 1;
+    return [
+      `  if(InpSAR${conditionIndex}Step < 0.02)`,
+      '  {',
+      `    Print("SAR${conditionIndex} warning: step below 0.02 is outside the evaluator registration domain");`,
+      '  }',
+    ];
+  });
+  if (warningLines.length === 0) {
+    return '';
+  }
+  return `
+int OnInit()
+{
+${warningLines.join('\n')}
+  return INIT_SUCCEEDED;
+}
+`;
+};
+
 const mqlStochasticCondition = (condition: StochasticCondition, index: number): string => {
   const shortComparison = mirrorComparison(condition.comparison);
   return `
@@ -878,6 +1087,8 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
         return [`int cci${conditionIndex}Handle = INVALID_HANDLE;`];
       case 'adxTrend':
         return [`int adx${conditionIndex}Handle = INVALID_HANDLE;`];
+      case 'parabolicSar':
+        return [`int sar${conditionIndex}Handle = INVALID_HANDLE;`];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -964,6 +1175,23 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '    return INIT_FAILED;',
           '  }',
         ];
+      case 'parabolicSar':
+        return [
+          `  if(InpSAR${conditionIndex}Step < 0.02)`,
+          '  {',
+          `    Print("SAR${conditionIndex} warning: step below 0.02 is outside the evaluator registration domain");`,
+          '  }',
+          `  if(!MathIsValidNumber(InpSAR${conditionIndex}Step) || !MathIsValidNumber(InpSAR${conditionIndex}Maximum) || InpSAR${conditionIndex}Step <= 0.0 || InpSAR${conditionIndex}Maximum < InpSAR${conditionIndex}Step)`,
+          '  {',
+          `    Print("SAR${conditionIndex} rejected: step must be > 0 and maximum must be >= step");`,
+          '    return INIT_FAILED;',
+          '  }',
+          `  sar${conditionIndex}Handle = iSAR(_Symbol, _Period, InpSAR${conditionIndex}Step, InpSAR${conditionIndex}Maximum);`,
+          `  if(!EnsureIndicator(sar${conditionIndex}Handle, "SAR${conditionIndex}"))`,
+          '  {',
+          '    return INIT_FAILED;',
+          '  }',
+        ];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -996,6 +1224,8 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
         return [`  ReleaseIndicator(cci${conditionIndex}Handle);`];
       case 'adxTrend':
         return [`  ReleaseIndicator(adx${conditionIndex}Handle);`];
+      case 'parabolicSar':
+        return [`  ReleaseIndicator(sar${conditionIndex}Handle);`];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -1410,7 +1640,7 @@ export const generateMql4 = (strategy: StrategyDefinition): string => {
 ${inputs}
 
 datetime lastBarTime = 0;
-
+${mql4ParabolicSarOnInit(strategy.entryConditions)}
 double PipPoint()
 {
   if(Digits == 3 || Digits == 5)

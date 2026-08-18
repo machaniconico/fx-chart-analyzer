@@ -30,6 +30,7 @@ export const knownEntryConditionTypes = Object.freeze([
   'keltnerBreak',
   'cciBreak',
   'adxTrend',
+  'parabolicSar',
 ]);
 const knownEntryConditionTypeSet = new Set(knownEntryConditionTypes);
 
@@ -239,6 +240,25 @@ const assertEntryCondition = (condition, context, index) => {
       // period 1 では EMA の alpha=1 で平滑化が消える(DI=生値, ADX=DX)ため実質未平滑のノイズ指標に退化する
       assertPositiveIntegerFieldAtLeast(conditionContext, condition, 'period', 2);
       assertThresholdField(conditionContext, condition, 'threshold', 100);
+      break;
+    case 'parabolicSar':
+      // 実データ計測では step が小さいほど SAR ウォームアップ後の残存乖離が増え、
+      // step=0.01 は既定値 0.02 の 20 倍の誤シグナル率だった。0.01 を許すと
+      // indicators.ts の SAR_CONVERGENCE_WARMUP_BARS 前提が崩れるため、登録時点で拒否する。
+      assertConditionField(
+        conditionContext,
+        condition,
+        'step',
+        (value) => finiteNumber(value) && value >= 0.02 && value < 1,
+        'must be a finite number greater than or equal to 0.02 and less than 1',
+      );
+      assertConditionField(
+        conditionContext,
+        condition,
+        'maximum',
+        (value) => finiteNumber(value) && value >= condition.step && value < 1,
+        'must be a finite number greater than or equal to step and less than 1',
+      );
       break;
     default:
       throw new Error(`${conditionContext}.type ${condition.type} has no parameter validation`);

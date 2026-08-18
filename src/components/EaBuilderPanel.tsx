@@ -30,6 +30,7 @@ import {
   type MaCrossCondition,
   type MacdCrossCondition,
   type MovingAverageType,
+  type ParabolicSarCondition,
   type RsiComparison,
   type RsiCondition,
   type StochasticCondition,
@@ -111,6 +112,12 @@ const defaultAdxCondition = (): AdxTrendCondition => ({
   type: 'adxTrend',
   period: 14,
   threshold: 25,
+});
+
+const defaultParabolicSarCondition = (): ParabolicSarCondition => ({
+  type: 'parabolicSar',
+  step: 0.02,
+  maximum: 0.2,
 });
 
 const defaultMacdCondition = (): MacdCrossCondition => ({
@@ -281,6 +288,17 @@ const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
         condition.threshold >= 100)
     ) {
       messages.push('ADXトレンドの期間は2以上の整数、閾値は0より大きく100未満にしてください。');
+    }
+    if (
+      condition.type === 'parabolicSar' &&
+      (!Number.isFinite(condition.step) ||
+        condition.step < 0.02 ||
+        condition.step >= 1 ||
+        !Number.isFinite(condition.maximum) ||
+        condition.maximum < condition.step ||
+        condition.maximum >= 1)
+    ) {
+      messages.push('パラボリックSARのstepは0.02以上1未満、maximumはstep以上1未満の有限値にしてください。');
     }
     if (
       condition.type === 'stochastic' &&
@@ -486,6 +504,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const keltnerCondition = getCondition('keltnerBreak');
   const cciCondition = getCondition('cciBreak');
   const adxCondition = getCondition('adxTrend');
+  const parabolicSarCondition = getCondition('parabolicSar');
 
   const updateMoneyManagement = (
     updater: (current: typeof moneyManagement) => typeof moneyManagement,
@@ -1400,6 +1419,58 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                     }
                   />
                 </label>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('parabolicSar')}
+                onChange={(event) =>
+                  toggleCondition('parabolicSar', event.target.checked, defaultParabolicSarCondition)
+                }
+              />
+              <span>パラボリックSARフリップ順張り</span>
+            </label>
+            {parabolicSarCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>step</span>
+                  <input
+                    min="0.02"
+                    max="0.999"
+                    step="0.01"
+                    type="number"
+                    value={parabolicSarCondition.step}
+                    onChange={(event) =>
+                      updateCondition('parabolicSar', defaultParabolicSarCondition, (condition) => ({
+                        ...condition,
+                        step: numericInput(event.target.value, condition.step, 0.02, 0.02, 0.999),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>maximum</span>
+                  <input
+                    min="0.02"
+                    max="0.999"
+                    step="0.01"
+                    type="number"
+                    value={parabolicSarCondition.maximum}
+                    onChange={(event) =>
+                      updateCondition('parabolicSar', defaultParabolicSarCondition, (condition) => ({
+                        ...condition,
+                        maximum: numericInput(event.target.value, condition.maximum, 0.2, 0.02, 0.999),
+                      }))
+                    }
+                  />
+                </label>
+                <small className="control-hint">
+                  stepは0.02以上1未満、maximumはstep以上1未満にしてください
+                </small>
               </div>
             )}
           </section>

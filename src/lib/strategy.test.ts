@@ -23,6 +23,42 @@ const barsFrom = (
   closes: readonly number[],
 ): Bar[] => highs.map((high, index) => bar(index, high, lows[index], closes[index]));
 
+const makeSarStrategyBars = (): Bar[] => {
+  const highs = [
+    10,
+    11,
+    12,
+    13,
+    ...Array.from({ length: 98 }, () => 13),
+    30,
+    32,
+    34,
+    35,
+    36,
+    36,
+    36,
+    36,
+    40,
+  ];
+  const lows = [
+    8,
+    9,
+    10,
+    8,
+    ...Array.from({ length: 98 }, () => 10),
+    15,
+    16,
+    17,
+    18,
+    0,
+    5,
+    5,
+    5,
+    6,
+  ];
+  return barsFrom(highs, lows, highs);
+};
+
 const strategyFor = (
   condition: EntryCondition,
   direction: 'long' | 'short' = 'long',
@@ -436,6 +472,67 @@ describe('strategy evaluator', () => {
     }
   });
 
+  it('evaluates exposed Parabolic SAR flips in both directions and keeps warm-up closed', () => {
+    const condition = { type: 'parabolicSar' as const, step: 0.1, maximum: 0.3 };
+    const bars = makeSarStrategyBars();
+    const evaluator = createStrategyEvaluator(bars);
+
+    // Reversals at 2 and 3 are below the conservative exposure boundary 102.
+    expect(evaluator.isEntrySignal(strategyFor(condition), 2)).toBe(false);
+    expect(evaluator.isEntrySignal(strategyFor(condition), 3)).toBe(false);
+
+    // The exposed short flip at 106 and long flip at 110 are mirrored exactly.
+    expect(evaluator.isEntrySignal(strategyFor(condition, 'short'), 106)).toBe(true);
+    expect(evaluator.isEntrySignal(strategyFor(condition), 106)).toBe(false);
+    expect(evaluator.isEntrySignal(strategyFor(condition), 110)).toBe(true);
+    expect(evaluator.isEntrySignal(strategyFor(condition, 'short'), 110)).toBe(false);
+  });
+
+  it('rejects invalid Parabolic SAR parameters and non-finite inputs fail closed', () => {
+    const bars = makeSarStrategyBars();
+    const evaluator = createStrategyEvaluator(bars);
+    for (const [step, maximum] of [
+      [0, 0.2],
+      [-0.1, 0.2],
+      [Number.NaN, 0.2],
+      [0.2, 0.1],
+      [0.1, Number.NaN],
+      [Number.POSITIVE_INFINITY, 1],
+      [0.1, Number.NEGATIVE_INFINITY],
+    ]) {
+      const condition = { type: 'parabolicSar' as const, step, maximum };
+      expect(evaluator.isEntrySignal(strategyFor(condition), 110)).toBe(false);
+      expect(evaluator.isEntrySignal(strategyFor(condition, 'short'), 110)).toBe(false);
+    }
+
+    const invalidBars = [...bars.slice(0, 110), bar(110, Number.NaN, 6, 40)];
+    expect(
+      createStrategyEvaluator(invalidBars).isEntrySignal(
+        strategyFor({ type: 'parabolicSar', step: 0.1, maximum: 0.3 }),
+        110,
+      ),
+    ).toBe(false);
+  });
+
+  it('memoizes Parabolic SAR by its step:maximum cache key', () => {
+    const sarSpy = vi.spyOn(indicators, 'parabolicSar');
+    // 同一パラメータの2条件がキャッシュを共有すること(メモ化)を断言する
+    const firstCondition = { type: 'parabolicSar' as const, step: 0.1, maximum: 0.3 };
+    const secondCondition = { type: 'parabolicSar' as const, step: 0.1, maximum: 0.3 };
+    const bars = makeSarStrategyBars();
+    const strategy = {
+      ...strategyFor(firstCondition),
+      entryConditions: [firstCondition, secondCondition],
+    };
+
+    try {
+      expect(createStrategyEvaluator(bars).isEntrySignal(strategy, 110)).toBe(true);
+      expect(sarSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('detects stochastic crossAbove for long and the mirrored crossBelow for short', () => {
     const condition = {
       type: 'stochastic' as const,
@@ -635,6 +732,9 @@ describe('strategy evaluator', () => {
     );
     expect(conditionLabel({ type: 'adxTrend', period: 14, threshold: 25 })).toBe(
       'ADX14/25 DIクロス',
+    );
+    expect(conditionLabel({ type: 'parabolicSar', step: 0.02, maximum: 0.2 })).toBe(
+      'SAR0.02/0.2 フリップ',
     );
   });
 });
