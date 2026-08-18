@@ -512,7 +512,7 @@ const validationCases: Array<{
   },
   {
     type: 'ao',
-    valid: { type: 'ao', fastPeriod: 2, slowPeriod: 3 },
+    valid: { type: 'ao', fastPeriod: 999, slowPeriod: 1000 },
     invalid: [
       { label: 'fast period below minimum (1)', condition: { type: 'ao', fastPeriod: 1, slowPeriod: 3 } },
       { label: 'slow period below minimum', condition: { type: 'ao', fastPeriod: 2, slowPeriod: 1 } },
@@ -522,7 +522,7 @@ const validationCases: Array<{
       { label: 'slow period non-integer', condition: { type: 'ao', fastPeriod: 2, slowPeriod: 3.5 } },
       { label: 'period above maximum', condition: { type: 'ao', fastPeriod: 1001, slowPeriod: 1002 } },
     ],
-    message: 'AOのfastPeriodとslowPeriodは2以上1000以下の整数で、fastPeriodをslowPeriodより小さくしてください。',
+    message: 'AOの短期期間と長期期間は2以上1000以下の整数で、短期期間を長期期間より小さくしてください。',
   },
   {
     type: 'rvi',

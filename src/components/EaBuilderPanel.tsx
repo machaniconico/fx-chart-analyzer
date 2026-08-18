@@ -376,7 +376,7 @@ export const strategyValidationMessages = (strategy: StrategyDefinition): string
         condition.slowPeriod > 1000 ||
         condition.fastPeriod >= condition.slowPeriod)
     ) {
-      messages.push('AOのfastPeriodとslowPeriodは2以上1000以下の整数で、fastPeriodをslowPeriodより小さくしてください。');
+      messages.push('AOの短期期間と長期期間は2以上1000以下の整数で、短期期間を長期期間より小さくしてください。');
     }
     if (
       condition.type === 'rvi' &&
@@ -1695,7 +1695,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
             {aoCondition && (
               <div className="mini-grid">
                 <label>
-                  <span>fastPeriod</span>
+                  <span>短期期間</span>
                   <input
                     max="1000"
                     min="2"
@@ -1710,7 +1710,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                   />
                 </label>
                 <label>
-                  <span>slowPeriod</span>
+                  <span>長期期間</span>
                   <input
                     max="1000"
                     min="2"
@@ -1725,7 +1725,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                   />
                 </label>
                 <small className="control-hint">
-                  AOのfastPeriodとslowPeriodは2以上1000以下の整数で、fastPeriodをslowPeriodより小さくしてください
+                  AOの短期期間と長期期間は2以上1000以下の整数で、短期期間を長期期間より小さくしてください
                 </small>
               </div>
             )}

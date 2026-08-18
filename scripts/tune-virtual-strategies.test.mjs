@@ -529,8 +529,8 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       entryCondition: { type: 'ao', fastPeriod: 5, slowPeriod: 34 },
       exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
       parameterRanges: {
-        stopLossPips: { min: 20, max: 110, step: 15 },
-        takeProfitPips: { min: 40, max: 220, step: 20 },
+        stopLossPips: { min: 20, max: 170, step: 15 },
+        takeProfitPips: { min: 40, max: 340, step: 20 },
       },
       trailingStopPips: [null, 25],
     });
@@ -555,6 +555,31 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
         takeProfitValues.length *
         ENTRY_TYPE_PROFILES.adxTrend.trailingStopPips.length,
     ).toBe(140);
+  });
+
+  it('expands the AO SL/TP grids while retaining the legacy points', async () => {
+    const { stopLossPips, takeProfitPips } = ENTRY_TYPE_PROFILES.ao.parameterRanges;
+    // 本番の展開器で値を検証する(自前の再計算だと小数stepの丸め差でテストだけ緑になりうる)
+    const { valuesFromRange } = await import('../src/lib/optimize.ts');
+    const stopLossValues = valuesFromRange(stopLossPips);
+    const takeProfitValues = valuesFromRange(takeProfitPips);
+    const legacyStopLossValues = [20, 35, 50, 65, 80, 95, 110];
+    const legacyTakeProfitValues = [40, 60, 80, 100, 120, 140, 160, 180, 200, 220];
+
+    expect(stopLossValues).toEqual([20, 35, 50, 65, 80, 95, 110, 125, 140, 155, 170]);
+    expect(takeProfitValues).toEqual([
+      40, 60, 80, 100, 120, 140, 160, 180,
+      200, 220, 240, 260, 280, 300, 320, 340,
+    ]);
+    expect(legacyStopLossValues.every((value) => stopLossValues.includes(value))).toBe(true);
+    expect(legacyTakeProfitValues.every((value) => takeProfitValues.includes(value))).toBe(true);
+    expect(stopLossValues).toHaveLength(11);
+    expect(takeProfitValues).toHaveLength(16);
+    expect(
+      stopLossValues.length *
+        takeProfitValues.length *
+        ENTRY_TYPE_PROFILES.ao.trailingStopPips.length,
+    ).toBe(352);
   });
 
   it('covers every pair, entry type, and suitable timeframe exactly once', () => {

@@ -214,6 +214,10 @@ describe('strategy evaluator', () => {
         validEvaluator.isEntrySignal(strategyFor({ ...condition, period }), 2),
       ).toBe(false);
     }
+    // NaN is not observable through isEntrySignal alone: both relational
+    // comparisons are false. Keep the case as a documented fail-closed check;
+    // the explicit !Number.isFinite(condition.threshold) guard is the
+    // white-box source of truth for this threshold range validation.
     for (const threshold of [-0.1, 1.1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(
         validEvaluator.isEntrySignal(strategyFor({ ...condition, threshold }), 2),
