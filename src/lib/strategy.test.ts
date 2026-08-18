@@ -182,6 +182,70 @@ describe('strategy evaluator', () => {
     expect(nonFiniteEvaluator.isEntrySignal(strategyFor(boundaryCondition, 'short'), 2)).toBe(false);
   });
 
+  it('evaluates CCI breaks with inclusive level boundaries and fails closed on flat or invalid data', () => {
+    // period=3, TP=[1,1,8] gives CCI=100 exactly; TP=[5,6,1] gives -100 exactly.
+    // The equality cases pin the state condition to >= / <=; a mutation to strict
+    // inequalities makes both deterministic boundary entries fail.
+    const condition = { type: 'cciBreak' as const, period: 3, level: 100 };
+    const longBars = [bar(0, 1, 1, 1), bar(1, 1, 1, 1), bar(2, 8, 8, 8)];
+    const shortBars = [bar(0, 5, 5, 5), bar(1, 6, 6, 6), bar(2, 1, 1, 1)];
+
+    expect(indicators.cci([1, 1, 8], [1, 1, 8], [1, 1, 8], 3)[2]).toBe(100);
+    expect(indicators.cci([5, 6, 1], [5, 6, 1], [5, 6, 1], 3)[2]).toBe(-100);
+
+    expect(createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition), 2)).toBe(true);
+    expect(createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition, 'short'), 2)).toBe(
+      false,
+    );
+    expect(createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition, 'short'), 2)).toBe(
+      true,
+    );
+    expect(createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition), 2)).toBe(false);
+
+    const flatBars = [bar(0, 10, 10, 10), bar(1, 10, 10, 10), bar(2, 10, 10, 10)];
+    const flatEvaluator = createStrategyEvaluator(flatBars);
+    expect(flatEvaluator.isEntrySignal(strategyFor(condition), 2)).toBe(false);
+    expect(flatEvaluator.isEntrySignal(strategyFor(condition, 'short'), 2)).toBe(false);
+
+    const zeroLevelCondition = { ...condition, level: 0 };
+    expect(flatEvaluator.isEntrySignal(strategyFor(zeroLevelCondition), 2)).toBe(false);
+    expect(flatEvaluator.isEntrySignal(strategyFor(zeroLevelCondition, 'short'), 2)).toBe(false);
+    const negativeLevelCondition = { ...condition, level: -100 };
+    expect(flatEvaluator.isEntrySignal(strategyFor(negativeLevelCondition), 2)).toBe(false);
+    expect(flatEvaluator.isEntrySignal(strategyFor(negativeLevelCondition, 'short'), 2)).toBe(false);
+
+    const invalidEvaluator = createStrategyEvaluator([
+      bar(0, 10, 10, 10),
+      bar(1, 10, 10, 10),
+      bar(2, 10, 10, Number.NaN),
+    ]);
+    expect(invalidEvaluator.isEntrySignal(strategyFor(condition), 2)).toBe(false);
+    expect(
+      createStrategyEvaluator(longBars).isEntrySignal(
+        strategyFor({ ...condition, level: Number.NaN }),
+        2,
+      ),
+    ).toBe(false);
+  });
+
+  it('memoizes CCI values by normalized period', () => {
+    const cciSpy = vi.spyOn(indicators, 'cci');
+    const firstCondition = { type: 'cciBreak' as const, period: 3, level: 100 };
+    const secondCondition = { ...firstCondition, level: 50 };
+    const strategy = {
+      ...strategyFor(firstCondition),
+      entryConditions: [firstCondition, secondCondition],
+    };
+    const bars = [bar(0, 10, 10, 10), bar(1, 10, 10, 10), bar(2, 13, 13, 13)];
+
+    try {
+      expect(createStrategyEvaluator(bars).isEntrySignal(strategy, 2)).toBe(true);
+      expect(cciSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('detects stochastic crossAbove for long and the mirrored crossBelow for short', () => {
     const condition = {
       type: 'stochastic' as const,
@@ -376,5 +440,8 @@ describe('strategy evaluator', () => {
         comparison: 'crossAbove',
       }),
     ).toBe('Stoch14/3/3 crossAbove 20');
+    expect(conditionLabel({ type: 'cciBreak', period: 14, level: 100 })).toBe(
+      'CCI14 ±100 ブレイク',
+    );
   });
 });

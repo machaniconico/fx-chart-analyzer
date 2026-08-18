@@ -204,7 +204,7 @@ export const atr = (
     const high = highs[i];
     const low = lows[i];
     const previousClose = closes[i - 1];
-    if (![high, low, previousClose].every(Number.isFinite)) {
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(previousClose)) {
       continue;
     }
     trueRanges[i] = Math.max(
@@ -304,6 +304,71 @@ export const rsi = (values: readonly number[], period = 14): IndicatorPoint[] =>
     averageGain = (averageGain * (period - 1) + gain) / period;
     averageLoss = (averageLoss * (period - 1) + loss) / period;
     result[i] = toRsi();
+  }
+
+  return result;
+};
+
+/**
+ * Lambert CCI using Typical Price, an SMA of Typical Price, and the mean
+ * absolute deviation from that same current-bar SMA.
+ *
+ * MetaQuotes' official CCI reference documents Typical Price, SMA, mean
+ * absolute deviation, and Lambert's 0.015 factor. A zero mean-deviation
+ * window is represented as 0.0 as a parity design choice for MT5 built-in
+ * behavior; positive levels therefore keep flat windows fail-closed.
+ * Reference: https://www.mql5.com/en/code/18
+ */
+export const cci = (
+  highs: readonly number[],
+  lows: readonly number[],
+  closes: readonly number[],
+  period: number,
+): IndicatorPoint[] => {
+  assertPeriod(period);
+  if (highs.length !== lows.length || highs.length !== closes.length) {
+    throw new Error('highs, lows, and closes must have the same length');
+  }
+
+  const result: IndicatorPoint[] = Array(closes.length).fill(null);
+  const typicalPrices: IndicatorPoint[] = closes.map((_, index) => {
+    const high = highs[index];
+    const low = lows[index];
+    const close = closes[index];
+    return Number.isFinite(high) && Number.isFinite(low) && Number.isFinite(close)
+      ? (high + low + close) / 3
+      : null;
+  });
+
+  for (let i = period - 1; i < closes.length; i += 1) {
+    const start = i - period + 1;
+    let sum = 0;
+    let current: number | null = null;
+    let validWindow = true;
+
+    for (let j = start; j <= i; j += 1) {
+      const value = typicalPrices[j];
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        validWindow = false;
+        break;
+      }
+      sum += value;
+      if (j === i) {
+        current = value;
+      }
+    }
+
+    if (!validWindow || current === null) {
+      continue;
+    }
+
+    const mean = sum / period;
+    let deviationSum = 0;
+    for (let j = start; j <= i; j += 1) {
+      deviationSum += Math.abs((typicalPrices[j] as number) - mean);
+    }
+    const meanDeviation = deviationSum / period;
+    result[i] = meanDeviation === 0 ? 0 : (current - mean) / (0.015 * meanDeviation);
   }
 
   return result;

@@ -201,6 +201,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       'stochastic',
       'ichimokuCross',
       'keltnerBreak',
+      'cciBreak',
     ]);
     expect(ENTRY_TYPE_PROFILES.rsi.timeframes).toEqual(['m30', 'h1']);
     expect(ENTRY_TYPE_PROFILES.donchianBreak).toEqual({
@@ -266,6 +267,17 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       },
       trailingStopPips: [null, 20],
     });
+    expect(ENTRY_TYPE_PROFILES.cciBreak).toEqual({
+      label: 'CCIブレイク順張り',
+      timeframes: ['m30', 'h1'],
+      entryCondition: { type: 'cciBreak', period: 14, level: 100 },
+      exit: { stopLossPips: 25, takeProfitPips: 50, closeOnOppositeSignal: false },
+      parameterRanges: {
+        stopLossPips: { min: 15, max: 75, step: 12 },
+        takeProfitPips: { min: 25, max: 125, step: 20 },
+      },
+      trailingStopPips: [null, 20],
+    });
   });
 
   it('covers every pair, entry type, and suitable timeframe exactly once', () => {
@@ -281,8 +293,8 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
         `${target.strategy.meta.pair}:${target.entryType}:${target.strategy.meta.timeframe}`,
     );
 
-    expect(expectedCount).toBe(96);
-    expect(matrix).toHaveLength(96);
+    expect(expectedCount).toBe(108);
+    expect(matrix).toHaveLength(108);
     expect(new Set(triples).size).toBe(expectedCount);
     expect(new Set(matrix.map((target) => target.id)).size).toBe(expectedCount);
     expect(matrix.every((target) => target.strategy.meta.registeredAt === TUNING_REGISTERED_AT)).toBe(
@@ -362,6 +374,28 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(matrix.length);
   });
 
+  it('assigns CCI candidates to entry-type index 8 with 12 candidates and unique magic numbers', () => {
+    const matrix = buildCandidateMatrix();
+    const cciCandidates = matrix.filter((target) => target.entryType === 'cciBreak');
+
+    expect(cciCandidates).toHaveLength(12);
+    expect(cciCandidates.map((target) => target.strategy.magicNumber)).toEqual([
+      1783100080,
+      1783100081,
+      1783100180,
+      1783100181,
+      1783100280,
+      1783100281,
+      1783100380,
+      1783100381,
+      1783100480,
+      1783100481,
+      1783100580,
+      1783100581,
+    ]);
+    expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(108);
+  });
+
   it('parses repeated and comma-separated filters and applies them together', () => {
     const filters = parseCliArgs([
       '--pair=usdjpy,EURUSD',
@@ -394,14 +428,15 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('supports each filter independently', () => {
     const matrix = buildCandidateMatrix();
 
-    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(16);
+    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(18);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'rsi']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'donchianBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'stochastic']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'ichimokuCross']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'keltnerBreak']))).toHaveLength(12);
-    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'm30']))).toHaveLength(18);
-    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(48);
+    expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'cciBreak']))).toHaveLength(12);
+    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'm30']))).toHaveLength(24);
+    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(54);
     expect(() => parseCliArgs(['--timeframe', 'm15'])).toThrow(/Invalid value for --timeframe/);
   });
 
@@ -412,6 +447,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(CLI_USAGE).toContain('stochastic');
     expect(CLI_USAGE).toContain('ichimokuCross');
     expect(CLI_USAGE).toContain('keltnerBreak');
+    expect(CLI_USAGE).toContain('cciBreak');
     expect(
       filterTargets(matrix, parseCliArgs(['--entry-type', 'DONCHIANBREAK'])),
     ).toEqual(
@@ -431,6 +467,11 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       filterTargets(matrix, parseCliArgs(['--entry-type', 'KELTNERBREAK'])),
     ).toEqual(
       matrix.filter((target) => target.entryType === 'keltnerBreak'),
+    );
+    expect(
+      filterTargets(matrix, parseCliArgs(['--entry-type', 'CCIBREAK'])),
+    ).toEqual(
+      matrix.filter((target) => target.entryType === 'cciBreak'),
     );
   });
 
@@ -1431,7 +1472,7 @@ describe('tune-virtual-strategies JSON report', () => {
     expect(evaluatedIds).toEqual(['tune-rsi-eurusd-h1-v1']);
     expect(results).toHaveLength(1);
     expect(cleanupCalled).toBe(true);
-    expect(logs[0]).toBe('チューニング候補: 1/96件');
+    expect(logs[0]).toBe('チューニング候補: 1/108件');
     expect(writtenReport).toMatchObject({
       filters: { pairs: ['EURUSD'], entryTypes: ['rsi'], timeframes: ['h1'] },
       summary: { candidateCount: 1 },

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   atr,
   bollingerBands,
+  cci,
   donchian,
   ema,
   ichimoku,
@@ -53,6 +54,25 @@ describe('indicators', () => {
     expect(values.slice(0, 3)).toEqual([null, null, null]);
     expectNullableCloseTo(values[3], (4 + 3 + 7) / 3);
     expectNullableCloseTo(values[4], (3 + 7 + 4) / 3);
+  });
+
+  it('calculates Lambert CCI from Typical Price and returns zero for flat windows', () => {
+    const values = cci(
+      [1, 2, 3, 6, 8],
+      [1, 2, 3, 6, 8],
+      [1, 2, 3, 6, 8],
+      4,
+    );
+
+    expect(values.slice(0, 3)).toEqual([null, null, null]);
+    expectNullableCloseTo(values[3], 133.33333333333334);
+    expectNullableCloseTo(cci([10, 10, 10], [10, 10, 10], [10, 10, 10], 3)[2], 0);
+  });
+
+  it('rejects CCI input arrays with different lengths', () => {
+    expect(() => cci([1, 2], [1], [1, 2], 2)).toThrow(
+      'highs, lows, and closes must have the same length',
+    );
   });
 
   it('builds Keltner channels from the existing EMA and ATR implementations', () => {

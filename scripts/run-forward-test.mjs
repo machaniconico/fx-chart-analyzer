@@ -28,6 +28,7 @@ const knownEntryConditionTypes = new Set([
   'donchianBreak',
   'stochastic',
   'keltnerBreak',
+  'cciBreak',
 ]);
 
 export const TWO_YEARS_SECONDS = 365 * 2 * 24 * 60 * 60;
