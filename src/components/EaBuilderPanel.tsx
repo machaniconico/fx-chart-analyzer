@@ -23,6 +23,7 @@ import {
   type BollingerCondition,
   type CciBreakCondition,
   type AdxTrendCondition,
+  type AlligatorCondition,
   type AoCondition,
   type DeMarkerCondition,
   type DonchianBreakCondition,
@@ -191,6 +192,16 @@ const defaultStochCrossCondition = (): StochCrossCondition => ({
   kPeriod: 14,
   dPeriod: 3,
   smoothing: 3,
+});
+
+const defaultAlligatorCondition = (): AlligatorCondition => ({
+  type: 'alligator',
+  jawPeriod: 13,
+  teethPeriod: 8,
+  lipsPeriod: 5,
+  jawShift: 8,
+  teethShift: 5,
+  lipsShift: 3,
 });
 
 type ConditionType = EntryCondition['type'];
@@ -435,6 +446,33 @@ export const strategyValidationMessages = (strategy: StrategyDefinition): string
       // smoothing intentionally shares that type's 1+ domain.
       messages.push('ストキャス%K/%DクロスのK期間とD期間は2以上1000以下の整数、平滑化は1以上の整数にしてください。');
     }
+    if (
+      condition.type === 'alligator' &&
+      (!Number.isInteger(condition.jawPeriod) ||
+        condition.jawPeriod < 2 ||
+        condition.jawPeriod > 1000 ||
+        !Number.isInteger(condition.teethPeriod) ||
+        condition.teethPeriod < 2 ||
+        condition.teethPeriod > 1000 ||
+        !Number.isInteger(condition.lipsPeriod) ||
+        condition.lipsPeriod < 2 ||
+        condition.lipsPeriod > 1000 ||
+        condition.jawPeriod <= condition.teethPeriod ||
+        condition.teethPeriod <= condition.lipsPeriod ||
+        !Number.isInteger(condition.jawShift) ||
+        condition.jawShift < 0 ||
+        condition.jawShift > 500 ||
+        !Number.isInteger(condition.teethShift) ||
+        condition.teethShift < 0 ||
+        condition.teethShift > 500 ||
+        !Number.isInteger(condition.lipsShift) ||
+        condition.lipsShift < 0 ||
+        condition.lipsShift > 500 ||
+        condition.jawShift <= condition.teethShift ||
+        condition.teethShift <= condition.lipsShift)
+    ) {
+      messages.push('Alligatorの期間は2以上1000以下の整数でJaw>Teeth>Lips、シフトは0以上500以下の整数でJaw>Teeth>Lipsにしてください。');
+    }
   }
   if (
     strategy.sessionFilter.enabled &&
@@ -627,6 +665,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const donchianCondition = getCondition('donchianBreak');
   const stochasticCondition = getCondition('stochastic');
   const stochCrossCondition = getCondition('stochCross');
+  const alligatorCondition = getCondition('alligator');
   const keltnerCondition = getCondition('keltnerBreak');
   const cciCondition = getCondition('cciBreak');
   const adxCondition = getCondition('adxTrend');
@@ -985,6 +1024,116 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                     }
                   />
                 </label>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('alligator')}
+                onChange={(event) =>
+                  toggleCondition('alligator', event.target.checked, defaultAlligatorCondition)
+                }
+              />
+              <span>Alligator整列クロス</span>
+            </label>
+            {alligatorCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>Jaw期間</span>
+                  <input
+                    min="2"
+                    max="1000"
+                    type="number"
+                    value={alligatorCondition.jawPeriod}
+                    onChange={(event) =>
+                      updateCondition('alligator', defaultAlligatorCondition, (condition) => ({
+                        ...condition,
+                        jawPeriod: integerInput(event.target.value, condition.jawPeriod, 13, 2, 1000),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Teeth期間</span>
+                  <input
+                    min="2"
+                    max="1000"
+                    type="number"
+                    value={alligatorCondition.teethPeriod}
+                    onChange={(event) =>
+                      updateCondition('alligator', defaultAlligatorCondition, (condition) => ({
+                        ...condition,
+                        teethPeriod: integerInput(event.target.value, condition.teethPeriod, 8, 2, 1000),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Lips期間</span>
+                  <input
+                    min="2"
+                    max="1000"
+                    type="number"
+                    value={alligatorCondition.lipsPeriod}
+                    onChange={(event) =>
+                      updateCondition('alligator', defaultAlligatorCondition, (condition) => ({
+                        ...condition,
+                        lipsPeriod: integerInput(event.target.value, condition.lipsPeriod, 5, 2, 1000),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Jawシフト</span>
+                  <input
+                    min="0"
+                    max="500"
+                    type="number"
+                    value={alligatorCondition.jawShift}
+                    onChange={(event) =>
+                      updateCondition('alligator', defaultAlligatorCondition, (condition) => ({
+                        ...condition,
+                        jawShift: integerInput(event.target.value, condition.jawShift, 8, 0, 500),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Teethシフト</span>
+                  <input
+                    min="0"
+                    max="500"
+                    type="number"
+                    value={alligatorCondition.teethShift}
+                    onChange={(event) =>
+                      updateCondition('alligator', defaultAlligatorCondition, (condition) => ({
+                        ...condition,
+                        teethShift: integerInput(event.target.value, condition.teethShift, 5, 0, 500),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Lipsシフト</span>
+                  <input
+                    min="0"
+                    max="500"
+                    type="number"
+                    value={alligatorCondition.lipsShift}
+                    onChange={(event) =>
+                      updateCondition('alligator', defaultAlligatorCondition, (condition) => ({
+                        ...condition,
+                        lipsShift: integerInput(event.target.value, condition.lipsShift, 3, 0, 500),
+                      }))
+                    }
+                  />
+                </label>
+                <small className="control-hint">
+                  median価格のSMMAをJaw&gt;Teeth&gt;Lips、前方シフトをJaw&gt;Teeth&gt;Lipsで整列して判定します
+                </small>
               </div>
             )}
           </section>

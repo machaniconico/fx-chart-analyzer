@@ -176,6 +176,32 @@ export interface StochCrossCondition {
   smoothing: number;
 }
 
+/**
+ * Alligator is the 18th archetype because it has a signal geometry that none
+ * of the existing 17 conditions provide: three independently-smoothed SMMA
+ * series, each read through a forward display shift, must align around a
+ * Lips/Teeth cross before the Teeth/Jaw ordering filter accepts the entry.
+ * The lines use median price and therefore expose both multi-series alignment
+ * and displaced causal history rather than another one-series threshold.
+ *
+ * Rejected alternatives: WPR is the affine transform `WPR = %K - 100` of the
+ * stochastic rawK and is therefore the same indicator family as the existing
+ * stochastic condition; Gator Oscillator is a derived Alligator histogram
+ * and duplicates this archetype; OsMA approximately duplicates macdCross;
+ * Bears Power, Bulls Power, and Fractals are already rejected overlaps; and
+ * MFI, Force, and OBV are volume-based candidates with the same parity cost
+ * as the previously rejected volume family.
+ */
+export interface AlligatorCondition {
+  type: 'alligator';
+  jawPeriod: number;
+  teethPeriod: number;
+  lipsPeriod: number;
+  jawShift: number;
+  teethShift: number;
+  lipsShift: number;
+}
+
 export type EntryCondition =
   | MaCrossCondition
   | RsiCondition
@@ -193,7 +219,8 @@ export type EntryCondition =
   | ParabolicSarCondition
   | MomentumCondition
   | AoCondition
-  | RviCondition;
+  | RviCondition
+  | AlligatorCondition;
 
 export interface ExitRules {
   stopLossPips: number;
@@ -325,6 +352,9 @@ const normalizePeriod = (value: number): number => Math.max(1, Math.round(value)
 const parabolicSarKey = (step: number, maximum: number): string =>
   `${step}:${maximum}`;
 
+const alligatorKey = (condition: AlligatorCondition): string =>
+  `${condition.jawPeriod}:${condition.teethPeriod}:${condition.lipsPeriod}`;
+
 const maKey = (type: MovingAverageType, period: number): string =>
   `${type}:${normalizePeriod(period)}`;
 
@@ -367,6 +397,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `AO${condition.fastPeriod}/${condition.slowPeriod} ゼロラインクロス`;
     case 'rvi':
       return `RVI${condition.period} シグナルクロス`;
+    case 'alligator':
+      return `Alligator ${condition.jawPeriod}/${condition.teethPeriod}/${condition.lipsPeriod} (${condition.jawShift}/${condition.teethShift}/${condition.lipsShift}) クロス`;
   }
 };
 
@@ -428,6 +460,12 @@ type CachedRviResult = ReadonlyIndicatorResult<RviResult>;
 type CachedStochCrossResult = {
   readonly k: readonly IndicatorPoint[];
   readonly d: readonly IndicatorPoint[];
+};
+
+type CachedAlligatorSeries = {
+  readonly jaw: readonly IndicatorPoint[];
+  readonly teeth: readonly IndicatorPoint[];
+  readonly lips: readonly IndicatorPoint[];
 };
 
 type KeltnerEvaluation = {
@@ -505,6 +543,132 @@ export const computeStochCrossSeries = (
   };
 };
 
+export interface AlligatorSeries {
+  jaw: IndicatorPoint[];
+  teeth: IndicatorPoint[];
+  lips: IndicatorPoint[];
+}
+
+const validAlligatorPeriod = (period: number): boolean =>
+  Number.isInteger(period) && period >= 2 && period <= 1000;
+
+const smmaFromMedian = (
+  medians: readonly IndicatorPoint[],
+  period: number,
+): IndicatorPoint[] => {
+  const result: IndicatorPoint[] = Array(medians.length).fill(null);
+  if (!validAlligatorPeriod(period)) {
+    return result;
+  }
+
+  let previous: number | null = null;
+  let seedCount = 0;
+  let seedSum = 0;
+  for (let index = 0; index < medians.length; index += 1) {
+    const median = medians[index];
+    if (!isNumber(median)) {
+      // TS-only recovery: after a non-finite median, restart a fresh seed at
+      // the next finite run. MQL aborts the whole history walk instead; this
+      // re-seed asymmetry is reachable only with non-finite input. MQL
+      // additionally rejects non-positive OHLC (see the mql.ts alligator
+      // parity comment), which TS accepts.
+      previous = null;
+      seedCount = 0;
+      seedSum = 0;
+      continue;
+    }
+
+    if (previous === null) {
+      // The seed is intentionally a fresh oldest-to-newest sum. Do not
+      // replace this with the sliding SMA recurrence used by indicators.ts.
+      seedSum += median;
+      seedCount += 1;
+      if (seedCount < period) {
+        continue;
+      }
+      const seed = seedSum / period;
+      if (!Number.isFinite(seed)) {
+        seedCount = 0;
+        seedSum = 0;
+        continue;
+      }
+      previous = seed;
+      result[index] = seed;
+      continue;
+    }
+
+    const current: number = (previous * (period - 1) + median) / period;
+    if (!Number.isFinite(current)) {
+      previous = null;
+      seedCount = 0;
+      seedSum = 0;
+      continue;
+    }
+    previous = current;
+    result[index] = current;
+  }
+
+  return result;
+};
+
+/**
+ * Compute Alligator's three raw SMMA lines from the complete oldest-to-newest
+ * OHLC sequence. Median price is `(high + low) / 2`; each line seeds with a
+ * fresh SMA of its first period medians and then uses the official recursive
+ * SMMA formula. Display shifts are applied by the evaluator, not here, so the
+ * exported series remains a deterministic causal source for both the
+ * evaluator and parity tests. This function deliberately does not consume
+ * any helper from indicators.ts.
+ */
+export const computeAlligatorSeries = (
+  highs: readonly number[],
+  lows: readonly number[],
+  jawPeriod: number,
+  teethPeriod: number,
+  lipsPeriod: number,
+): AlligatorSeries => {
+  if (highs.length !== lows.length) {
+    throw new Error('highs and lows must have the same length');
+  }
+
+  const medians: IndicatorPoint[] = Array(highs.length).fill(null);
+  for (let index = 0; index < highs.length; index += 1) {
+    const high = highs[index];
+    const low = lows[index];
+    if (!Number.isFinite(high) || !Number.isFinite(low)) {
+      continue;
+    }
+    const median = (high + low) / 2;
+    if (Number.isFinite(median)) {
+      medians[index] = median;
+    }
+  }
+
+  return {
+    jaw: smmaFromMedian(medians, jawPeriod),
+    teeth: smmaFromMedian(medians, teethPeriod),
+    lips: smmaFromMedian(medians, lipsPeriod),
+  };
+};
+
+const shiftedAlligatorValue = (
+  series: readonly IndicatorPoint[],
+  index: number,
+  period: number,
+  shift: number,
+): IndicatorPoint => {
+  const sourceIndex = index - shift;
+  // Keep the shifted warm-up boundary explicit before reading the series. A
+  // null/undefined value must never be allowed to participate in relational
+  // coercion and accidentally turn an incomplete line into a signal.
+  // The period check is redundant with SMMA's null prefix, but remains a
+  // defensive fail-closed guard at this shifted access boundary.
+  if (sourceIndex < period - 1 || sourceIndex < 0 || sourceIndex >= series.length) {
+    return null;
+  }
+  return series[sourceIndex];
+};
+
 export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator => {
   const opens = bars.map((bar) => bar.o);
   const closes = bars.map((bar) => bar.c);
@@ -528,6 +692,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const momentumCache = new Map<number, CachedIndicatorValues>();
   const aoCache = new Map<string, CachedIndicatorValues>();
   const rviCache = new Map<number, CachedRviResult>();
+  const alligatorCache = new Map<string, CachedAlligatorSeries>();
 
   const getMa = (type: MovingAverageType, period: number): CachedIndicatorValues => {
     const normalizedPeriod = normalizePeriod(period);
@@ -798,6 +963,23 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     }
     const values = rvi(opens, highs, lows, closes, period);
     rviCache.set(period, values);
+    return values;
+  };
+
+  const getAlligator = (condition: AlligatorCondition): CachedAlligatorSeries => {
+    const key = alligatorKey(condition);
+    const cached = alligatorCache.get(key);
+    if (cached) {
+      return cached;
+    }
+    const values = computeAlligatorSeries(
+      highs,
+      lows,
+      condition.jawPeriod,
+      condition.teethPeriod,
+      condition.lipsPeriod,
+    );
+    alligatorCache.set(key, values);
     return values;
   };
 
@@ -1106,6 +1288,75 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
         return isShort
           ? previousK >= previousD && currentK < currentD
           : previousK <= previousD && currentK > currentD;
+      }
+      case 'alligator': {
+        if (
+          !validAlligatorPeriod(condition.jawPeriod) ||
+          !validAlligatorPeriod(condition.teethPeriod) ||
+          !validAlligatorPeriod(condition.lipsPeriod) ||
+          condition.jawPeriod <= condition.teethPeriod ||
+          condition.teethPeriod <= condition.lipsPeriod ||
+          !Number.isInteger(condition.jawShift) ||
+          condition.jawShift < 0 ||
+          condition.jawShift > 500 ||
+          !Number.isInteger(condition.teethShift) ||
+          condition.teethShift < 0 ||
+          condition.teethShift > 500 ||
+          !Number.isInteger(condition.lipsShift) ||
+          condition.lipsShift < 0 ||
+          condition.lipsShift > 500 ||
+          condition.jawShift <= condition.teethShift ||
+          condition.teethShift <= condition.lipsShift
+        ) {
+          return false;
+        }
+
+        const values = getAlligator(condition);
+        // Resolve every shifted line explicitly, including the previous
+        // Lips/Teeth edge and the current Teeth/Jaw filter, before evaluating
+        // any relation. This is the fail-closed warm-up contract.
+        const previousLips = shiftedAlligatorValue(
+          values.lips,
+          index - 1,
+          condition.lipsPeriod,
+          condition.lipsShift,
+        );
+        const previousTeeth = shiftedAlligatorValue(
+          values.teeth,
+          index - 1,
+          condition.teethPeriod,
+          condition.teethShift,
+        );
+        const currentLips = shiftedAlligatorValue(
+          values.lips,
+          index,
+          condition.lipsPeriod,
+          condition.lipsShift,
+        );
+        const currentTeeth = shiftedAlligatorValue(
+          values.teeth,
+          index,
+          condition.teethPeriod,
+          condition.teethShift,
+        );
+        const currentJaw = shiftedAlligatorValue(
+          values.jaw,
+          index,
+          condition.jawPeriod,
+          condition.jawShift,
+        );
+        if (
+          !isNumber(previousLips) ||
+          !isNumber(previousTeeth) ||
+          !isNumber(currentLips) ||
+          !isNumber(currentTeeth) ||
+          !isNumber(currentJaw)
+        ) {
+          return false;
+        }
+        return isShort
+          ? previousLips >= previousTeeth && currentLips < currentTeeth && currentTeeth < currentJaw
+          : previousLips <= previousTeeth && currentLips > currentTeeth && currentTeeth > currentJaw;
       }
     }
   };

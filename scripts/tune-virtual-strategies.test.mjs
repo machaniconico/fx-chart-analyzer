@@ -297,6 +297,18 @@ const legacyEntryTypeExpectations = [
     },
     trailingStopPips: [null, 25],
   },
+  {
+    entryType: 'stochCross',
+    label: 'ストキャス%K/%Dクロス順張り',
+    entryCondition: { type: 'stochCross', kPeriod: 14, dPeriod: 3, smoothing: 3 },
+    exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
+    timeframes: ['m30', 'h1'],
+    parameterRanges: {
+      stopLossPips: { min: 20, max: 110, step: 15 },
+      takeProfitPips: { min: 40, max: 220, step: 20 },
+    },
+    trailingStopPips: [null, 25],
+  },
 ];
 
 const readMagicNumbers = async (directory) => {
@@ -326,6 +338,7 @@ const legacyMagicBases = [
   1783200030,
   1783200040,
   1783200050,
+  1783200060,
 ];
 
 const expectedLegacyCandidateMatrix = () =>
@@ -415,6 +428,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       'ao',
       'envelope',
       'stochCross',
+      'alligator',
     ]);
     expect(ENTRY_TYPE_PROFILES.rsi.timeframes).toEqual(['m30', 'h1']);
     expect(ENTRY_TYPE_PROFILES.donchianBreak).toEqual({
@@ -584,6 +598,25 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       },
       trailingStopPips: [null, 25],
     });
+    expect(ENTRY_TYPE_PROFILES.alligator).toEqual({
+      label: 'Alligator整列クロス順張り',
+      timeframes: ['h1', 'h4'],
+      entryCondition: {
+        type: 'alligator',
+        jawPeriod: 13,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 8,
+        teethShift: 5,
+        lipsShift: 3,
+      },
+      exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
+      parameterRanges: {
+        stopLossPips: { min: 20, max: 110, step: 15 },
+        takeProfitPips: { min: 40, max: 220, step: 20 },
+      },
+      trailingStopPips: [null, 25],
+    });
   });
 
   it('keeps the parabolicSar profile step within the SAR_MIN_STEP policy', () => {
@@ -675,6 +708,20 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     ).toBe(140);
   });
 
+  it('pins the Alligator 140-combination SL/TP grid', async () => {
+    const { valuesFromRange } = await import('../src/lib/optimize.ts');
+    const { stopLossPips, takeProfitPips } = ENTRY_TYPE_PROFILES.alligator.parameterRanges;
+    expect(valuesFromRange(stopLossPips)).toEqual([20, 35, 50, 65, 80, 95, 110]);
+    expect(valuesFromRange(takeProfitPips)).toEqual([
+      40, 60, 80, 100, 120, 140, 160, 180, 200, 220,
+    ]);
+    expect(
+      valuesFromRange(stopLossPips).length *
+        valuesFromRange(takeProfitPips).length *
+        ENTRY_TYPE_PROFILES.alligator.trailingStopPips.length,
+    ).toBe(140);
+  });
+
   it('covers every pair, entry type, and suitable timeframe exactly once', () => {
     const matrix = buildCandidateMatrix();
     const expectedCount =
@@ -688,12 +735,13 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
         `${target.strategy.meta.pair}:${target.entryType}:${target.strategy.meta.timeframe}`,
     );
 
-    expect(expectedCount).toBe(204);
-    expect(matrix).toHaveLength(204);
-    expect(matrix.filter((target) => target.entryType !== 'stochCross')).toHaveLength(192);
+    expect(expectedCount).toBe(216);
+    expect(matrix).toHaveLength(216);
+    expect(matrix.filter((target) => target.entryType !== 'alligator')).toHaveLength(204);
     expect(matrix.filter((target) => target.entryType === 'ao')).toHaveLength(12);
     expect(matrix.filter((target) => target.entryType === 'envelope')).toHaveLength(12);
     expect(matrix.filter((target) => target.entryType === 'stochCross')).toHaveLength(12);
+    expect(matrix.filter((target) => target.entryType === 'alligator')).toHaveLength(12);
     expect(new Set(triples).size).toBe(expectedCount);
     expect(new Set(matrix.map((target) => target.id)).size).toBe(expectedCount);
     expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(expectedCount);
@@ -724,10 +772,10 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     }
   });
 
-  it('keeps the existing 192 candidates deeply equal after adding stochCross', () => {
+  it('keeps the existing 204 candidates deeply equal after adding Alligator', () => {
     const matrix = buildCandidateMatrix();
 
-    expect(matrix.filter((target) => target.entryType !== 'stochCross')).toEqual(
+    expect(matrix.filter((target) => target.entryType !== 'alligator')).toEqual(
       expectedLegacyCandidateMatrix(),
     );
   });
@@ -1091,6 +1139,34 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     ]);
   });
 
+  it('assigns Alligator candidates to entry-type index 17 with exact triples', () => {
+    const matrix = buildCandidateMatrix();
+    const alligatorCandidates = matrix.filter((target) => target.entryType === 'alligator');
+
+    expect(alligatorCandidates).toHaveLength(12);
+    expect(candidateMagicNumber(0, 17, 0)).toBe(1783200070);
+    expect(
+      alligatorCandidates.map((target) => [
+        target.strategy.meta.pair,
+        target.strategy.meta.timeframe,
+        target.strategy.magicNumber,
+      ]),
+    ).toEqual([
+      ['USDJPY', 'h1', 1783200070],
+      ['USDJPY', 'h4', 1783200071],
+      ['EURUSD', 'h1', 1783200170],
+      ['EURUSD', 'h4', 1783200171],
+      ['GBPJPY', 'h1', 1783200270],
+      ['GBPJPY', 'h4', 1783200271],
+      ['EURJPY', 'h1', 1783200370],
+      ['EURJPY', 'h4', 1783200371],
+      ['GBPUSD', 'h1', 1783200470],
+      ['GBPUSD', 'h4', 1783200471],
+      ['AUDJPY', 'h1', 1783200570],
+      ['AUDJPY', 'h4', 1783200571],
+    ]);
+  });
+
   it('parses repeated and comma-separated filters and applies them together', () => {
     const filters = parseCliArgs([
       '--pair=usdjpy,EURUSD',
@@ -1123,18 +1199,19 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('supports each filter independently', () => {
     const matrix = buildCandidateMatrix();
 
-    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(34);
+    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(36);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'rsi']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'donchianBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'stochastic']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'stochCross']))).toHaveLength(12);
+    expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'alligator']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'ichimokuCross']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'keltnerBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'cciBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'adxTrend']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'parabolicSar']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'm30']))).toHaveLength(30);
-    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(102);
+    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(108);
     expect(() => parseCliArgs(['--timeframe', 'm15'])).toThrow(/Invalid value for --timeframe/);
   });
 
@@ -2218,7 +2295,7 @@ describe('tune-virtual-strategies JSON report', () => {
     expect(evaluatedIds).toEqual(['tune-rsi-eurusd-h1-v1']);
     expect(results).toHaveLength(1);
     expect(cleanupCalled).toBe(true);
-    expect(logs[0]).toBe('チューニング候補: 1/204件');
+    expect(logs[0]).toBe('チューニング候補: 1/216件');
     expect(writtenReport).toMatchObject({
       filters: { pairs: ['EURUSD'], entryTypes: ['rsi'], timeframes: ['h1'] },
       summary: { candidateCount: 1 },

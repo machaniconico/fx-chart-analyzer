@@ -37,6 +37,7 @@ export const knownEntryConditionTypes = Object.freeze([
   'ao',
   'rvi',
   'envelope',
+  'alligator',
 ]);
 const knownEntryConditionTypeSet = new Set(knownEntryConditionTypes);
 
@@ -354,6 +355,46 @@ const assertEntryCondition = (condition, context, index) => {
         'must be a positive integer greater than or equal to 2 and less than or equal to 1000',
       );
       assertPositiveFiniteNumberField(conditionContext, condition, 'deviation');
+      break;
+    case 'alligator':
+      for (const field of ['jawPeriod', 'teethPeriod', 'lipsPeriod']) {
+        assertConditionField(
+          conditionContext,
+          condition,
+          field,
+          (value) => Number.isInteger(value) && value >= 2 && value <= 1000,
+          'must be an integer between 2 and 1000',
+        );
+      }
+      if (condition.jawPeriod <= condition.teethPeriod) {
+        throw new Error(
+          `${conditionContext}.jawPeriod must be greater than teethPeriod`,
+        );
+      }
+      if (condition.teethPeriod <= condition.lipsPeriod) {
+        throw new Error(
+          `${conditionContext}.teethPeriod must be greater than lipsPeriod`,
+        );
+      }
+      for (const field of ['jawShift', 'teethShift', 'lipsShift']) {
+        assertConditionField(
+          conditionContext,
+          condition,
+          field,
+          (value) => Number.isInteger(value) && value >= 0 && value <= 500,
+          'must be an integer between 0 and 500',
+        );
+      }
+      if (condition.jawShift <= condition.teethShift) {
+        throw new Error(
+          `${conditionContext}.jawShift must be greater than teethShift`,
+        );
+      }
+      if (condition.teethShift <= condition.lipsShift) {
+        throw new Error(
+          `${conditionContext}.teethShift must be greater than lipsShift`,
+        );
+      }
       break;
     default:
       throw new Error(`${conditionContext}.type ${condition.type} has no parameter validation`);
