@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  adx,
   atr,
   bollingerBands,
   cci,
@@ -67,6 +68,34 @@ describe('indicators', () => {
     expect(values.slice(0, 3)).toEqual([null, null, null]);
     expectNullableCloseTo(values[3], 133.33333333333334);
     expectNullableCloseTo(cci([10, 10, 10], [10, 10, 10], [10, 10, 10], 3)[2], 0);
+  });
+
+  it('calculates MetaTrader iADX EMA buffers with staged warm-up and safe zero divisions', () => {
+    const result = adx(
+      [10, 9, 10, 9, 10],
+      [10, 9, 10, 9, 10],
+      [10, 9, 10, 9, 10],
+      2,
+    );
+
+    expect(result.plusDi.slice(0, 2)).toEqual([null, null]);
+    expect(result.minusDi.slice(0, 2)).toEqual([null, null]);
+    expect(result.adx.slice(0, 4)).toEqual([null, null, null, null]);
+    expectNullableCloseTo(result.plusDi[2], 200 / 3);
+    expectNullableCloseTo(result.plusDi[3], 200 / 9);
+    expectNullableCloseTo(result.minusDi[3], 2000 / 27);
+    expect(result.adx[4]).toBe(51.47198480531814);
+
+    const flat = adx([10, 10, 10], [10, 10, 10], [10, 10, 10], 1);
+    expect(flat.plusDi).toEqual([null, 0, 0]);
+    expect(flat.minusDi).toEqual([null, 0, 0]);
+    expect(flat.adx).toEqual([null, null, 0]);
+  });
+
+  it('rejects ADX input arrays with different lengths', () => {
+    expect(() => adx([1, 2], [1], [1, 2], 2)).toThrow(
+      'highs, lows, and closes must have the same length',
+    );
   });
 
   it('rejects CCI input arrays with different lengths', () => {

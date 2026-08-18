@@ -263,6 +263,7 @@ describe('mql generation', () => {
       { type: 'stochastic', kPeriod: 14, dPeriod: 3, smoothing: 3, threshold: 20, comparison: 'crossBelow' },
       { type: 'keltnerBreak', emaPeriod: 20, atrPeriod: 10, multiplier: 2 },
       { type: 'cciBreak', period: 14, level: 100 },
+      { type: 'adxTrend', period: 14, threshold: 25 },
     ];
     for (const condition of allConditions) {
       const source = generateMql4({
@@ -482,6 +483,53 @@ describe('mql generation', () => {
     expectBalanced(mql4);
     await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-cciBreak.mq5'));
     await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-cciBreak.mq4'));
+  });
+
+  it('generates native iADX DI crosses with an inclusive ADX filter and warm-up guard', async () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [{ type: 'adxTrend', period: 14, threshold: 25 }],
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    expect(mql5).toContain('input int InpADX1Period = 14;');
+    expect(mql5).toContain('input double InpADX1Threshold = 25;');
+    expect(mql5).toContain('int adx1Handle = INVALID_HANDLE;');
+    expect(mql5).toContain('int adx1Period = InpADX1Period;');
+    expect(mql5).toContain('adx1Handle = iADX(_Symbol, _Period, adx1Period);');
+    expect(mql5).toContain('double previousPlusDi = BufferValue(adx1Handle, PLUSDI_LINE, 2);');
+    expect(mql5).toContain('double previousMinusDi = BufferValue(adx1Handle, MINUSDI_LINE, 2);');
+    expect(mql5).toContain('double previousAdx = BufferValue(adx1Handle, MAIN_LINE, 2);');
+    expect(mql5).toContain('double currentPlusDi = BufferValue(adx1Handle, PLUSDI_LINE, 1);');
+    expect(mql5).toContain('double currentMinusDi = BufferValue(adx1Handle, MINUSDI_LINE, 1);');
+    expect(mql5).toContain('double currentAdx = BufferValue(adx1Handle, MAIN_LINE, 1);');
+    expect(mql5).toContain('if(iTime(_Symbol, _Period, period * 2 + 1) == 0)');
+    expect(mql5).toContain('if(!(threshold > 0.0) || !(threshold < 100.0))');
+    expect(mql5).toContain('CrossedAbove(previousPlusDi, previousMinusDi, currentPlusDi, currentMinusDi)');
+    expect(mql5).toContain('CrossedBelow(previousPlusDi, previousMinusDi, currentPlusDi, currentMinusDi)');
+    expect(mql5).toContain('ReleaseIndicator(adx1Handle);');
+    expect(mql5).not.toContain('iADX(NULL, 0');
+
+    expect(mql4).toContain('input int InpADX1Period = 14;');
+    expect(mql4).toContain('input double InpADX1Threshold = 25;');
+    expect(mql4).toContain('double previousPlusDi = iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_PLUSDI, 2);');
+    expect(mql4).toContain('double previousMinusDi = iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_MINUSDI, 2);');
+    expect(mql4).toContain('double previousAdx = iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_MAIN, 2);');
+    expect(mql4).toContain('double currentPlusDi = iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_PLUSDI, 1);');
+    expect(mql4).toContain('double currentMinusDi = iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_MINUSDI, 1);');
+    expect(mql4).toContain('double currentAdx = iADX(_Symbol, _Period, period, PRICE_CLOSE, MODE_MAIN, 1);');
+    expect(mql4).toContain('if(iTime(_Symbol, _Period, period * 2 + 1) == 0)');
+    expect(mql4).toContain('if(!(threshold > 0.0) || !(threshold < 100.0))');
+    expect(mql4).toContain('CrossedAbove(previousPlusDi, previousMinusDi, currentPlusDi, currentMinusDi)');
+    expect(mql4).toContain('CrossedBelow(previousPlusDi, previousMinusDi, currentPlusDi, currentMinusDi)');
+    expect(mql4).not.toContain('iADX(NULL, 0');
+
+    expectBalanced(mql5);
+    expectBalanced(mql4);
+    await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-adxTrend.mq5'));
+    await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-adxTrend.mq4'));
   });
 
   it('generates Ichimoku cross signals with shift parity and mirrored cloud rules for MQL4 and MQL5', () => {
