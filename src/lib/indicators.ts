@@ -34,6 +34,11 @@ export interface AdxResult {
   adx: IndicatorPoint[];
 }
 
+export interface RviResult {
+  rvi: IndicatorPoint[];
+  signal: IndicatorPoint[];
+}
+
 export interface ParabolicSarResult {
   sar: IndicatorPoint[];
   isLong: Array<boolean | null>;
@@ -358,6 +363,152 @@ export const momentum = (closes: readonly number[], period: number): IndicatorPo
   }
 
   return result;
+};
+
+/**
+ * MetaTrader 5 Relative Vigor Index parity.
+ *
+ * The official MT5 terminal help describes the numerator as:
+ * "MovAverage = (CLOSE-OPEN) + 2 * (CLOSE-1 - OPEN-1) + 2 * (CLOSE-2 - OPEN-2) + (CLOSE-3 - OPEN-3)"
+ * and the denominator with the same weighting:
+ * "RangeAverage = (HIGH-LOW) + 2 x (HIGH-1 - LOW-1) + 2 x (HIGH-2 - LOW-2) + (HIGH-3 - LOW-3)".
+ * and the signal line as:
+ * "RVIsignal = (RVIaverage + 2 * RVIaverage-1 + 2 * RVIaverage-2 + RVIaverage-3)/6".
+ * It also specifies the corresponding symmetrically weighted average of
+ * HIGH-LOW for the denominator. Source (primary, MetaTrader 5 terminal help):
+ * https://www.metatrader5.com/en/terminal/help/indicators/oscillators/rvi
+ *
+ * Adopted formula (the 4-period averages are normalized by /6):
+ * `MA = ((CLOSE-OPEN) + 2*(CLOSE-1-OPEN-1) + 2*(CLOSE-2-OPEN-2) +
+ * (CLOSE-3-OPEN-3))/6`, `RANGE = ((HIGH-LOW) + 2*(HIGH-1-LOW-1) +
+ * 2*(HIGH-2-LOW-2) + (HIGH-3-LOW-3))/6`, and
+ * `RVI = SUM(MA, period) / SUM(RANGE, period)`.
+ *
+ * Keep the generated-MQL operation order: divide each 4-bar numerator and
+ * range average by 6, divide the period sums, then divide the signal SWMA by
+ * 6. Do not algebraically move any of those divisions; exact cross boundaries
+ * depend on the resulting IEEE-754 values.
+ *
+ * Note: the terminal-bundled RVI.mq5 accumulates raw (undivided) sums — the
+ * /6 cancels in the ratio algebraically but NOT bit-for-bit in IEEE-754, so
+ * this per-bar /6 form can differ from the terminal's on-screen buffer by
+ * rounding. Our parity contract is TS ↔ generated MQL (US-1502 mirrors this
+ * exact /6 order), not TS ↔ terminal display.
+ *
+ * MT5's first RVI value is exposed at `period + 3`, and its signal line needs
+ * three more RVI values. Any incomplete/non-finite source window or a zero
+ * denominator sum remains null (fail-closed).
+ */
+export const rvi = (
+  opens: readonly number[],
+  highs: readonly number[],
+  lows: readonly number[],
+  closes: readonly number[],
+  period: number,
+): RviResult => {
+  assertPeriod(period);
+  if (
+    opens.length !== highs.length ||
+    opens.length !== lows.length ||
+    opens.length !== closes.length
+  ) {
+    throw new Error('opens, highs, lows, and closes must have the same length');
+  }
+
+  const rviValues: IndicatorPoint[] = Array(closes.length).fill(null);
+  const signal: IndicatorPoint[] = Array(closes.length).fill(null);
+  const numeratorAverages: IndicatorPoint[] = Array(closes.length).fill(null);
+  const rangeAverages: IndicatorPoint[] = Array(closes.length).fill(null);
+
+  for (let i = 3; i < closes.length; i += 1) {
+    const inputs = [i, i - 1, i - 2, i - 3];
+    if (
+      inputs.some(
+        (index) =>
+          !Number.isFinite(opens[index]) ||
+          !Number.isFinite(highs[index]) ||
+          !Number.isFinite(lows[index]) ||
+          !Number.isFinite(closes[index]),
+      )
+    ) {
+      continue;
+    }
+
+    const numeratorAverage =
+      ((closes[i] - opens[i]) +
+        2 * (closes[i - 1] - opens[i - 1]) +
+        2 * (closes[i - 2] - opens[i - 2]) +
+        (closes[i - 3] - opens[i - 3])) /
+      6;
+    const rangeAverage =
+      ((highs[i] - lows[i]) +
+        2 * (highs[i - 1] - lows[i - 1]) +
+        2 * (highs[i - 2] - lows[i - 2]) +
+        (highs[i - 3] - lows[i - 3])) /
+      6;
+
+    if (Number.isFinite(numeratorAverage) && Number.isFinite(rangeAverage)) {
+      numeratorAverages[i] = numeratorAverage;
+      rangeAverages[i] = rangeAverage;
+    }
+  }
+
+  for (let i = period + 3; i < closes.length; i += 1) {
+    let numeratorSum = 0;
+    let rangeSum = 0;
+    let complete = true;
+
+    for (let offset = i - period + 1; offset <= i; offset += 1) {
+      const numeratorAverage = numeratorAverages[offset];
+      const rangeAverage = rangeAverages[offset];
+      if (
+        typeof numeratorAverage !== 'number' ||
+        !Number.isFinite(numeratorAverage) ||
+        typeof rangeAverage !== 'number' ||
+        !Number.isFinite(rangeAverage)
+      ) {
+        complete = false;
+        break;
+      }
+      numeratorSum += numeratorAverage;
+      rangeSum += rangeAverage;
+    }
+
+    if (!complete || !Number.isFinite(numeratorSum) || !Number.isFinite(rangeSum) || rangeSum === 0) {
+      continue;
+    }
+
+    const value = numeratorSum / rangeSum;
+    if (Number.isFinite(value)) {
+      rviValues[i] = value;
+    }
+  }
+
+  for (let i = period + 6; i < closes.length; i += 1) {
+    const current = rviValues[i];
+    const previous = rviValues[i - 1];
+    const twoBarsAgo = rviValues[i - 2];
+    const threeBarsAgo = rviValues[i - 3];
+    if (
+      typeof current !== 'number' ||
+      !Number.isFinite(current) ||
+      typeof previous !== 'number' ||
+      !Number.isFinite(previous) ||
+      typeof twoBarsAgo !== 'number' ||
+      !Number.isFinite(twoBarsAgo) ||
+      typeof threeBarsAgo !== 'number' ||
+      !Number.isFinite(threeBarsAgo)
+    ) {
+      continue;
+    }
+
+    const value = (current + 2 * previous + 2 * twoBarsAgo + threeBarsAgo) / 6;
+    if (Number.isFinite(value)) {
+      signal[i] = value;
+    }
+  }
+
+  return { rvi: rviValues, signal };
 };
 
 /**

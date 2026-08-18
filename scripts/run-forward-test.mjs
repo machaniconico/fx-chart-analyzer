@@ -32,6 +32,7 @@ export const knownEntryConditionTypes = Object.freeze([
   'adxTrend',
   'parabolicSar',
   'momentum',
+  'rvi',
 ]);
 const knownEntryConditionTypeSet = new Set(knownEntryConditionTypes);
 
@@ -265,6 +266,19 @@ const assertEntryCondition = (condition, context, index) => {
       // period 1 is a one-bar ROC with maximum noise; keep the same 2-bar
       // registration floor used by cciBreak/adxTrend while the evaluator
       // itself remains hard-domain compatible with period >= 1.
+      assertConditionField(
+        conditionContext,
+        condition,
+        'period',
+        (value) => positiveInteger(value) && value >= 2 && value <= 1000,
+        'must be a positive integer greater than or equal to 2 and less than or equal to 1000',
+      );
+      break;
+    case 'rvi':
+      // period 1 has a one-item SUM window, so RVI degenerates to SWMA
+      // smoothing only and has the highest noise. Match the momentum,
+      // cciBreak, and adxTrend registration-floor precedent; keep the
+      // evaluator hard domain at period >= 1 and enforce policy at registration.
       assertConditionField(
         conditionContext,
         condition,

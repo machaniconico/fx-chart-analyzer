@@ -271,6 +271,7 @@ export const ENTRY_TYPE_PROFILES = Object.freeze({
     timeframes: Object.freeze(['h1', 'h4']),
     entryCondition: Object.freeze({
       type: 'parabolicSar',
+      // Keep this literal synchronized with SAR_MIN_STEP in src/lib/indicators.ts.
       step: 0.02,
       maximum: 0.2,
     }),
@@ -287,6 +288,20 @@ export const ENTRY_TYPE_PROFILES = Object.freeze({
     entryCondition: Object.freeze({
       type: 'momentum',
       period: 14,
+    }),
+    exit: Object.freeze({ stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true }),
+    parameterRanges: Object.freeze({
+      stopLossPips: Object.freeze(rangeWithSteps(20, 110, 7)),
+      takeProfitPips: Object.freeze(rangeWithSteps(40, 220, 10)),
+    }),
+    trailingStopPips: Object.freeze([null, 25]),
+  }),
+  rvi: Object.freeze({
+    label: 'RVIシグナルラインクロス順張り',
+    timeframes: Object.freeze(['h1', 'h4']),
+    entryCondition: Object.freeze({
+      type: 'rvi',
+      period: 10,
     }),
     exit: Object.freeze({ stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true }),
     parameterRanges: Object.freeze({

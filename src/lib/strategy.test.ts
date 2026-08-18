@@ -17,6 +17,24 @@ const bar = (index: number, high: number, low: number, close: number): Bar => ({
   v: 1,
 });
 
+const rviBar = (
+  index: number,
+  open: number,
+  high: number,
+  low: number,
+  close: number,
+): Bar => ({
+  t: index * 60,
+  o: open,
+  h: high,
+  l: low,
+  c: close,
+  v: 1,
+});
+
+const rviBarsFromDeltas = (deltas: readonly number[]): Bar[] =>
+  deltas.map((delta, index) => rviBar(index, 10, 15, 5, 10 + delta));
+
 const barsFrom = (
   highs: readonly number[],
   lows: readonly number[],
@@ -340,6 +358,134 @@ describe('strategy evaluator', () => {
     const withFuture = [...bars, bar(3, 9, 9, 9)];
     expect(createStrategyEvaluator(bars).isEntrySignal(strategyFor(condition), 2)).toBe(true);
     expect(createStrategyEvaluator(withFuture).isEntrySignal(strategyFor(condition), 2)).toBe(true);
+  });
+
+  it('evaluates RVI signal-line crosses with exact equality boundaries and mirror directions', () => {
+    const condition = { type: 'rvi' as const, period: 1 };
+    const longBars = rviBarsFromDeltas([...Array(8).fill(0), 2]);
+    const shortBars = rviBarsFromDeltas([...Array(8).fill(0), -2]);
+    const flatBars = rviBarsFromDeltas(Array(9).fill(0));
+
+    const longValues = indicators.rvi(
+      longBars.map((item) => item.o),
+      longBars.map((item) => item.h),
+      longBars.map((item) => item.l),
+      longBars.map((item) => item.c),
+      condition.period,
+    );
+    expect(longValues.rvi[7]).toBe(0);
+    expect(longValues.signal[7]).toBe(0);
+    expect(longValues.rvi[8]).toBeGreaterThan(longValues.signal[8] as number);
+    expect(createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition), 8)).toBe(true);
+    expect(
+      createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition, 'short'), 8),
+    ).toBe(false);
+
+    const shortValues = indicators.rvi(
+      shortBars.map((item) => item.o),
+      shortBars.map((item) => item.h),
+      shortBars.map((item) => item.l),
+      shortBars.map((item) => item.c),
+      condition.period,
+    );
+    expect(shortValues.rvi[7]).toBe(0);
+    expect(shortValues.signal[7]).toBe(0);
+    expect(shortValues.rvi[8]).toBeLessThan(shortValues.signal[8] as number);
+    expect(
+      createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition, 'short'), 8),
+    ).toBe(true);
+    expect(createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition), 8)).toBe(false);
+
+    const flatValues = indicators.rvi(
+      flatBars.map((item) => item.o),
+      flatBars.map((item) => item.h),
+      flatBars.map((item) => item.l),
+      flatBars.map((item) => item.c),
+      condition.period,
+    );
+    // Both lines are exactly equal at the signal bar: strict current-bar
+    // comparison must keep this from firing in either direction.
+    expect(flatValues.rvi[8]).toBe(flatValues.signal[8]);
+    expect(createStrategyEvaluator(flatBars).isEntrySignal(strategyFor(condition), 8)).toBe(false);
+    expect(
+      createStrategyEvaluator(flatBars).isEntrySignal(strategyFor(condition, 'short'), 8),
+    ).toBe(false);
+  });
+
+  it('fails closed for RVI warm-up, invalid periods, non-finite inputs, and zero ranges', () => {
+    const condition = { type: 'rvi' as const, period: 1 };
+    const warmupBars = rviBarsFromDeltas(Array(8).fill(0));
+    const warmupValues = indicators.rvi(
+      warmupBars.map((item) => item.o),
+      warmupBars.map((item) => item.h),
+      warmupBars.map((item) => item.l),
+      warmupBars.map((item) => item.c),
+      condition.period,
+    );
+    expect(warmupValues.rvi[condition.period + 2]).toBeNull();
+    expect(warmupValues.rvi[condition.period + 3]).toBe(0);
+    expect(warmupValues.signal[condition.period + 5]).toBeNull();
+    expect(warmupValues.signal[condition.period + 6]).toBe(0);
+    expect(createStrategyEvaluator(warmupBars).isEntrySignal(strategyFor(condition), 7)).toBe(false);
+
+    // All invalid values would cross at index 9 if the guard fell back to a
+    // rounded/normalized period, so every false assertion exercises the guard.
+    const periodGuardBars = rviBarsFromDeltas([...Array(9).fill(0), 2]);
+    const periodGuardEvaluator = createStrategyEvaluator(periodGuardBars);
+    expect(
+      periodGuardEvaluator.isEntrySignal(strategyFor({ type: 'rvi', period: 1 }), 9),
+    ).toBe(true);
+    for (const period of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(
+        periodGuardEvaluator.isEntrySignal(strategyFor({ type: 'rvi', period }), 9),
+      ).toBe(false);
+    }
+
+    const nonFiniteBars = rviBarsFromDeltas([...Array(8).fill(0), 2]);
+    nonFiniteBars[8] = rviBar(8, Number.NaN, 15, 5, 12);
+    expect(createStrategyEvaluator(nonFiniteBars).isEntrySignal(strategyFor(condition), 8)).toBe(
+      false,
+    );
+
+    const zeroRangeBars = rviBarsFromDeltas([...Array(8).fill(0), 2]).map((item) => ({
+      ...item,
+      h: 10,
+      l: 10,
+    }));
+    expect(createStrategyEvaluator(zeroRangeBars).isEntrySignal(strategyFor(condition), 8)).toBe(
+      false,
+    );
+  });
+
+  it('memoizes RVI by period and ignores a future shock at the evaluated bar', () => {
+    const rviSpy = vi.spyOn(indicators, 'rvi');
+    const condition = { type: 'rvi' as const, period: 1 };
+    const secondCondition = { ...condition };
+    const bars = rviBarsFromDeltas([...Array(8).fill(0), 2]);
+    const strategy = {
+      ...strategyFor(condition),
+      entryConditions: [condition, secondCondition],
+    };
+
+    try {
+      expect(createStrategyEvaluator(bars).isEntrySignal(strategy, 8)).toBe(true);
+      expect(rviSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
+
+    // The future close is a strong downward shock: a look-ahead implementation
+    // using bar 9 while judging bar 8 would reverse this long cross.
+    const withFuture = [...bars, rviBar(9, 10, 15, 5, -90)];
+    expect(createStrategyEvaluator(bars).isEntrySignal(strategyFor(condition), 8)).toBe(true);
+    expect(createStrategyEvaluator(withFuture).isEntrySignal(strategyFor(condition), 8)).toBe(true);
+
+    // RVI は look-ahead 可能な系列(rvi と signal)を2本比較する型なので、
+    // ショックは両方向必要: 下方向は rvi 側の覗きを暴くが signal 側の覗きを
+    // 隠す(実測: 未来close -90 では signal 覗きが不可視、+90/+100 で false に
+    // 反転し検出可能)。上方向ショックで signal 側の look-ahead を固定する。
+    const withFutureUp = [...bars, rviBar(9, 10, 15, 5, 100)];
+    expect(createStrategyEvaluator(withFutureUp).isEntrySignal(strategyFor(condition), 8)).toBe(true);
   });
 
   it('memoizes CCI values by normalized period', () => {
@@ -809,5 +955,6 @@ describe('strategy evaluator', () => {
       'SAR0.02/0.2 フリップ',
     );
     expect(conditionLabel({ type: 'momentum', period: 14 })).toBe('Momentum14 100クロス');
+    expect(conditionLabel({ type: 'rvi', period: 10 })).toBe('RVI10 シグナルクロス');
   });
 });

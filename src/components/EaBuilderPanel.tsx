@@ -33,6 +33,7 @@ import {
   type MovingAverageType,
   type MomentumCondition,
   type ParabolicSarCondition,
+  type RviCondition,
   type RsiComparison,
   type RsiCondition,
   type StochasticCondition,
@@ -125,6 +126,11 @@ const defaultParabolicSarCondition = (): ParabolicSarCondition => ({
 const defaultMomentumCondition = (): MomentumCondition => ({
   type: 'momentum',
   period: 14,
+});
+
+const defaultRviCondition = (): RviCondition => ({
+  type: 'rvi',
+  period: 10,
 });
 
 const defaultMacdCondition = (): MacdCrossCondition => ({
@@ -240,7 +246,7 @@ const timeTextPattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const ichimokuDisplacementWarning =
   '先行スパン変位(displacement)が基準線期間と異なる場合、MT4/MT5のEAでは基準線期間の変位で動作します(バックテストと乖離)';
 
-const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
+export const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
   const messages: string[] = [];
   for (const condition of strategy.entryConditions) {
     if (condition.type === 'maCross' && condition.fastPeriod >= condition.slowPeriod) {
@@ -248,6 +254,27 @@ const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
     }
     if (condition.type === 'macdCross' && condition.fastPeriod >= condition.slowPeriod) {
       messages.push('MACDは短期期間を長期期間より小さくしてください。');
+    }
+    if (
+      condition.type === 'rsi' &&
+      (!Number.isInteger(condition.period) ||
+        condition.period < 2 ||
+        !Number.isFinite(condition.threshold) ||
+        condition.threshold <= 0 ||
+        condition.threshold >= 100)
+    ) {
+      // RSI period 1 degenerates to 0/100; two samples are the minimum useful window.
+      messages.push('RSIの期間は2以上の整数、閾値は0より大きく100未満の有限値にしてください。');
+    }
+    if (
+      condition.type === 'bollinger' &&
+      (!Number.isInteger(condition.period) ||
+        condition.period < 2 ||
+        !Number.isFinite(condition.multiplier) ||
+        condition.multiplier <= 0)
+    ) {
+      // Standard deviation needs at least two samples; any finite positive multiplier is valid.
+      messages.push('ボリンジャーの期間は2以上の整数、倍率は0より大きい有限値にしてください。');
     }
     if (
       condition.type === 'ichimokuCross' &&
@@ -312,6 +339,12 @@ const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
       (!Number.isInteger(condition.period) || condition.period < 2 || condition.period > 1000)
     ) {
       messages.push('Momentumの期間は2以上1000以下の整数にしてください。');
+    }
+    if (
+      condition.type === 'rvi' &&
+      (!Number.isInteger(condition.period) || condition.period < 2 || condition.period > 1000)
+    ) {
+      messages.push('RVIの期間は2以上1000以下の整数にしてください。');
     }
     if (
       condition.type === 'stochastic' &&
@@ -519,6 +552,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const adxCondition = getCondition('adxTrend');
   const parabolicSarCondition = getCondition('parabolicSar');
   const momentumCondition = getCondition('momentum');
+  const rviCondition = getCondition('rvi');
 
   const updateMoneyManagement = (
     updater: (current: typeof moneyManagement) => typeof moneyManagement,
@@ -1459,10 +1493,20 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                     type="number"
                     value={parabolicSarCondition.step}
                     onChange={(event) =>
-                      updateCondition('parabolicSar', defaultParabolicSarCondition, (condition) => ({
-                        ...condition,
-                        step: numericInput(event.target.value, condition.step, SAR_MIN_STEP, SAR_MIN_STEP, 0.999),
-                      }))
+                      updateCondition('parabolicSar', defaultParabolicSarCondition, (condition) => {
+                        const step = numericInput(
+                          event.target.value,
+                          condition.step,
+                          SAR_MIN_STEP,
+                          SAR_MIN_STEP,
+                          0.999,
+                        );
+                        return {
+                          ...condition,
+                          step,
+                          maximum: Math.max(condition.maximum, step),
+                        };
+                      })
                     }
                   />
                 </label>
@@ -1519,6 +1563,41 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                 </label>
                 <small className="control-hint">
                   Momentumの期間は2以上1000以下の整数にしてください
+                </small>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('rvi')}
+                onChange={(event) =>
+                  toggleCondition('rvi', event.target.checked, defaultRviCondition)
+                }
+              />
+              <span>RVIシグナルラインクロス</span>
+            </label>
+            {rviCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>期間</span>
+                  <input
+                    max="1000"
+                    min="2"
+                    type="number"
+                    value={rviCondition.period}
+                    onChange={(event) =>
+                      updateCondition('rvi', defaultRviCondition, (condition) => ({
+                        ...condition,
+                        period: integerInput(event.target.value, condition.period, 10, 2, 1000),
+                      }))
+                    }
+                  />
+                </label>
+                <small className="control-hint">
+                  RVIの期間は2以上1000以下の整数にしてください
                 </small>
               </div>
             )}

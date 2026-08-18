@@ -10,6 +10,7 @@ import {
   macd,
   momentum,
   parabolicSar,
+  rvi,
   rsi,
   sma,
   stochastic,
@@ -23,6 +24,7 @@ import type {
   KeltnerChannel,
   MacdResult,
   ParabolicSarResult,
+  RviResult,
   StochasticResult,
 } from './indicators';
 import type { Bar, Pair } from '../types';
@@ -107,6 +109,11 @@ export interface MomentumCondition {
   period: number;
 }
 
+export interface RviCondition {
+  type: 'rvi';
+  period: number;
+}
+
 export interface StochasticCondition {
   type: 'stochastic';
   kPeriod: number;
@@ -128,7 +135,8 @@ export type EntryCondition =
   | CciBreakCondition
   | AdxTrendCondition
   | ParabolicSarCondition
-  | MomentumCondition;
+  | MomentumCondition
+  | RviCondition;
 
 export interface ExitRules {
   stopLossPips: number;
@@ -292,6 +300,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `SAR${condition.step}/${condition.maximum} フリップ`;
     case 'momentum':
       return `Momentum${condition.period} 100クロス`;
+    case 'rvi':
+      return `RVI${condition.period} シグナルクロス`;
   }
 };
 
@@ -347,6 +357,7 @@ type CachedKeltnerChannel = ReadonlyIndicatorResult<KeltnerChannel>;
 type CachedStochasticResult = ReadonlyIndicatorResult<StochasticResult>;
 type CachedAdxResult = ReadonlyIndicatorResult<AdxResult>;
 type CachedParabolicSarResult = ReadonlyIndicatorResult<ParabolicSarResult>;
+type CachedRviResult = ReadonlyIndicatorResult<RviResult>;
 
 type KeltnerEvaluation = {
   readonly channel: CachedKeltnerChannel;
@@ -354,6 +365,7 @@ type KeltnerEvaluation = {
 };
 
 export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator => {
+  const opens = bars.map((bar) => bar.o);
   const closes = bars.map((bar) => bar.c);
   const highs = bars.map((bar) => bar.h);
   const lows = bars.map((bar) => bar.l);
@@ -370,6 +382,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const adxCache = new Map<number, CachedAdxResult>();
   const parabolicSarCache = new Map<string, CachedParabolicSarResult>();
   const momentumCache = new Map<number, CachedIndicatorValues>();
+  const rviCache = new Map<number, CachedRviResult>();
 
   const getMa = (type: MovingAverageType, period: number): CachedIndicatorValues => {
     const normalizedPeriod = normalizePeriod(period);
@@ -574,6 +587,16 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
+  const getRvi = (period: number): CachedRviResult => {
+    const cached = rviCache.get(period);
+    if (cached) {
+      return cached;
+    }
+    const values = rvi(opens, highs, lows, closes, period);
+    rviCache.set(period, values);
+    return values;
+  };
+
   const evaluateCondition = (
     condition: EntryCondition,
     index: number,
@@ -744,6 +767,29 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
         // MQL mirror: include equality on the prior bar (<=/>=), but require
         // a strict move away from the 100 line on the signal bar (>/<).
         return isShort ? previous >= 100 && current < 100 : previous <= 100 && current > 100;
+      }
+      case 'rvi': {
+        if (!Number.isInteger(condition.period) || condition.period < 1) {
+          return false;
+        }
+        const values = getRvi(condition.period);
+        const previousRvi = values.rvi[index - 1];
+        const previousSignal = values.signal[index - 1];
+        const currentRvi = values.rvi[index];
+        const currentSignal = values.signal[index];
+        if (
+          !isNumber(previousRvi) ||
+          !isNumber(previousSignal) ||
+          !isNumber(currentRvi) ||
+          !isNumber(currentSignal)
+        ) {
+          return false;
+        }
+        // Signal-line cross boundary: equality is allowed on the prior bar
+        // (<=/>=), while the signal bar must move strictly across (>/<).
+        return isShort
+          ? previousRvi >= previousSignal && currentRvi < currentSignal
+          : previousRvi <= previousSignal && currentRvi > currentSignal;
       }
       case 'stochastic': {
         const values = getStochastic(
