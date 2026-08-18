@@ -871,6 +871,7 @@ describe('mql generation', () => {
       const conditionStart = source.indexOf('bool Condition1(bool longSide)');
       expect(conditionStart).toBeGreaterThanOrEqual(0);
       const conditionEnd = source.indexOf('\n}', conditionStart);
+      // 論理的には次の toBeGreaterThan で落ちるが、-1 防御の明示を要求した受け入れ基準の意思表示なので冗長でも削除しない。
       expect(conditionEnd).not.toBe(-1);
       expect(conditionEnd).toBeGreaterThan(conditionStart);
       const conditionSource = source.slice(conditionStart, conditionEnd);
