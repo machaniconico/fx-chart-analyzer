@@ -742,10 +742,10 @@ USDJPY h1(rank19)、USDJPY h4(rank6)、EURJPY h4(rank1)の3行は`quarterlyCheck
 | GBPJPY h4 | rejected | 3251 | 736.8333333333334 | 0→0 | 0 | — | なし(合格ゼロ) |
 | EURJPY h1 | rejected | 12092 | 736.9583333333334 | 0→0 | 0 | — | なし(合格ゼロ) |
 | EURJPY h4 | rejected | 3127 | 736.8333333333334 | 0→0 | 0 | — | なし(合格ゼロ) |
-| GBPUSD h1 | passed | 12572 | 736.9583333333334 | 13→13 | 13 | 11位 | passed、3/4 |
+| GBPUSD h1 | passed | 12572 | 736.9583333333334 | 13→13 | 13 | 選択rank11 | passed、3/4 |
 | GBPUSD h4 | rejected | 3251 | 736.8333333333334 | 0→0 | 0 | — | なし(合格ゼロ) |
 | AUDJPY h1 | rejected | 12070 | 736.9583333333334 | 0→0 | 0 | — | なし(合格ゼロ) |
-| AUDJPY h4 | passed | 3121 | 736.8333333333334 | 26→26 | 26 | 1位 | passed、4/4 |
+| AUDJPY h4 | passed | 3121 | 736.8333333333334 | 26→26 | 26 | 選択rank1 | passed、4/4 |
 
 最終合格組合せがゼロの候補は`USDJPY h1`、`EURUSD h1`、`EURUSD h4`、`GBPJPY h1`、`GBPJPY h4`、`EURJPY h1`、`EURJPY h4`、`GBPUSD h4`、`AUDJPY h1`の**9候補**である。`USDJPY h1`は検査前に1行、`USDJPY h4`は検査前に5行が単独ゲートを通過していたが、いずれも上位の四半期検査行が2/4で降格した。`USDJPY h4`の残り4行も候補statusをpassedへ昇格させず、下位の単独生存行を採用候補に繰り上げない契約を維持している。
 
