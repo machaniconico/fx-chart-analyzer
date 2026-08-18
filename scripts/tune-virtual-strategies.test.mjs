@@ -554,7 +554,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       entryCondition: { type: 'envelope', period: 14, deviation: 0.1 },
       exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
       parameterRanges: {
-        stopLossPips: { min: 20, max: 110, step: 15 },
+        stopLossPips: { min: 20, max: 170, step: 15 },
         takeProfitPips: { min: 40, max: 220, step: 20 },
       },
       trailingStopPips: [null, 25],
@@ -607,13 +607,22 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     ).toBe(352);
   });
 
-  it('pins the Envelope 12-candidate grid and magic-number block', async () => {
+  it('pins the Envelope SL/TP grids and 12-candidate magic-number block', async () => {
     const { valuesFromRange } = await import('../src/lib/optimize.ts');
     const { stopLossPips, takeProfitPips } = ENTRY_TYPE_PROFILES.envelope.parameterRanges;
-    expect(valuesFromRange(stopLossPips)).toEqual([20, 35, 50, 65, 80, 95, 110]);
+    const stopLossValues = valuesFromRange(stopLossPips);
+    const legacyStopLossValues = [20, 35, 50, 65, 80, 95, 110];
+
+    expect(stopLossValues).toEqual([20, 35, 50, 65, 80, 95, 110, 125, 140, 155, 170]);
     expect(valuesFromRange(takeProfitPips)).toEqual([
       40, 60, 80, 100, 120, 140, 160, 180, 200, 220,
     ]);
+    expect(legacyStopLossValues.every((value) => stopLossValues.includes(value))).toBe(true);
+    expect(
+      stopLossValues.length *
+        valuesFromRange(takeProfitPips).length *
+        ENTRY_TYPE_PROFILES.envelope.trailingStopPips.length,
+    ).toBe(220);
 
     const envelopeCandidates = buildCandidateMatrix().filter((target) => target.entryType === 'envelope');
     expect(envelopeCandidates).toHaveLength(12);

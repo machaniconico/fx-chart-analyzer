@@ -354,7 +354,12 @@ export const ENTRY_TYPE_PROFILES = Object.freeze({
     }),
     exit: Object.freeze({ stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true }),
     parameterRanges: Object.freeze({
-      stopLossPips: Object.freeze(rangeWithSteps(20, 110, 7)),
+      // ウェーブ20(選定ログ エントリ(16))で最終合格43行中10行がSL110p上端に集中
+      // (AUDJPY h4に5行・GBPUSD h1に4行・USDJPY h4に1行)し打ち切り疑いがあるため上端側を拡張する。
+      // TPは上端合格が1行(AUDJPY h4のTP220)のみで動機薄・多重比較の悪化抑制のため据え置き。
+      // SL下端20pはスプレッド実務床として据え置き。
+      // SL拡幅で1候補140→220組合せ(+57%)=探索面が広がるため、端点合格の再現は新データ確認まで採用根拠にしない。
+      stopLossPips: Object.freeze(rangeWithSteps(20, 170, 11)),
       takeProfitPips: Object.freeze(rangeWithSteps(40, 220, 10)),
     }),
     trailingStopPips: Object.freeze([null, 25]),
