@@ -267,6 +267,7 @@ describe('mql generation', () => {
       { type: 'adxTrend', period: 14, threshold: 25 },
       { type: 'parabolicSar', step: 0.02, maximum: 0.2 },
       { type: 'momentum', period: 14 },
+      { type: 'rvi', period: 10 },
     ];
     for (const condition of allConditions) {
       const source = generateMql4({
@@ -648,6 +649,57 @@ describe('mql generation', () => {
 
     await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-momentum.mq5'));
     await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-momentum.mq4'));
+  });
+
+  it('generates self-calculated RVI signal-line crosses with exact TS arithmetic and guards', async () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [{ type: 'rvi', period: 10 }],
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    for (const source of [mql5, mql4]) {
+      expect(source).toContain('input int InpRVI1Period = 10;');
+      expect(source).toContain('double open0 = iOpen(_Symbol, _Period, shift);');
+      expect(source).toContain('double high0 = iHigh(_Symbol, _Period, shift);');
+      expect(source).toContain('double low0 = iLow(_Symbol, _Period, shift);');
+      expect(source).toContain('double close0 = iClose(_Symbol, _Period, shift);');
+      expect(source).toContain('return ((close0 - open0) +');
+      expect(source).toContain('2 * (close1 - open1)');
+      expect(source).toContain('2 * (high2 - low2)');
+      expect(source).toContain('double numeratorAverage = RviNumeratorSwma1(shift + offset);');
+      expect(source).toContain('double rangeAverage = RviRangeSwma1(shift + offset);');
+      expect(source).toContain('for(int offset = period - 1; offset >= 0; offset--)');
+      expect(source).toContain('double value = numeratorSum / rangeSum;');
+      expect(source).toContain('rangeSum == 0.0');
+      expect(source).toContain('double value = (current + 2 * previous + 2 * twoBarsAgo + threeBarsAgo) / 6.0;');
+      expect(source).toContain('period + 6 + signalShift');
+      expect(source).toContain('shift + period + 6');
+      expect(source).toContain('open0 > 0.0 && high0 > 0.0 && low0 > 0.0 && close0 > 0.0');
+      expect(source).toContain(
+        'CrossedAbove(previousRvi, previousSignal, currentRvi, currentSignal)',
+      );
+      expect(source).toContain(
+        'CrossedBelow(previousRvi, previousSignal, currentRvi, currentSignal)',
+      );
+      expect(source).toContain('native iRVI buffer is intentionally not used');
+      expect(source).not.toContain('iRVI(');
+      expect(source).not.toContain('rvi1Handle');
+      expectBalanced(source);
+    }
+
+    expect(mql5).toContain('if(InpRVI1Period < 1)');
+    expect(mql5).toContain('RVI1 rejected: period must be an integer greater than or equal to 1');
+    expect(mql5).toContain('return INIT_FAILED;');
+    expect(mql4).toContain('int OnInit()');
+    expect(mql4).toContain('if(InpRVI1Period < 1)');
+    expect(mql4).toContain('RVI1 rejected: period must be an integer greater than or equal to 1');
+    expect(mql4).toContain('return INIT_FAILED;');
+
+    await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-rvi.mq5'));
+    await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-rvi.mq4'));
   });
 
   it('generates Ichimoku cross signals with shift parity and mirrored cloud rules for MQL4 and MQL5', () => {

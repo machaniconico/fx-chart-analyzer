@@ -29,6 +29,7 @@ import {
   splitBarsIntoQuarterlySegments,
   writeTuningReport,
 } from './tune-virtual-strategies.mjs';
+import { SAR_MIN_STEP } from '../src/lib/indicators';
 
 const row = ({
   optNet,
@@ -206,6 +207,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       'adxTrend',
       'parabolicSar',
       'momentum',
+      'rvi',
     ]);
     expect(ENTRY_TYPE_PROFILES.rsi.timeframes).toEqual(['m30', 'h1']);
     expect(ENTRY_TYPE_PROFILES.donchianBreak).toEqual({
@@ -296,7 +298,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(ENTRY_TYPE_PROFILES.parabolicSar).toEqual({
       label: 'パラボリックSARフリップ順張り',
       timeframes: ['h1', 'h4'],
-      entryCondition: { type: 'parabolicSar', step: 0.02, maximum: 0.2 },
+      entryCondition: { type: 'parabolicSar', step: SAR_MIN_STEP, maximum: 0.2 },
       exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
       parameterRanges: {
         stopLossPips: { min: 20, max: 110, step: 15 },
@@ -315,6 +317,23 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       },
       trailingStopPips: [null, 25],
     });
+    expect(ENTRY_TYPE_PROFILES.rvi).toEqual({
+      label: 'RVIシグナルラインクロス順張り',
+      timeframes: ['h1', 'h4'],
+      entryCondition: { type: 'rvi', period: 10 },
+      exit: { stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true },
+      parameterRanges: {
+        stopLossPips: { min: 20, max: 110, step: 15 },
+        takeProfitPips: { min: 40, max: 220, step: 20 },
+      },
+      trailingStopPips: [null, 25],
+    });
+  });
+
+  it('keeps the parabolicSar profile step within the SAR_MIN_STEP policy', () => {
+    expect(ENTRY_TYPE_PROFILES.parabolicSar.entryCondition.step).toBeGreaterThanOrEqual(
+      SAR_MIN_STEP,
+    );
   });
 
   it('expands the ADX take-profit grid while retaining the legacy points', async () => {
@@ -345,9 +364,9 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
         `${target.strategy.meta.pair}:${target.entryType}:${target.strategy.meta.timeframe}`,
     );
 
-    expect(expectedCount).toBe(144);
-    expect(matrix).toHaveLength(144);
-    expect(matrix.filter((target) => target.entryType !== 'momentum')).toHaveLength(132);
+    expect(expectedCount).toBe(156);
+    expect(matrix).toHaveLength(156);
+    expect(matrix.filter((target) => target.entryType !== 'rvi')).toHaveLength(144);
     expect(new Set(triples).size).toBe(expectedCount);
     expect(new Set(matrix.map((target) => target.id)).size).toBe(expectedCount);
     expect(matrix.every((target) => target.strategy.meta.registeredAt === TUNING_REGISTERED_AT)).toBe(
@@ -595,6 +614,34 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(matrix.length);
   });
 
+  it('assigns RVI candidates to the third second-block index with exact triples', () => {
+    const matrix = buildCandidateMatrix();
+    const rviCandidates = matrix.filter((target) => target.entryType === 'rvi');
+
+    expect(rviCandidates).toHaveLength(12);
+    expect(
+      rviCandidates.map((target) => [
+        target.strategy.meta.pair,
+        target.strategy.meta.timeframe,
+        target.strategy.magicNumber,
+      ]),
+    ).toEqual([
+      ['USDJPY', 'h1', 1783200020],
+      ['USDJPY', 'h4', 1783200021],
+      ['EURUSD', 'h1', 1783200120],
+      ['EURUSD', 'h4', 1783200121],
+      ['GBPJPY', 'h1', 1783200220],
+      ['GBPJPY', 'h4', 1783200221],
+      ['EURJPY', 'h1', 1783200320],
+      ['EURJPY', 'h4', 1783200321],
+      ['GBPUSD', 'h1', 1783200420],
+      ['GBPUSD', 'h4', 1783200421],
+      ['AUDJPY', 'h1', 1783200520],
+      ['AUDJPY', 'h4', 1783200521],
+    ]);
+    expect(new Set(matrix.map((target) => target.strategy.magicNumber)).size).toBe(matrix.length);
+  });
+
   it('parses repeated and comma-separated filters and applies them together', () => {
     const filters = parseCliArgs([
       '--pair=usdjpy,EURUSD',
@@ -627,7 +674,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('supports each filter independently', () => {
     const matrix = buildCandidateMatrix();
 
-    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(24);
+    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(26);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'rsi']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'donchianBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'stochastic']))).toHaveLength(12);
@@ -637,7 +684,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'adxTrend']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'parabolicSar']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'm30']))).toHaveLength(24);
-    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(72);
+    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(78);
     expect(() => parseCliArgs(['--timeframe', 'm15'])).toThrow(/Invalid value for --timeframe/);
   });
 
@@ -652,6 +699,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(CLI_USAGE).toContain('adxTrend');
     expect(CLI_USAGE).toContain('parabolicSar');
     expect(CLI_USAGE).toContain('momentum');
+    expect(CLI_USAGE).toContain('rvi');
     expect(
       filterTargets(matrix, parseCliArgs(['--entry-type', 'DONCHIANBREAK'])),
     ).toEqual(
@@ -691,6 +739,11 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       filterTargets(matrix, parseCliArgs(['--entry-type', 'MOMENTUM'])),
     ).toEqual(
       matrix.filter((target) => target.entryType === 'momentum'),
+    );
+    expect(
+      filterTargets(matrix, parseCliArgs(['--entry-type', 'RVI'])),
+    ).toEqual(
+      matrix.filter((target) => target.entryType === 'rvi'),
     );
   });
 
@@ -1691,7 +1744,7 @@ describe('tune-virtual-strategies JSON report', () => {
     expect(evaluatedIds).toEqual(['tune-rsi-eurusd-h1-v1']);
     expect(results).toHaveLength(1);
     expect(cleanupCalled).toBe(true);
-    expect(logs[0]).toBe('チューニング候補: 1/144件');
+    expect(logs[0]).toBe('チューニング候補: 1/156件');
     expect(writtenReport).toMatchObject({
       filters: { pairs: ['EURUSD'], entryTypes: ['rsi'], timeframes: ['h1'] },
       summary: { candidateCount: 1 },

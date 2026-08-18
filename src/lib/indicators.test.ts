@@ -11,6 +11,7 @@ import {
   macd,
   momentum,
   parabolicSar,
+  rvi,
   rsi,
   sma,
   stochastic,
@@ -128,6 +129,58 @@ describe('indicators', () => {
     const base = momentum([10, 11, 12, 8, 15], 2);
     const withFuture = momentum([10, 11, 12, 8, 15, 1_000], 2);
     expect(withFuture.slice(0, base.length)).toEqual(base);
+  });
+
+  it('calculates MetaTrader RVI and signal values with exact weighted arithmetic', () => {
+    const opens = [10, 10, 10, 10, 10, 10, 10, 10, 10];
+    const highs = Array.from({ length: 9 }, () => 15);
+    const lows = Array.from({ length: 9 }, () => 5);
+    const closes = [10, 11, 9, 12, 10, 13, 11, 14, 12];
+    const values = rvi(opens, highs, lows, closes, 2);
+
+    // The explicit MT5 exposure boundary is period+3 for RVI and period+6
+    // for the signal line; earlier internally-computable SWMAs stay hidden.
+    expect(values.rvi.slice(0, 5)).toEqual([null, null, null, null, null]);
+    expect(values.rvi[5]).toBe(0.075);
+    expect(values.rvi[6]).toBe(0.125);
+    expect(values.rvi[7]).toBe(0.175);
+    expect(values.rvi[8]).toBe(0.225);
+    expect(values.signal.slice(0, 8)).toEqual([null, null, null, null, null, null, null, null]);
+    expect(values.signal[8]).toBe(0.15);
+  });
+
+  it('fails closed for RVI non-finite bars, zero range sums, and future data', () => {
+    const opens = [10, 10, 10, 10, 10, 10, 10, 10, 10];
+    const highs = Array.from({ length: 9 }, () => 15);
+    const lows = Array.from({ length: 9 }, () => 5);
+    const closes = [10, 11, 9, 12, 10, 13, 11, 14, 12];
+    const base = rvi(opens, highs, lows, closes, 2);
+
+    const invalidCloses = [...closes];
+    invalidCloses[4] = Number.NaN;
+    const invalid = rvi(opens, highs, lows, invalidCloses, 2);
+    expect(invalid.rvi[5]).toBeNull();
+    expect(invalid.signal[8]).toBeNull();
+
+    const flat = rvi(opens, Array(9).fill(10), Array(9).fill(10), closes, 2);
+    expect(flat.rvi[5]).toBeNull();
+    expect(flat.rvi[8]).toBeNull();
+    expect(flat.signal[8]).toBeNull();
+
+    // A future shock points down so an implementation that reads past the
+    // evaluated bar would be tempted to reverse the earlier result.
+    // 未来バーの high/low は既存バーと異なる値にする: 分母(range)が全バー定数だと
+    // highs/lows 側の look-ahead(highs[i+1] 参照など)が結果に現れず素通りする
+    // (レビュー実測: 定数 highs では覗いても rvi[8] 同値、未来 high=60 で分岐)。
+    const withFuture = rvi(
+      [...opens, 10],
+      [...highs, 60],
+      [...lows, 4],
+      [...closes, -90],
+      2,
+    );
+    expect(withFuture.rvi.slice(0, base.rvi.length)).toEqual(base.rvi);
+    expect(withFuture.signal.slice(0, base.signal.length)).toEqual(base.signal);
   });
 
   it('calculates MetaTrader iADX EMA buffers with staged warm-up and safe zero divisions', () => {

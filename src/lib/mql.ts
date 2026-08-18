@@ -16,6 +16,7 @@ import type {
   MovingAverageType,
   MomentumCondition,
   ParabolicSarCondition,
+  RviCondition,
   RsiComparison,
   RsiCondition,
   StochasticCondition,
@@ -146,6 +147,8 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
       ];
     case 'momentum':
       return [`input int InpMomentum${index}Period = ${integerLiteral(condition.period)};`];
+    case 'rvi':
+      return [`input int InpRVI${index}Period = ${integerLiteral(condition.period)};`];
     case 'stochastic':
       return [
         `input int InpStoch${index}KPeriod = ${integerLiteral(condition.kPeriod)};`,
@@ -184,6 +187,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mql5ParabolicSarCondition(condition, index);
     case 'momentum':
       return mqlMomentumCondition(condition, index);
+    case 'rvi':
+      return mqlRviCondition(condition, index);
   }
 };
 
@@ -215,6 +220,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mql4ParabolicSarCondition(condition, index);
     case 'momentum':
       return mqlMomentumCondition(condition, index);
+    case 'rvi':
+      return mqlRviCondition(condition, index);
   }
 };
 
@@ -586,6 +593,204 @@ bool Condition${index}(bool longSide)
 }
 `;
 
+const rviParityComment = `
+// RVI parity: the native iRVI buffer is intentionally not used.
+// Its terminal-specific operation order can differ by 1 ULP at the equality
+// boundary, so the OHLC calculation below is the shared TS/MQL contract.
+// The TS evaluator and this EA must keep the same IEEE-754 operation order:
+// SWMA numerator/range (including /6), SUM over period, ratio, then signal
+// SWMA (including /6). Moving any division changes equality-boundary crosses.
+// iOpen/iHigh/iLow/iClose return 0.0 for unavailable history on MT4/MT5.
+// Every referenced OHLC value is therefore required to be finite and > 0.0,
+// which is the generated equivalent of the TS null data-gap result.
+// A zero SUM(RANGE) is also returned as EMPTY_VALUE, matching TS null.
+`;
+
+const mqlRviCondition = (_condition: RviCondition, index: number): string => `
+${rviParityComment}double RviNumeratorSwma${index}(int shift)
+{
+  double open0 = iOpen(_Symbol, _Period, shift);
+  double high0 = iHigh(_Symbol, _Period, shift);
+  double low0 = iLow(_Symbol, _Period, shift);
+  double close0 = iClose(_Symbol, _Period, shift);
+  double open1 = iOpen(_Symbol, _Period, shift + 1);
+  double high1 = iHigh(_Symbol, _Period, shift + 1);
+  double low1 = iLow(_Symbol, _Period, shift + 1);
+  double close1 = iClose(_Symbol, _Period, shift + 1);
+  double open2 = iOpen(_Symbol, _Period, shift + 2);
+  double high2 = iHigh(_Symbol, _Period, shift + 2);
+  double low2 = iLow(_Symbol, _Period, shift + 2);
+  double close2 = iClose(_Symbol, _Period, shift + 2);
+  double open3 = iOpen(_Symbol, _Period, shift + 3);
+  double high3 = iHigh(_Symbol, _Period, shift + 3);
+  double low3 = iLow(_Symbol, _Period, shift + 3);
+  double close3 = iClose(_Symbol, _Period, shift + 3);
+  if(!ValueReady(open0) || !MathIsValidNumber(open0) || !ValueReady(high0) || !MathIsValidNumber(high0) ||
+    !ValueReady(low0) || !MathIsValidNumber(low0) || !ValueReady(close0) || !MathIsValidNumber(close0) ||
+    !ValueReady(open1) || !MathIsValidNumber(open1) || !ValueReady(high1) || !MathIsValidNumber(high1) ||
+    !ValueReady(low1) || !MathIsValidNumber(low1) || !ValueReady(close1) || !MathIsValidNumber(close1) ||
+    !ValueReady(open2) || !MathIsValidNumber(open2) || !ValueReady(high2) || !MathIsValidNumber(high2) ||
+    !ValueReady(low2) || !MathIsValidNumber(low2) || !ValueReady(close2) || !MathIsValidNumber(close2) ||
+    !ValueReady(open3) || !MathIsValidNumber(open3) || !ValueReady(high3) || !MathIsValidNumber(high3) ||
+    !ValueReady(low3) || !MathIsValidNumber(low3) || !ValueReady(close3) || !MathIsValidNumber(close3) ||
+    !(open0 > 0.0 && high0 > 0.0 && low0 > 0.0 && close0 > 0.0 &&
+      open1 > 0.0 && high1 > 0.0 && low1 > 0.0 && close1 > 0.0 &&
+      open2 > 0.0 && high2 > 0.0 && low2 > 0.0 && close2 > 0.0 &&
+      open3 > 0.0 && high3 > 0.0 && low3 > 0.0 && close3 > 0.0))
+  {
+    return EMPTY_VALUE;
+  }
+  return ((close0 - open0) +
+    2 * (close1 - open1) +
+    2 * (close2 - open2) +
+    (close3 - open3)) / 6.0;
+}
+
+double RviRangeSwma${index}(int shift)
+{
+  double open0 = iOpen(_Symbol, _Period, shift);
+  double high0 = iHigh(_Symbol, _Period, shift);
+  double low0 = iLow(_Symbol, _Period, shift);
+  double close0 = iClose(_Symbol, _Period, shift);
+  double open1 = iOpen(_Symbol, _Period, shift + 1);
+  double high1 = iHigh(_Symbol, _Period, shift + 1);
+  double low1 = iLow(_Symbol, _Period, shift + 1);
+  double close1 = iClose(_Symbol, _Period, shift + 1);
+  double open2 = iOpen(_Symbol, _Period, shift + 2);
+  double high2 = iHigh(_Symbol, _Period, shift + 2);
+  double low2 = iLow(_Symbol, _Period, shift + 2);
+  double close2 = iClose(_Symbol, _Period, shift + 2);
+  double open3 = iOpen(_Symbol, _Period, shift + 3);
+  double high3 = iHigh(_Symbol, _Period, shift + 3);
+  double low3 = iLow(_Symbol, _Period, shift + 3);
+  double close3 = iClose(_Symbol, _Period, shift + 3);
+  if(!ValueReady(open0) || !MathIsValidNumber(open0) || !ValueReady(high0) || !MathIsValidNumber(high0) ||
+    !ValueReady(low0) || !MathIsValidNumber(low0) || !ValueReady(close0) || !MathIsValidNumber(close0) ||
+    !ValueReady(open1) || !MathIsValidNumber(open1) || !ValueReady(high1) || !MathIsValidNumber(high1) ||
+    !ValueReady(low1) || !MathIsValidNumber(low1) || !ValueReady(close1) || !MathIsValidNumber(close1) ||
+    !ValueReady(open2) || !MathIsValidNumber(open2) || !ValueReady(high2) || !MathIsValidNumber(high2) ||
+    !ValueReady(low2) || !MathIsValidNumber(low2) || !ValueReady(close2) || !MathIsValidNumber(close2) ||
+    !ValueReady(open3) || !MathIsValidNumber(open3) || !ValueReady(high3) || !MathIsValidNumber(high3) ||
+    !ValueReady(low3) || !MathIsValidNumber(low3) || !ValueReady(close3) || !MathIsValidNumber(close3) ||
+    !(open0 > 0.0 && high0 > 0.0 && low0 > 0.0 && close0 > 0.0 &&
+      open1 > 0.0 && high1 > 0.0 && low1 > 0.0 && close1 > 0.0 &&
+      open2 > 0.0 && high2 > 0.0 && low2 > 0.0 && close2 > 0.0 &&
+      open3 > 0.0 && high3 > 0.0 && low3 > 0.0 && close3 > 0.0))
+  {
+    return EMPTY_VALUE;
+  }
+  return ((high0 - low0) +
+    2 * (high1 - low1) +
+    2 * (high2 - low2) +
+    (high3 - low3)) / 6.0;
+}
+
+double RviValue${index}(int shift)
+{
+  int period = InpRVI${index}Period;
+  if(period < 1)
+  {
+    return EMPTY_VALUE;
+  }
+  // TS exposes the first RVI at index period + 3. Shift indexing therefore
+  // needs this exact history boundary before evaluating the SUM window.
+  if(iTime(_Symbol, _Period, shift + period + 3) == 0)
+  {
+    return EMPTY_VALUE;
+  }
+  double numeratorSum = 0.0;
+  double rangeSum = 0.0;
+  // TS adds offsets from the oldest item in the period window to the current
+  // item. Descending MQL shifts preserve that same chronological order.
+  for(int offset = period - 1; offset >= 0; offset--)
+  {
+    double numeratorAverage = RviNumeratorSwma${index}(shift + offset);
+    double rangeAverage = RviRangeSwma${index}(shift + offset);
+    if(!ValueReady(numeratorAverage) || !MathIsValidNumber(numeratorAverage) ||
+      !ValueReady(rangeAverage) || !MathIsValidNumber(rangeAverage))
+    {
+      return EMPTY_VALUE;
+    }
+    numeratorSum += numeratorAverage;
+    rangeSum += rangeAverage;
+  }
+  if(!MathIsValidNumber(numeratorSum) || !MathIsValidNumber(rangeSum) || rangeSum == 0.0)
+  {
+    return EMPTY_VALUE;
+  }
+  double value = numeratorSum / rangeSum;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+double RviSignalValue${index}(int shift)
+{
+  int period = InpRVI${index}Period;
+  if(period < 1)
+  {
+    return EMPTY_VALUE;
+  }
+  // TS exposes the first signal at index period + 6. Keep the signal shift in
+  // the guard so the generated EA does not move the warm-up boundary by one bar.
+  // NOTE: warm-up parity is structurally guaranteed by the RviValue call chain
+  // (RviSignalValue(shift) reads RviValue(shift+3), whose period+3 guard lands
+  // on the same bar); this guard constant alone is not load-bearing, so do not
+  // assume editing only these constants can safely shift the boundary.
+  if(iTime(_Symbol, _Period, shift + period + 6) == 0)
+  {
+    return EMPTY_VALUE;
+  }
+  double current = RviValue${index}(shift);
+  double previous = RviValue${index}(shift + 1);
+  double twoBarsAgo = RviValue${index}(shift + 2);
+  double threeBarsAgo = RviValue${index}(shift + 3);
+  if(!ValueReady(current) || !MathIsValidNumber(current) ||
+    !ValueReady(previous) || !MathIsValidNumber(previous) ||
+    !ValueReady(twoBarsAgo) || !MathIsValidNumber(twoBarsAgo) ||
+    !ValueReady(threeBarsAgo) || !MathIsValidNumber(threeBarsAgo))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = (current + 2 * previous + 2 * twoBarsAgo + threeBarsAgo) / 6.0;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+bool Condition${index}(bool longSide)
+{
+  int period = InpRVI${index}Period;
+  int signalShift = 1;
+  // The TS signal warm-up is period + 6; shift 1 is the latest closed bar.
+  if(period < 1 || iTime(_Symbol, _Period, period + 6 + signalShift) == 0)
+  {
+    return false;
+  }
+  double previousRvi = RviValue${index}(signalShift + 1);
+  double previousSignal = RviSignalValue${index}(signalShift + 1);
+  double currentRvi = RviValue${index}(signalShift);
+  double currentSignal = RviSignalValue${index}(signalShift);
+  if(!ValueReady(previousRvi) || !MathIsValidNumber(previousRvi) ||
+    !ValueReady(previousSignal) || !MathIsValidNumber(previousSignal) ||
+    !ValueReady(currentRvi) || !MathIsValidNumber(currentRvi) ||
+    !ValueReady(currentSignal) || !MathIsValidNumber(currentSignal))
+  {
+    return false;
+  }
+  // Keep the evaluator's equality boundary: prior <=/>=, current >/<.
+  if(longSide)
+  {
+    return CrossedAbove(previousRvi, previousSignal, currentRvi, currentSignal);
+  }
+  return CrossedBelow(previousRvi, previousSignal, currentRvi, currentSignal);
+}
+`;
+
 const adxParityComment = `
 // Native iADX exposes +DI, -DI, and ADX with zero-seeded values before the
 // TypeScript evaluator's warm-up boundary. The generated history guard keeps
@@ -859,6 +1064,17 @@ const mql4EntryConditionOnInit = (conditions: readonly EntryCondition[]): string
         `  if(InpMomentum${conditionIndex}Period < 1)`,
         '  {',
         `    Print("Momentum${conditionIndex} rejected: period must be an integer greater than or equal to 1");`,
+        '    return INIT_FAILED;',
+        '  }',
+      ];
+    }
+    if (condition.type === 'rvi') {
+      return [
+        // The evaluator hard domain is period >= 1; input int makes
+        // non-integer values unrepresentable, so reject the remaining invalid range here.
+        `  if(InpRVI${conditionIndex}Period < 1)`,
+        '  {',
+        `    Print("RVI${conditionIndex} rejected: period must be an integer greater than or equal to 1");`,
         '    return INIT_FAILED;',
         '  }',
       ];
@@ -1202,6 +1418,9 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
       case 'momentum':
         // Momentum is calculated from iClose to preserve TypeScript operation order.
         return [];
+      case 'rvi':
+        // RVI is calculated from OHLC to preserve TypeScript operation order.
+        return [];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -1317,6 +1536,16 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '    return INIT_FAILED;',
           '  }',
         ];
+      case 'rvi':
+        return [
+          // The evaluator hard domain is period >= 1; input int makes
+          // non-integer values unrepresentable, so reject the remaining invalid range here.
+          `  if(InpRVI${conditionIndex}Period < 1)`,
+          '  {',
+          `    Print("RVI${conditionIndex} rejected: period must be an integer greater than or equal to 1");`,
+          '    return INIT_FAILED;',
+          '  }',
+        ];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -1352,6 +1581,8 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
       case 'parabolicSar':
         return [`  ReleaseIndicator(sar${conditionIndex}Handle);`];
       case 'momentum':
+        return [];
+      case 'rvi':
         return [];
       case 'donchianBreak':
       case 'stochastic':

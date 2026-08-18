@@ -164,6 +164,7 @@ describe('forward test runner', () => {
       'adxTrend',
       'parabolicSar',
       'momentum',
+      'rvi',
     ]);
   });
 
@@ -437,6 +438,7 @@ describe('forward test runner', () => {
     ['adxTrend', { type: 'adxTrend', period: 14, threshold: 25 }],
     ['parabolicSar', { type: 'parabolicSar', step: 0.02, maximum: 0.2 }],
     ['momentum', { type: 'momentum', period: 14 }],
+    ['rvi', { type: 'rvi', period: 10 }],
   ])('accepts %s entry conditions in virtual strategies', (entryType, entryCondition) => {
     const candidate = JSON.parse(JSON.stringify(strategy));
     candidate.meta.id = `virtual-${entryType}-v1`;
@@ -532,6 +534,7 @@ describe('forward test runner', () => {
     ['adxTrend', { type: 'adxTrend', period: 14, threshold: 25 }],
     ['parabolicSar', { type: 'parabolicSar', step: 0.02, maximum: 0.2 }],
     ['momentum', { type: 'momentum', period: 14 }],
+    ['rvi', { type: 'rvi', period: 10 }],
   ];
 
   it.each(validEntryConditionCases)('accepts every %s condition with valid parameters', (entryType, entryCondition) => {
@@ -721,6 +724,21 @@ describe('forward test runner', () => {
     [
       'momentum (non-integer)',
       { type: 'momentum', period: 14.5 },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'rvi (registration floor)',
+      { type: 'rvi', period: 1 },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'rvi (registration ceiling)',
+      { type: 'rvi', period: 1001 },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'rvi (non-integer)',
+      { type: 'rvi', period: 10.5 },
       /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
     ],
   ])('rejects invalid %s condition parameters before backtesting', (entryType, entryCondition, expected) => {
