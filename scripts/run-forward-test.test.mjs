@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { buildCandidateMatrix } from './tune-virtual-strategies.mjs';
 import {
   buildMonthlySummary,
   buildConfirmedHistoryDays,
@@ -135,6 +136,23 @@ const emptyBacktestResult = (bars) => ({
 });
 
 describe('forward test runner', () => {
+  it('exports a frozen entry condition type registry', () => {
+    expect(Array.isArray(knownEntryConditionTypes)).toBe(true);
+    expect(Object.isFrozen(knownEntryConditionTypes)).toBe(true);
+    expect(() => knownEntryConditionTypes.push('unexpected')).toThrow(TypeError);
+    expect(knownEntryConditionTypes).toEqual([
+      'maCross',
+      'rsi',
+      'bollinger',
+      'macdCross',
+      'ichimokuCross',
+      'donchianBreak',
+      'stochastic',
+      'keltnerBreak',
+      'cciBreak',
+    ]);
+  });
+
   it('filters forward bars to registeredAt or later', () => {
     const bars = [
       bar(registeredAt - TWO_YEARS_SECONDS - 60),
@@ -418,6 +436,40 @@ describe('forward test runner', () => {
     })).not.toThrow();
   });
 
+  it('accepts all 108 generated tuning candidates', () => {
+    const candidates = buildCandidateMatrix();
+
+    // 正確な件数は tune-virtual-strategies.test.mjs が所有(二重管理を避け、ここでは非空のみ)
+    expect(candidates.length).toBeGreaterThan(0);
+    for (const { strategy: candidate } of candidates) {
+      expect(() => buildStrategyReport({
+        strategy: candidate,
+        bars: [bar(candidate.meta.registeredAt)],
+        usdJpyBars: [bar(candidate.meta.registeredAt)],
+        runBacktest: emptyBacktestResult,
+      })).not.toThrow();
+    }
+  });
+
+  it('accepts the standard Ichimoku cloud displacement configuration', () => {
+    const candidate = JSON.parse(JSON.stringify(strategy));
+    candidate.entryConditions = [{
+      type: 'ichimokuCross',
+      conversionPeriod: 9,
+      basePeriod: 26,
+      spanBPeriod: 52,
+      displacement: 26,
+      requireCloudFilter: true,
+    }];
+
+    expect(() => buildStrategyReport({
+      strategy: candidate,
+      bars: [bar(registeredAt)],
+      usdJpyBars: [bar(registeredAt)],
+      runBacktest: emptyBacktestResult,
+    })).not.toThrow();
+  });
+
   const validEntryConditionCases = [
     [
       'maCross',
@@ -536,6 +588,18 @@ describe('forward test runner', () => {
       /entryConditions\[0\]\.displacement must be a positive integer/,
     ],
     [
+      'ichimokuCross (cloud displacement mismatch)',
+      {
+        type: 'ichimokuCross',
+        conversionPeriod: 9,
+        basePeriod: 26,
+        spanBPeriod: 52,
+        displacement: 30,
+        requireCloudFilter: true,
+      },
+      /entryConditions\[0\]\.displacement must equal basePeriod when requireCloudFilter is true/,
+    ],
+    [
       'donchianBreak',
       { type: 'donchianBreak', period: -1 },
       /entryConditions\[0\]\.period must be a positive integer/,
@@ -631,12 +695,21 @@ describe('forward test runner', () => {
       candidate.name = candidate.meta.name;
       candidate.entryConditions = [{ type: entryType }];
 
-      expect(() => buildStrategyReport({
-        strategy: candidate,
-        bars: [bar(registeredAt)],
-        usdJpyBars: [bar(registeredAt)],
-        runBacktest: emptyBacktestResult,
-      })).toThrow(new RegExp(`invalid-${entryType}-empty-v1: entryConditions\\[0\\]`));
+      let thrown;
+      try {
+        buildStrategyReport({
+          strategy: candidate,
+          bars: [bar(registeredAt)],
+          usdJpyBars: [bar(registeredAt)],
+          runBacktest: emptyBacktestResult,
+        });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown.message).toMatch(new RegExp(`invalid-${entryType}-empty-v1: entryConditions\\[0\\]`));
+      // default throw(検証ブランチ未実装)ではなくパラメータ検証で拒否されたことを区別する
+      expect(thrown.message).not.toMatch(/has no parameter validation/);
     }
   });
 

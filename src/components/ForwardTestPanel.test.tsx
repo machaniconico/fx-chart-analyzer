@@ -14,14 +14,28 @@ import {
   type SelectionEvidence,
 } from '../lib/forward-test';
 
-const panelState = vi.hoisted(() => ({ values: [] as unknown[] }));
+const panelState = vi.hoisted(() => ({
+  values: [] as unknown[],
+  consumed: 0,
+  noInjectedState: Symbol('no-injected-state'),
+}));
+
+const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#x27;',
+}[character] ?? character));
 
 vi.mock('react', async () => {
   const actual = await vi.importActual<typeof import('react')>('react');
   const mockUseState = function <T>(initialState: T | (() => T)) {
-    const state = panelState.values.shift();
+    panelState.consumed += 1;
+    // キュー枯渇(過少注入)も「注入なし」として番兵に落とす=fallbackへ確実に到達させる
+    const state = panelState.values.length > 0 ? panelState.values.shift() : panelState.noInjectedState;
     const fallback = typeof initialState === 'function' ? (initialState as () => T)() : initialState;
-    return [state === undefined ? fallback : state as T, vi.fn()];
+    return [state === panelState.noInjectedState ? fallback : state as T, vi.fn()];
   };
 
   return {
@@ -92,11 +106,16 @@ const createResultsWithoutMonthlySummary = (): ForwardResultsFile => ({
 });
 
 const renderPanelWithState = (results: ForwardResultsFile): string => {
-  panelState.values = [results, [], null, false];
+  // ForwardTestPanel直下のuseState 4つだけを宣言順に注入する。strategiesは空配列前提で、
+  // 注入なしは番兵で表すためundefinedも明示値として扱える。消費数の断言で検知できるのは個数のズレのみ
+  // (宣言順の入れ替えは検知できない=注入値は宣言順依存である前提を崩さないこと)。
+  panelState.values = [results, [], undefined, false];
+  panelState.consumed = 0;
   const markup = renderToStaticMarkup(<ForwardTestPanel now={1_750_000_000} />);
   // パネル本体が実際に描画されたことの正アンカー(読込中/エラー分岐に落ちたら即RED)
   expect(markup).toContain('forward-test-stack');
   // useState の個数/順序ズレ(state注入の暗黙結合)を顕在化
+  expect(panelState.consumed).toBe(4);
   expect(panelState.values).toHaveLength(0);
   return markup;
 };
@@ -134,22 +153,29 @@ describe('MonthlySummarySection', () => {
     const noteIndex = markup.indexOf('確定した日次のみの集計です。');
     const monthRowIndex = markup.indexOf('forward-monthly-row');
 
-    expect(markup).toContain('過去に運用し退役したEAの実績も含みます。');
-    expect(markup).toContain('pipsはペア間で価値が異なるため参考値です');
+    // 属性順に結合しない形で「role=note のラッパー+ネイティブ list」を断言
+    expect(markup).toMatch(/<div[^>]*class="forward-monthly-note"[^>]*role="note"[^>]*>/);
+    expect(markup).toMatch(/<ul[^>]*class="forward-monthly-note-items"[^>]*>/);
+    expect(markup.match(/<li>/g)?.length).toBeGreaterThanOrEqual(5);
+    expect(markup).toContain(
+      `<li>${escapeHtml('確定した日次のみの集計です。')}</li>`,
+    );
+    expect(markup).toContain(escapeHtml('過去に運用し退役したEAの実績も含みます。'));
+    expect(markup).toContain(escapeHtml('pipsはペア間で価値が異なるため参考値です'));
     expect(noteIndex).toBeGreaterThanOrEqual(0);
     expect(monthRowIndex).toBeGreaterThanOrEqual(0);
     expect(noteIndex).toBeLessThan(monthRowIndex);
   });
 
   it('marks incomplete months as 集計中 and complete months as 確定', () => {
-    expect(renderMonthlySummary(createMonthlySummary())).toContain('集計中');
+    expect(renderMonthlySummary(createMonthlySummary())).toContain(escapeHtml('集計中'));
     const completeMarkup = renderMonthlySummary(createCompleteMonthlySummary());
-    expect(completeMarkup).not.toContain('集計中');
-    expect(completeMarkup).toContain('確定');
+    expect(completeMarkup).not.toContain(escapeHtml('集計中'));
+    expect(completeMarkup).toContain(escapeHtml('確定'));
   });
 
   it('marks retired strategies in the monthly breakdown', () => {
-    expect(renderMonthlySummary(createMonthlySummary())).toContain('退役済み');
+    expect(renderMonthlySummary(createMonthlySummary())).toContain(escapeHtml('退役済み'));
   });
 
   it('omits the section when monthly summary data is absent through ForwardTestPanel', () => {
@@ -164,13 +190,13 @@ describe('SelectionEvidenceDetails', () => {
   it('renders the passed-candidate denominator and in-sample rank', () => {
     const evidence = createSelectionEvidence({ passedCount: 27 });
 
-    expect(renderSelectionEvidence(evidence)).toContain(selectionRankLabel(evidence));
+    expect(renderSelectionEvidence(evidence)).toContain(escapeHtml(selectionRankLabel(evidence)));
   });
 
   it('keeps the legacy rank label when passedCount is absent', () => {
     const evidence = createSelectionEvidence();
 
-    expect(renderSelectionEvidence(evidence)).toContain(selectionRankLabel(evidence));
+    expect(renderSelectionEvidence(evidence)).toContain(escapeHtml(selectionRankLabel(evidence)));
   });
 
   it('renders the quarterly stability wording for all-positive and mixed quarters', () => {
@@ -180,10 +206,10 @@ describe('SelectionEvidenceDetails', () => {
     });
 
     expect(renderSelectionEvidence(allPositive)).toContain(
-      formatQuarterlyStability(allPositive.quarterlyStability),
+      escapeHtml(formatQuarterlyStability(allPositive.quarterlyStability)),
     );
     expect(renderSelectionEvidence(mixed)).toContain(
-      formatQuarterlyStability(mixed.quarterlyStability),
+      escapeHtml(formatQuarterlyStability(mixed.quarterlyStability)),
     );
   });
 });

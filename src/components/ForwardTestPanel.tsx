@@ -328,9 +328,15 @@ export function MonthlySummarySection({ summary }: { summary: MonthlySummary }) 
         <p>退役EAを含む全ストラテジーの確定実績を月別に集計し、合算とEA別の内訳を追えます。</p>
       </header>
 
-      <p className="forward-monthly-note" role="note">
-        確定した日次のみの集計です。取引中ポジションの含み損益は含みません。過去に運用し退役したEAの実績も含みます。内訳には確定日次があるEAのみ表示されます。pipsはペア間で価値が異なるため参考値です(損益円が正)。
-      </p>
+      <div className="forward-monthly-note" role="note">
+        <ul className="forward-monthly-note-items">
+          <li>確定した日次のみの集計です。</li>
+          <li>取引中ポジションの含み損益は含みません。</li>
+          <li>過去に運用し退役したEAの実績も含みます。</li>
+          <li>内訳には確定日次があるEAのみ表示されます。</li>
+          <li>pipsはペア間で価値が異なるため参考値です(損益円が正)。</li>
+        </ul>
+      </div>
 
       {summary.months.length === 0 ? (
         <p className="empty-copy">確定日次がある月はまだありません。</p>

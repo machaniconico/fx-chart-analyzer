@@ -1689,10 +1689,17 @@ input:disabled {
 .forward-monthly-note {
   margin: 0;
   border-left: 3px solid rgba(89, 214, 255, 0.52);
-  padding-left: 10px;
+  padding: 2px 0 2px 8px;
   color: #b9c2d0;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.forward-monthly-note-items {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 16px;
 }
 
 .forward-strategy-grid {

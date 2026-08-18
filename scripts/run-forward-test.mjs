@@ -19,7 +19,7 @@ const outputPath = path.join(dataRoot, 'forward/results.json');
 const historyPath = path.join(dataRoot, 'forward/history.json');
 const retiredLedgerPath = path.join(dataRoot, 'forward/retired.json');
 const retirementEnginePath = path.join(projectRoot, 'src/lib/forwardRetirement.ts');
-export const knownEntryConditionTypes = new Set([
+export const knownEntryConditionTypes = Object.freeze([
   'maCross',
   'rsi',
   'bollinger',
@@ -30,6 +30,7 @@ export const knownEntryConditionTypes = new Set([
   'keltnerBreak',
   'cciBreak',
 ]);
+const knownEntryConditionTypeSet = new Set(knownEntryConditionTypes);
 
 export const TWO_YEARS_SECONDS = 365 * 2 * 24 * 60 * 60;
 export const FORWARD_HISTORY_SCHEMA_VERSION = 1;
@@ -204,6 +205,14 @@ const assertEntryCondition = (condition, context, index) => {
         (value) => typeof value === 'boolean',
         'must be a boolean',
       );
+      // Cloud-filter parity: EA builder treats this mismatch as a non-blocking warning,
+      // but the daily pipeline deliberately escalates it to a rejection (fail-closed).
+      // conversionPeriod > basePeriod remains valid for the evaluator.
+      if (condition.requireCloudFilter && condition.displacement !== condition.basePeriod) {
+        throw new Error(
+          `${conditionContext}.displacement must equal basePeriod when requireCloudFilter is true`,
+        );
+      }
       break;
     case 'donchianBreak':
       assertPositiveIntegerField(conditionContext, condition, 'period');
@@ -371,9 +380,9 @@ const assertVirtualStrategy = (strategy, filename = 'strategy') => {
     if (!isObject(condition)) {
       throw new Error(`${context}: entryConditions[${index}] must be an object`);
     }
-    if (!knownEntryConditionTypes.has(condition.type)) {
+    if (!knownEntryConditionTypeSet.has(condition.type)) {
       throw new Error(
-        `${context}: entryConditions[${index}].type must be one of ${[...knownEntryConditionTypes].join(', ')}`,
+        `${context}: entryConditions[${index}].type must be one of ${knownEntryConditionTypes.join(', ')}`,
       );
     }
     assertEntryCondition(condition, context, index);
