@@ -20,6 +20,7 @@ import {
   defaultMoneyManagement,
   defaultStrategies,
   type BollingerCondition,
+  type CciBreakCondition,
   type DonchianBreakCondition,
   type EntryCondition,
   type IchimokuCrossCondition,
@@ -97,6 +98,12 @@ const defaultKeltnerCondition = (): KeltnerBreakCondition => ({
   emaPeriod: 20,
   atrPeriod: 10,
   multiplier: 2.0,
+});
+
+const defaultCciCondition = (): CciBreakCondition => ({
+  type: 'cciBreak',
+  period: 14,
+  level: 100,
 });
 
 const defaultMacdCondition = (): MacdCrossCondition => ({
@@ -248,6 +255,15 @@ const strategyValidationMessages = (strategy: StrategyDefinition): string[] => {
         condition.multiplier <= 0)
     ) {
       messages.push('ケルトナーブレイクの期間は1以上の整数、倍率は0より大きい値にしてください。');
+    }
+    if (
+      condition.type === 'cciBreak' &&
+      (!Number.isInteger(condition.period) ||
+        condition.period < 1 ||
+        !Number.isFinite(condition.level) ||
+        condition.level <= 0)
+    ) {
+      messages.push('CCIブレイクの期間は1以上の整数、閾値は0より大きい値にしてください。');
     }
     if (
       condition.type === 'stochastic' &&
@@ -451,6 +467,7 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
   const donchianCondition = getCondition('donchianBreak');
   const stochasticCondition = getCondition('stochastic');
   const keltnerCondition = getCondition('keltnerBreak');
+  const cciCondition = getCondition('cciBreak');
 
   const updateMoneyManagement = (
     updater: (current: typeof moneyManagement) => typeof moneyManagement,
@@ -1268,6 +1285,52 @@ export function EaBuilderPanel({ bars, pair, timeframe, usdJpyBars }: EaBuilderP
                           2.0,
                           0.1,
                         ),
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+            )}
+          </section>
+
+          <section className="condition-card">
+            <label className="condition-title">
+              <input
+                type="checkbox"
+                checked={hasCondition('cciBreak')}
+                onChange={(event) =>
+                  toggleCondition('cciBreak', event.target.checked, defaultCciCondition)
+                }
+              />
+              <span>CCIブレイク順張り</span>
+            </label>
+            {cciCondition && (
+              <div className="mini-grid">
+                <label>
+                  <span>期間</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={cciCondition.period}
+                    onChange={(event) =>
+                      updateCondition('cciBreak', defaultCciCondition, (condition) => ({
+                        ...condition,
+                        period: integerInput(event.target.value, condition.period, 14, 1),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>閾値</span>
+                  <input
+                    min="0.1"
+                    step="0.1"
+                    type="number"
+                    value={cciCondition.level}
+                    onChange={(event) =>
+                      updateCondition('cciBreak', defaultCciCondition, (condition) => ({
+                        ...condition,
+                        level: numericInput(event.target.value, condition.level, 100, 0.1),
                       }))
                     }
                   />

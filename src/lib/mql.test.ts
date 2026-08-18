@@ -422,6 +422,39 @@ describe('mql generation', () => {
     expectBalanced(mql4);
   });
 
+  it('generates inclusive, fail-closed CCI break signals for MQL4 and MQL5', async () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [{ type: 'cciBreak', period: 14, level: 100 }],
+    };
+
+    const mql5 = generateMql5(strategy);
+    const mql4 = generateMql4(strategy);
+
+    expect(mql5).toContain('input int InpCCI1Period = 14;');
+    expect(mql5).toContain('input double InpCCI1Level = 100;');
+    expect(mql5).toContain('int cci1Handle = INVALID_HANDLE;');
+    expect(mql5).toContain('int cci1Period = InpCCI1Period;');
+    expect(mql5).toContain('cci1Handle = iCCI(_Symbol, _Period, cci1Period, PRICE_TYPICAL);');
+    expect(mql5).toContain('double current = BufferValue(cci1Handle, 0, 1);');
+    expect(mql5).toContain('return current >= level;');
+    expect(mql5).toContain('return current <= -level;');
+    expect(mql5).toContain('zero-mean-deviation result is intentionally represented as 0.0');
+    expect(mql5).toContain('if(!(level > 0.0))');
+    expect(mql5).toContain('ReleaseIndicator(cci1Handle);');
+    expect(mql5).toContain('CopyBuffer(handle, bufferIndex, shift, 1, values);');
+
+    expect(mql4).toContain('input int InpCCI1Period = 14;');
+    expect(mql4).toContain('input double InpCCI1Level = 100;');
+    expect(mql4).toContain('double current = iCCI(_Symbol, _Period, period, PRICE_TYPICAL, 1);');
+    expect(mql4).toContain('return current >= level;');
+    expect(mql4).toContain('return current <= -level;');
+    expectBalanced(mql5);
+    expectBalanced(mql4);
+    await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-cciBreak.mq5'));
+    await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-cciBreak.mq4'));
+  });
+
   it('generates Ichimoku cross signals with shift parity and mirrored cloud rules for MQL4 and MQL5', () => {
     const strategy: StrategyDefinition = {
       ...fullStrategy,

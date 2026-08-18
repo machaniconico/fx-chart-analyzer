@@ -1,6 +1,7 @@
 import {
   atr,
   bollingerBands,
+  cci,
   donchian,
   ema,
   ichimoku,
@@ -78,6 +79,12 @@ export interface KeltnerBreakCondition {
   multiplier: number;
 }
 
+export interface CciBreakCondition {
+  type: 'cciBreak';
+  period: number;
+  level: number;
+}
+
 export interface StochasticCondition {
   type: 'stochastic';
   kPeriod: number;
@@ -95,7 +102,8 @@ export type EntryCondition =
   | IchimokuCrossCondition
   | DonchianBreakCondition
   | StochasticCondition
-  | KeltnerBreakCondition;
+  | KeltnerBreakCondition
+  | CciBreakCondition;
 
 export interface ExitRules {
   stopLossPips: number;
@@ -248,6 +256,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `Keltner${condition.emaPeriod}/${condition.atrPeriod} x${condition.multiplier} ブレイク`;
     case 'stochastic':
       return `Stoch${condition.kPeriod}/${condition.dPeriod}/${condition.smoothing} ${condition.comparison} ${condition.threshold}`;
+    case 'cciBreak':
+      return `CCI${condition.period} ±${condition.level} ブレイク`;
   }
 };
 
@@ -289,26 +299,40 @@ const compareRsi = (
   }
 };
 
+type CachedIndicatorValues = readonly IndicatorPoint[];
+
+type ReadonlyIndicatorResult<T> = {
+  readonly [Key in keyof T]: T[Key] extends readonly (infer Value)[] ? readonly Value[] : T[Key];
+};
+
+type CachedBollingerBands = ReadonlyIndicatorResult<BollingerBands>;
+type CachedMacdResult = ReadonlyIndicatorResult<MacdResult>;
+type CachedIchimokuResult = ReadonlyIndicatorResult<IchimokuResult>;
+type CachedDonchianResult = ReadonlyIndicatorResult<DonchianResult>;
+type CachedKeltnerChannel = ReadonlyIndicatorResult<KeltnerChannel>;
+type CachedStochasticResult = ReadonlyIndicatorResult<StochasticResult>;
+
 type KeltnerEvaluation = {
-  channel: KeltnerChannel;
-  atrValues: IndicatorPoint[];
+  readonly channel: CachedKeltnerChannel;
+  readonly atrValues: CachedIndicatorValues;
 };
 
 export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator => {
   const closes = bars.map((bar) => bar.c);
   const highs = bars.map((bar) => bar.h);
   const lows = bars.map((bar) => bar.l);
-  const maCache = new Map<string, IndicatorPoint[]>();
-  const rsiCache = new Map<number, IndicatorPoint[]>();
-  const atrCache = new Map<number, IndicatorPoint[]>();
-  const bbCache = new Map<string, BollingerBands>();
-  const macdCache = new Map<string, MacdResult>();
-  const ichimokuCache = new Map<string, IchimokuResult>();
-  const donchianCache = new Map<number, DonchianResult>();
+  const maCache = new Map<string, CachedIndicatorValues>();
+  const rsiCache = new Map<number, CachedIndicatorValues>();
+  const cciCache = new Map<number, CachedIndicatorValues>();
+  const atrCache = new Map<number, CachedIndicatorValues>();
+  const bbCache = new Map<string, CachedBollingerBands>();
+  const macdCache = new Map<string, CachedMacdResult>();
+  const ichimokuCache = new Map<string, CachedIchimokuResult>();
+  const donchianCache = new Map<number, CachedDonchianResult>();
   const keltnerCache = new Map<string, KeltnerEvaluation>();
-  const stochasticCache = new Map<string, StochasticResult>();
+  const stochasticCache = new Map<string, CachedStochasticResult>();
 
-  const getMa = (type: MovingAverageType, period: number): IndicatorPoint[] => {
+  const getMa = (type: MovingAverageType, period: number): CachedIndicatorValues => {
     const normalizedPeriod = normalizePeriod(period);
     const key = maKey(type, normalizedPeriod);
     const cached = maCache.get(key);
@@ -320,7 +344,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
-  const getRsi = (period: number): IndicatorPoint[] => {
+  const getRsi = (period: number): CachedIndicatorValues => {
     const normalizedPeriod = normalizePeriod(period);
     const cached = rsiCache.get(normalizedPeriod);
     if (cached) {
@@ -331,7 +355,18 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
-  const getAtr = (period: number): IndicatorPoint[] => {
+  const getCci = (period: number): CachedIndicatorValues => {
+    const normalizedPeriod = normalizePeriod(period);
+    const cached = cciCache.get(normalizedPeriod);
+    if (cached) {
+      return cached;
+    }
+    const values = cci(highs, lows, closes, normalizedPeriod);
+    cciCache.set(normalizedPeriod, values);
+    return values;
+  };
+
+  const getAtr = (period: number): CachedIndicatorValues => {
     const normalizedPeriod = normalizePeriod(period);
     const cached = atrCache.get(normalizedPeriod);
     if (cached) {
@@ -342,7 +377,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
-  const getBands = (period: number, multiplier: number): BollingerBands => {
+  const getBands = (period: number, multiplier: number): CachedBollingerBands => {
     const normalizedPeriod = normalizePeriod(period);
     const key = `${normalizedPeriod}:${multiplier}`;
     const cached = bbCache.get(key);
@@ -354,7 +389,11 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
-  const getMacd = (fastPeriod: number, slowPeriod: number, signalPeriod: number): MacdResult => {
+  const getMacd = (
+    fastPeriod: number,
+    slowPeriod: number,
+    signalPeriod: number,
+  ): CachedMacdResult => {
     const fast = normalizePeriod(fastPeriod);
     const slow = normalizePeriod(slowPeriod);
     const signal = normalizePeriod(signalPeriod);
@@ -382,7 +421,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     basePeriod: number,
     spanBPeriod: number,
     displacement: number,
-  ): IchimokuResult => {
+  ): CachedIchimokuResult => {
     const normalizedConversionPeriod = normalizePeriod(conversionPeriod);
     const normalizedBasePeriod = normalizePeriod(basePeriod);
     const normalizedSpanBPeriod = normalizePeriod(spanBPeriod);
@@ -402,7 +441,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
-  const getDonchian = (period: number): DonchianResult => {
+  const getDonchian = (period: number): CachedDonchianResult => {
     const normalizedPeriod = normalizePeriod(period);
     const cached = donchianCache.get(normalizedPeriod);
     if (cached) {
@@ -442,7 +481,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     kPeriod: number,
     dPeriod: number,
     smoothing: number,
-  ): StochasticResult => {
+  ): CachedStochasticResult => {
     const normalizedKPeriod = normalizePeriod(kPeriod);
     const normalizedDPeriod = normalizePeriod(dPeriod);
     const normalizedSmoothing = normalizePeriod(smoothing);
@@ -551,6 +590,14 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
           return false;
         }
         return isShort ? closes[index] <= lower : closes[index] >= upper;
+      }
+      case 'cciBreak': {
+        const values = getCci(condition.period);
+        const current = values[index];
+        if (!isNumber(current) || !Number.isFinite(condition.level) || condition.level <= 0) {
+          return false;
+        }
+        return isShort ? current <= -condition.level : current >= condition.level;
       }
       case 'stochastic': {
         const values = getStochastic(

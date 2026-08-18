@@ -80,7 +80,7 @@ const strategy = {
 const selectionEvidence = {
   adoptedAt: '2026-08-18',
   reportId: 'selection-report-v1',
-  candidatePool: 96,
+  candidatePool: 108,
   passedCount: 27,
   inSampleRank: 2,
   optimization: {
@@ -252,7 +252,7 @@ describe('forward test runner', () => {
     },
     {
       name: 'passed count exceeds candidate pool',
-      selectionEvidence: { ...selectionEvidence, passedCount: 97 },
+      selectionEvidence: { ...selectionEvidence, passedCount: 109 },
       expected: /selectionEvidence\.passedCount must be a non-negative integer not greater than candidatePool/,
     },
     {
@@ -341,7 +341,7 @@ describe('forward test runner', () => {
             },
           ],
         },
-        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak/,
+        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak/,
       },
     ];
 
@@ -400,6 +400,7 @@ describe('forward test runner', () => {
         multiplier: 2,
       },
     ],
+    ['cciBreak', { type: 'cciBreak', period: 14, level: 100 }],
   ])('accepts %s entry conditions in virtual strategies', (entryType, entryCondition) => {
     const candidate = JSON.parse(JSON.stringify(strategy));
     candidate.meta.id = `virtual-${entryType}-v1`;

@@ -2,6 +2,7 @@ import type {
   BollingerBandSide,
   BollingerCondition,
   BollingerConditionMode,
+  CciBreakCondition,
   DonchianBreakCondition,
   EntryCondition,
   IchimokuCrossCondition,
@@ -124,6 +125,11 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input int InpKeltner${index}AtrPeriod = ${integerLiteral(condition.atrPeriod)};`,
         `input double InpKeltner${index}Multiplier = ${numberLiteral(condition.multiplier)};`,
       ];
+    case 'cciBreak':
+      return [
+        `input int InpCCI${index}Period = ${integerLiteral(condition.period)};`,
+        `input double InpCCI${index}Level = ${numberLiteral(condition.level)};`,
+      ];
     case 'stochastic':
       return [
         `input int InpStoch${index}KPeriod = ${integerLiteral(condition.kPeriod)};`,
@@ -154,6 +160,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mqlStochasticCondition(condition, index);
     case 'keltnerBreak':
       return mql5KeltnerCondition(condition, index);
+    case 'cciBreak':
+      return mql5CciCondition(condition, index);
   }
 };
 
@@ -177,6 +185,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mqlStochasticCondition(condition, index);
     case 'keltnerBreak':
       return mql4KeltnerCondition(condition, index);
+    case 'cciBreak':
+      return mql4CciCondition(condition, index);
   }
 };
 
@@ -419,6 +429,51 @@ const mql4KeltnerCondition = (_condition: KeltnerBreakCondition, index: number):
     middle: `iMA(_Symbol, _Period, InpKeltner${index}EmaPeriod, 0, MODE_EMA, PRICE_CLOSE, 1)`,
     atr: `iATR(_Symbol, _Period, InpKeltner${index}AtrPeriod, 1)`,
   });
+
+const cciParityComment = `
+// CCI parity basis: the official MetaQuotes CCI reference documents Typical
+// Price, SMA, mean absolute deviation, and Lambert's 0.015 factor.
+// The zero-mean-deviation result is intentionally represented as 0.0 here as
+// a parity design choice for MT5 built-in behavior; positive levels keep flat
+// windows fail-closed.
+// Reference: https://www.mql5.com/en/code/18
+`;
+
+const mqlCciCondition = (index: number, expression: string): string => `
+${cciParityComment}bool Condition${index}(bool longSide)
+{
+  int period = InpCCI${index}Period;
+  if(period < 1)
+  {
+    period = 1;
+  }
+  if(iTime(_Symbol, _Period, period) == 0)
+  {
+    return false;
+  }
+  double current = ${expression};
+  double level = InpCCI${index}Level;
+  if(!ValueReady(current) || !ValueReady(level))
+  {
+    return false;
+  }
+  if(!(level > 0.0))
+  {
+    return false;
+  }
+  if(longSide)
+  {
+    return current >= level;
+  }
+  return current <= -level;
+}
+`;
+
+const mql5CciCondition = (_condition: CciBreakCondition, index: number): string =>
+  mqlCciCondition(index, `BufferValue(cci${index}Handle, 0, 1)`);
+
+const mql4CciCondition = (_condition: CciBreakCondition, index: number): string =>
+  mqlCciCondition(index, 'iCCI(_Symbol, _Period, period, PRICE_TYPICAL, 1)');
 
 const mqlStochasticCondition = (condition: StochasticCondition, index: number): string => {
   const shortComparison = mirrorComparison(condition.comparison);
@@ -736,6 +791,8 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
           `int keltner${conditionIndex}EmaHandle = INVALID_HANDLE;`,
           `int keltner${conditionIndex}AtrHandle = INVALID_HANDLE;`,
         ];
+      case 'cciBreak':
+        return [`int cci${conditionIndex}Handle = INVALID_HANDLE;`];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -796,6 +853,19 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '    return INIT_FAILED;',
           '  }',
         ];
+      case 'cciBreak':
+        return [
+          `  int cci${conditionIndex}Period = InpCCI${conditionIndex}Period;`,
+          `  if(cci${conditionIndex}Period < 1)`,
+          '  {',
+          `    cci${conditionIndex}Period = 1;`,
+          '  }',
+          `  cci${conditionIndex}Handle = iCCI(_Symbol, _Period, cci${conditionIndex}Period, PRICE_TYPICAL);`,
+          `  if(!EnsureIndicator(cci${conditionIndex}Handle, "CCI${conditionIndex}"))`,
+          '  {',
+          '    return INIT_FAILED;',
+          '  }',
+        ];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -824,6 +894,8 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
           `  ReleaseIndicator(keltner${conditionIndex}EmaHandle);`,
           `  ReleaseIndicator(keltner${conditionIndex}AtrHandle);`,
         ];
+      case 'cciBreak':
+        return [`  ReleaseIndicator(cci${conditionIndex}Handle);`];
       case 'donchianBreak':
       case 'stochastic':
         return [];
