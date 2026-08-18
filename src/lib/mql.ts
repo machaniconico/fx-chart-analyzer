@@ -5,6 +5,7 @@ import type {
   BollingerConditionMode,
   CciBreakCondition,
   AdxTrendCondition,
+  DeMarkerCondition,
   DonchianBreakCondition,
   EntryCondition,
   IchimokuCrossCondition,
@@ -103,6 +104,11 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input int InpRSI${index}Period = ${integerLiteral(condition.period)};`,
         `input double InpRSI${index}Threshold = ${numberLiteral(condition.threshold)};`,
       ];
+    case 'demarker':
+      return [
+        `input int InpDeMarker${index}Period = ${integerLiteral(condition.period)};`,
+        `input double InpDeMarker${index}Threshold = ${numberLiteral(condition.threshold)};`,
+      ];
     case 'bollinger':
       return [
         `input int InpBB${index}Period = ${integerLiteral(condition.period)};`,
@@ -165,6 +171,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mql5MaCondition(condition, index);
     case 'rsi':
       return mql5RsiCondition(condition, index);
+    case 'demarker':
+      return mqlDeMarkerCondition(condition, index);
     case 'bollinger':
       return mql5BollingerCondition(condition, index);
     case 'macdCross':
@@ -198,6 +206,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mql4MaCondition(condition, index);
     case 'rsi':
       return mql4RsiCondition(condition, index);
+    case 'demarker':
+      return mqlDeMarkerCondition(condition, index);
     case 'bollinger':
       return mql4BollingerCondition(condition, index);
     case 'macdCross':
@@ -593,6 +603,146 @@ bool Condition${index}(bool longSide)
 }
 `;
 
+const demarkerParityComment = `
+// DeMarker parity: the native iDeMarker buffer is intentionally not used.
+// This project follows the TS/MT5 form from the terminal help exactly:
+// DeMax/DeMin are built from adjacent iHigh/iLow values, each SMA is divided
+// by period first, and only then are the two SMA values added for the ratio.
+// DeMax/DeMin need the previous bar, so the history guard includes shift+period.
+// MT4/MT5 return 0.0 for unavailable OHLC history; positive finite OHLC guards
+// keep those data gaps fail-closed instead of creating synthetic movement.
+// A zero denominator is also fail-closed and returns EMPTY_VALUE, matching the
+// TS demarker() null result rather than the terminal's 0.0 buffer convention.
+`;
+
+const mqlDeMarkerCondition = (condition: DeMarkerCondition, index: number): string => {
+  const shortComparison = mirrorComparison(condition.comparison);
+  return `
+${demarkerParityComment}double DeMarkerDeMax${index}(int shift)
+{
+  double high = iHigh(_Symbol, _Period, shift);
+  double previousHigh = iHigh(_Symbol, _Period, shift + 1);
+  if(!ValueReady(high) || !MathIsValidNumber(high) ||
+    !ValueReady(previousHigh) || !MathIsValidNumber(previousHigh) ||
+    !(high > 0.0 && previousHigh > 0.0))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = high > previousHigh ? high - previousHigh : 0.0;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+double DeMarkerDeMin${index}(int shift)
+{
+  double low = iLow(_Symbol, _Period, shift);
+  double previousLow = iLow(_Symbol, _Period, shift + 1);
+  if(!ValueReady(low) || !MathIsValidNumber(low) ||
+    !ValueReady(previousLow) || !MathIsValidNumber(previousLow) ||
+    !(low > 0.0 && previousLow > 0.0))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = low < previousLow ? previousLow - low : 0.0;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+double DeMarkerValue${index}(int shift)
+{
+  int period = InpDeMarker${index}Period;
+  if(period < 1)
+  {
+    return EMPTY_VALUE;
+  }
+  // TS exposes its first DeMarker at index period. The value at this MQL shift
+  // reads DeMax/DeMin through shift+period, so this is the same warm-up bar.
+  if(iTime(_Symbol, _Period, shift + period) == 0)
+  {
+    return EMPTY_VALUE;
+  }
+  double deMaxSum = 0.0;
+  double deMinSum = 0.0;
+  // Descending MQL shifts visit the TS window oldest-to-newest, preserving the
+  // TS accumulation order before each SMA and the final ratio.
+  for(int offset = period - 1; offset >= 0; offset--)
+  {
+    double deMax = DeMarkerDeMax${index}(shift + offset);
+    double deMin = DeMarkerDeMin${index}(shift + offset);
+    if(!ValueReady(deMax) || !MathIsValidNumber(deMax) ||
+      !ValueReady(deMin) || !MathIsValidNumber(deMin))
+    {
+      return EMPTY_VALUE;
+    }
+    deMaxSum += deMax;
+    deMinSum += deMin;
+  }
+  if(!MathIsValidNumber(deMaxSum) || !MathIsValidNumber(deMinSum))
+  {
+    return EMPTY_VALUE;
+  }
+  // Keep the TS order: SMA(DeMax), SMA(DeMin), SMA sum, then the ratio.
+  double deMaxSma = deMaxSum / period;
+  double deMinSma = deMinSum / period;
+  double denominator = deMaxSma + deMinSma;
+  if(!ValueReady(deMaxSma) || !MathIsValidNumber(deMaxSma) ||
+    !ValueReady(deMinSma) || !MathIsValidNumber(deMinSma) ||
+    !ValueReady(denominator) || !MathIsValidNumber(denominator) ||
+    denominator == 0.0)
+  {
+    return EMPTY_VALUE;
+  }
+  double value = deMaxSma / denominator;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+bool Condition${index}(bool longSide)
+{
+  int period = InpDeMarker${index}Period;
+  double threshold = InpDeMarker${index}Threshold;
+  // The TS evaluator's below/above comparisons read only the current value at
+  // index, which maps to MQL shift 1. DeMarkerValue(1) reaches shift+period,
+  // so period+1 keeps the first eligible signal on the same TS bar. Cross
+  // comparisons also read shift 2; their rsiCode branch owns that extra
+  // previous-value guard below.
+  if(period < 1)
+  {
+    return false;
+  }
+  if(iTime(_Symbol, _Period, period + 1) == 0)
+  {
+    return false;
+  }
+  if(!ValueReady(threshold) || !MathIsValidNumber(threshold) ||
+    !(threshold > 0.0) || !(threshold < 1.0))
+  {
+    return false;
+  }
+  double previous = DeMarkerValue${index}(2);
+  double current = DeMarkerValue${index}(1);
+  if(!ValueReady(current) || !MathIsValidNumber(current))
+  {
+    return false;
+  }
+  if(longSide)
+  {
+    ${rsiCode(condition.comparison, `InpDeMarker${index}Threshold`)}
+  }
+  ${rsiCode(shortComparison, `1.0 - InpDeMarker${index}Threshold`)}
+}
+`;
+};
+
 const rviParityComment = `
 // RVI parity: the native iRVI buffer is intentionally not used.
 // Its terminal-specific operation order can differ by 1 ULP at the equality
@@ -607,7 +757,7 @@ const rviParityComment = `
 `;
 
 const mqlRviCondition = (_condition: RviCondition, index: number): string => `
-${rviParityComment}double RviNumeratorSwma${index}(int shift)
+${rviParityComment}bool RviBarsReady${index}(int shift)
 {
   double open0 = iOpen(_Symbol, _Period, shift);
   double high0 = iHigh(_Symbol, _Period, shift);
@@ -638,6 +788,23 @@ ${rviParityComment}double RviNumeratorSwma${index}(int shift)
       open2 > 0.0 && high2 > 0.0 && low2 > 0.0 && close2 > 0.0 &&
       open3 > 0.0 && high3 > 0.0 && low3 > 0.0 && close3 > 0.0))
   {
+    return false;
+  }
+  return true;
+}
+
+double RviNumeratorSwma${index}(int shift)
+{
+  double open0 = iOpen(_Symbol, _Period, shift);
+  double close0 = iClose(_Symbol, _Period, shift);
+  double open1 = iOpen(_Symbol, _Period, shift + 1);
+  double close1 = iClose(_Symbol, _Period, shift + 1);
+  double open2 = iOpen(_Symbol, _Period, shift + 2);
+  double close2 = iClose(_Symbol, _Period, shift + 2);
+  double open3 = iOpen(_Symbol, _Period, shift + 3);
+  double close3 = iClose(_Symbol, _Period, shift + 3);
+  if(!RviBarsReady${index}(shift))
+  {
     return EMPTY_VALUE;
   }
   return ((close0 - open0) +
@@ -648,34 +815,15 @@ ${rviParityComment}double RviNumeratorSwma${index}(int shift)
 
 double RviRangeSwma${index}(int shift)
 {
-  double open0 = iOpen(_Symbol, _Period, shift);
   double high0 = iHigh(_Symbol, _Period, shift);
   double low0 = iLow(_Symbol, _Period, shift);
-  double close0 = iClose(_Symbol, _Period, shift);
-  double open1 = iOpen(_Symbol, _Period, shift + 1);
   double high1 = iHigh(_Symbol, _Period, shift + 1);
   double low1 = iLow(_Symbol, _Period, shift + 1);
-  double close1 = iClose(_Symbol, _Period, shift + 1);
-  double open2 = iOpen(_Symbol, _Period, shift + 2);
   double high2 = iHigh(_Symbol, _Period, shift + 2);
   double low2 = iLow(_Symbol, _Period, shift + 2);
-  double close2 = iClose(_Symbol, _Period, shift + 2);
-  double open3 = iOpen(_Symbol, _Period, shift + 3);
   double high3 = iHigh(_Symbol, _Period, shift + 3);
   double low3 = iLow(_Symbol, _Period, shift + 3);
-  double close3 = iClose(_Symbol, _Period, shift + 3);
-  if(!ValueReady(open0) || !MathIsValidNumber(open0) || !ValueReady(high0) || !MathIsValidNumber(high0) ||
-    !ValueReady(low0) || !MathIsValidNumber(low0) || !ValueReady(close0) || !MathIsValidNumber(close0) ||
-    !ValueReady(open1) || !MathIsValidNumber(open1) || !ValueReady(high1) || !MathIsValidNumber(high1) ||
-    !ValueReady(low1) || !MathIsValidNumber(low1) || !ValueReady(close1) || !MathIsValidNumber(close1) ||
-    !ValueReady(open2) || !MathIsValidNumber(open2) || !ValueReady(high2) || !MathIsValidNumber(high2) ||
-    !ValueReady(low2) || !MathIsValidNumber(low2) || !ValueReady(close2) || !MathIsValidNumber(close2) ||
-    !ValueReady(open3) || !MathIsValidNumber(open3) || !ValueReady(high3) || !MathIsValidNumber(high3) ||
-    !ValueReady(low3) || !MathIsValidNumber(low3) || !ValueReady(close3) || !MathIsValidNumber(close3) ||
-    !(open0 > 0.0 && high0 > 0.0 && low0 > 0.0 && close0 > 0.0 &&
-      open1 > 0.0 && high1 > 0.0 && low1 > 0.0 && close1 > 0.0 &&
-      open2 > 0.0 && high2 > 0.0 && low2 > 0.0 && close2 > 0.0 &&
-      open3 > 0.0 && high3 > 0.0 && low3 > 0.0 && close3 > 0.0))
+  if(!RviBarsReady${index}(shift))
   {
     return EMPTY_VALUE;
   }
@@ -766,8 +914,20 @@ bool Condition${index}(bool longSide)
 {
   int period = InpRVI${index}Period;
   int signalShift = 1;
-  // The TS signal warm-up is period + 6; shift 1 is the latest closed bar.
-  if(period < 1 || iTime(_Symbol, _Period, period + 6 + signalShift) == 0)
+  if(period < 1)
+  {
+    return false;
+  }
+  // RviSignalValue(signalShift) reads through RviValue(signalShift + 3),
+  // whose period + 3 guard requires history through period + 6 + signalShift.
+  if(iTime(_Symbol, _Period, period + 6 + signalShift) == 0)
+  {
+    return false;
+  }
+  // The previous signal at signalShift + 1 reads through period + 7 +
+  // signalShift. Keep this second guard explicit, matching the two-stage
+  // MomentumCondition precedent.
+  if(iTime(_Symbol, _Period, period + 7 + signalShift) == 0)
   {
     return false;
   }
@@ -881,6 +1041,8 @@ type ParabolicSarIndicatorExpressions = {
   warmupPrelude: string;
 };
 
+// SarWarmupReady's cache assumes one call site. Adding call sites that use
+// different (barTime, signalShift) keys can cause the static cache to thrash.
 const mqlParabolicSarCondition = (
   index: number,
   expressions: ParabolicSarIndicatorExpressions,
@@ -898,6 +1060,8 @@ bool SarDirectionIsLong${index}(double sar, double high, double low)
 bool SarWarmupReady${index}(int signalShift)
 {
 ${expressions.warmupPrelude}
+  // This cache assumes one SarWarmupReady call site. Additional call sites
+  // with different (barTime, signalShift) keys can cause cache thrashing.
   static datetime cachedBarTime = 0;
   static int cachedSignalShift = -1;
   static bool cachedResult = false;
@@ -1075,6 +1239,18 @@ const mql4EntryConditionOnInit = (conditions: readonly EntryCondition[]): string
         `  if(InpRVI${conditionIndex}Period < 1)`,
         '  {',
         `    Print("RVI${conditionIndex} rejected: period must be an integer greater than or equal to 1");`,
+        '    return INIT_FAILED;',
+        '  }',
+      ];
+    }
+    if (condition.type === 'demarker') {
+      return [
+        // The evaluator hard domain is period >= 1; the EA intentionally adopts
+        // the registration threshold domain (0 < threshold < 1) and fails closed
+        // for invalid threshold values.
+        `  if(InpDeMarker${conditionIndex}Period < 1 || !MathIsValidNumber(InpDeMarker${conditionIndex}Threshold) || InpDeMarker${conditionIndex}Threshold <= 0.0 || InpDeMarker${conditionIndex}Threshold >= 1.0)`,
+        '  {',
+        `    Print("DeMarker${conditionIndex} rejected: period must be an integer greater than or equal to 1 and threshold must be finite, greater than 0 and less than 1");`,
         '    return INIT_FAILED;',
         '  }',
       ];
@@ -1421,6 +1597,9 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
       case 'rvi':
         // RVI is calculated from OHLC to preserve TypeScript operation order.
         return [];
+      case 'demarker':
+        // DeMarker is calculated from iHigh/iLow to preserve TypeScript operation order.
+        return [];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -1546,6 +1725,18 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '    return INIT_FAILED;',
           '  }',
         ];
+      case 'demarker':
+        return [
+          // The evaluator hard domain is period >= 1; input int makes
+          // non-integer values unrepresentable. The EA intentionally adopts
+          // the registration threshold domain (0 < threshold < 1); the stricter
+          // 2..1000 period policy remains outside this generated EA.
+          `  if(InpDeMarker${conditionIndex}Period < 1 || !MathIsValidNumber(InpDeMarker${conditionIndex}Threshold) || InpDeMarker${conditionIndex}Threshold <= 0.0 || InpDeMarker${conditionIndex}Threshold >= 1.0)`,
+          '  {',
+          `    Print("DeMarker${conditionIndex} rejected: period must be an integer greater than or equal to 1 and threshold must be finite, greater than 0 and less than 1");`,
+          '    return INIT_FAILED;',
+          '  }',
+        ];
       case 'donchianBreak':
       case 'stochastic':
         return [];
@@ -1583,6 +1774,8 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
       case 'momentum':
         return [];
       case 'rvi':
+        return [];
+      case 'demarker':
         return [];
       case 'donchianBreak':
       case 'stochastic':

@@ -4,6 +4,7 @@ import {
   atr,
   bollingerBands,
   cci,
+  demarker,
   donchian,
   ema,
   ichimoku,
@@ -339,6 +340,55 @@ describe('indicators', () => {
     expectNullableCloseTo(values[18], 66.29, 2);
     expectNullableCloseTo(values[19], 57.92, 2);
     expectNullableCloseTo(values[20], 62.88, 2);
+  });
+
+  it('calculates MT5 DeMarker with the period-index warm-up and inclusive values', () => {
+    const highs = [10, 12, 11, 14, 14, 15];
+    const lows = [10, 9, 9, 7, 8, 8];
+    const values = demarker(highs, lows, 2);
+
+    // DeMax=[-,2,0,3,0,1], DeMin=[-,1,0,2,0,0].  The first complete
+    // SMA window is indices 1..2, so index period-1 stays null and index
+    // period is the first exposed value.
+    expect(values.slice(0, 2)).toEqual([null, null]);
+    expectNullableCloseTo(values[2], 2 / 3);
+    expectNullableCloseTo(values[3], 0.6);
+    expectNullableCloseTo(values[4], 0.6);
+    expectNullableCloseTo(values[5], 1);
+
+    // The exact equality value is the boundary used by the strategy tests.
+    expect(values[3]).toBe(1.5 / (1.5 + 1));
+  });
+
+  it('fails closed for flat DeMarker windows and non-finite price windows', () => {
+    expect(demarker([10, 10, 10, 10], [10, 10, 10, 10], 2)).toEqual([
+      null,
+      null,
+      null,
+      null,
+    ]);
+
+    const highs = [10, 12, Number.NaN, 14, 15, 16, 17, 18];
+    const lows = [10, 9, 8, 7, Number.NaN, 5, 4, 3];
+    const values = demarker(highs, lows, 2);
+    // A NaN high and a NaN low invalidate both movement series, and every
+    // SMA window containing either invalid bar remains null.  Index 7 is the
+    // first complete window after the invalid segment.
+    expect(values.slice(0, 7)).toEqual([null, null, null, null, null, null, null]);
+    expectNullableCloseTo(values[7], 0.5);
+    expect(() => demarker([1, 2], [1], 2)).toThrow('highs and lows must have the same length');
+  });
+
+  it('keeps the DeMarker prefix unchanged when a future shock is appended', () => {
+    const highs = [10, 12, 11, 14, 14];
+    const lows = [10, 9, 9, 7, 8];
+    const base = demarker(highs, lows, 2);
+
+    // The future high/low shock drives the next DeMarker down from the prior
+    // 0.6 region toward 0.5; a look-ahead implementation would reverse an
+    // above-0.55 decision at index 4.  It must not alter the prefix.
+    const withFuture = demarker([...highs, 1_000], [...lows, -1_000], 2);
+    expect(withFuture.slice(0, base.length)).toEqual(base);
   });
 
   it('calculates MACD line, signal, and histogram', () => {

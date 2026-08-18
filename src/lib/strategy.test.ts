@@ -105,6 +105,149 @@ const strategyFor = (
 });
 
 describe('strategy evaluator', () => {
+  it('evaluates DeMarker threshold re-crosses with exact boundaries and short mirroring', () => {
+    const condition = {
+      type: 'demarker' as const,
+      period: 1,
+      threshold: 0.25,
+      comparison: 'crossAbove' as const,
+    };
+    const longBars = [
+      bar(0, 10, 10, 10),
+      bar(1, 10, 9, 10),
+      bar(2, 11, 6, 11),
+    ];
+    const longValues = indicators.demarker(
+      longBars.map((item) => item.h),
+      longBars.map((item) => item.l),
+      condition.period,
+    );
+    expect(longValues[1]).toBe(0);
+    expect(longValues[2]).toBe(0.25);
+    expect(createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition), 1)).toBe(false);
+    // current === threshold is included by compareRsi's crossAbove boundary.
+    expect(createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition), 2)).toBe(true);
+    expect(
+      createStrategyEvaluator(longBars).isEntrySignal(strategyFor(condition, 'short'), 2),
+    ).toBe(false);
+
+    // Short uses mirrored crossBelow with 1-threshold=.75.  The current bar
+    // is exactly .75, so this catches both the comparison and threshold mirror.
+    const shortBars = [
+      bar(0, 10, 10, 10),
+      bar(1, 11, 10, 11),
+      bar(2, 14, 9, 14),
+    ];
+    const shortValues = indicators.demarker(
+      shortBars.map((item) => item.h),
+      shortBars.map((item) => item.l),
+      condition.period,
+    );
+    expect(shortValues[1]).toBe(1);
+    expect(shortValues[2]).toBe(0.75);
+    expect(
+      createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition, 'short'), 2),
+    ).toBe(true);
+    expect(createStrategyEvaluator(shortBars).isEntrySignal(strategyFor(condition), 2)).toBe(false);
+  });
+
+  it('keeps DeMarker signals look-ahead-safe in the reversal direction', () => {
+    const condition = {
+      type: 'demarker' as const,
+      period: 1,
+      threshold: 0.25,
+      comparison: 'crossAbove' as const,
+    };
+    const bars = [
+      bar(0, 10, 10, 10),
+      bar(1, 10, 9, 10),
+      bar(2, 11, 6, 11),
+    ];
+    const withFuture = [...bars, bar(3, 11, 5, 11)];
+
+    expect(createStrategyEvaluator(bars).isEntrySignal(strategyFor(condition), 2)).toBe(true);
+    // The future bar is a downward DeMarker shock (0 instead of .25).  If
+    // the evaluator reads it while judging index 2, the true cross reverses
+    // to false; appending it must leave the signal unchanged.
+    expect(createStrategyEvaluator(withFuture).isEntrySignal(strategyFor(condition), 2)).toBe(true);
+  });
+
+  it('fails closed for DeMarker flat/invalid windows and invalid periods', () => {
+    const condition = {
+      type: 'demarker' as const,
+      period: 1,
+      threshold: 0.5,
+      comparison: 'below' as const,
+    };
+    const flatBars = [bar(0, 10, 10, 10), bar(1, 10, 10, 10), bar(2, 10, 10, 10)];
+    const flatValues = indicators.demarker(
+      flatBars.map((item) => item.h),
+      flatBars.map((item) => item.l),
+      condition.period,
+    );
+    expect(flatValues[2]).toBeNull();
+    // If the zero denominator were relaxed to a numeric zero, `below .5`
+    // would be true here.  Null must fail closed in the evaluator as well.
+    expect(createStrategyEvaluator(flatBars).isEntrySignal(strategyFor(condition), 2)).toBe(false);
+
+    const nonFiniteBars = [
+      bar(0, 10, 10, 10),
+      bar(1, 10, 8, 10),
+      bar(2, 13, Number.NaN, 13),
+    ];
+    // The NaN sits only on the low side while the high side still rises: if
+    // the per-bar finite guard were relaxed, NaN < previousLow is false, so
+    // DeMin[2] = 0 and DeMarker[2] = 3 / (3 + 0) = 1.0, flipping this
+    // `above 0.5` check to true. The guard must keep the window null.
+    expect(
+      createStrategyEvaluator(nonFiniteBars).isEntrySignal(
+        strategyFor({ ...condition, comparison: 'above' as const }),
+        2,
+      ),
+    ).toBe(false);
+
+    const validSignalBars = [bar(0, 10, 10, 10), bar(1, 10, 9, 10), bar(2, 11, 6, 11)];
+    const validEvaluator = createStrategyEvaluator(validSignalBars);
+    expect(validEvaluator.isEntrySignal(strategyFor(condition), 2)).toBe(true);
+    for (const period of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(
+        validEvaluator.isEntrySignal(strategyFor({ ...condition, period }), 2),
+      ).toBe(false);
+    }
+    for (const threshold of [-0.1, 1.1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(
+        validEvaluator.isEntrySignal(strategyFor({ ...condition, threshold }), 2),
+      ).toBe(false);
+    }
+  });
+
+  it('memoizes DeMarker values by period', () => {
+    const demarkerSpy = vi.spyOn(indicators, 'demarker');
+    const firstCondition = {
+      type: 'demarker' as const,
+      period: 1,
+      threshold: 0.25,
+      comparison: 'crossAbove' as const,
+    };
+    const secondCondition = {
+      ...firstCondition,
+      threshold: 0,
+      comparison: 'above' as const,
+    };
+    const bars = [bar(0, 10, 10, 10), bar(1, 10, 9, 10), bar(2, 11, 6, 11)];
+    const strategy = {
+      ...strategyFor(firstCondition),
+      entryConditions: [firstCondition, secondCondition],
+    };
+
+    try {
+      expect(createStrategyEvaluator(bars).isEntrySignal(strategy, 2)).toBe(true);
+      expect(demarkerSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('evaluates Donchian breaks without including the current bar', () => {
     const bars = [
       bar(0, 10, 5, 7),
@@ -956,5 +1099,8 @@ describe('strategy evaluator', () => {
     );
     expect(conditionLabel({ type: 'momentum', period: 14 })).toBe('Momentum14 100クロス');
     expect(conditionLabel({ type: 'rvi', period: 10 })).toBe('RVI10 シグナルクロス');
+    expect(
+      conditionLabel({ type: 'demarker', period: 14, threshold: 0.5, comparison: 'above' }),
+    ).toBe('DeMarker14 above 0.5');
   });
 });

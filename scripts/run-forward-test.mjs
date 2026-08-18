@@ -22,6 +22,7 @@ const retirementEnginePath = path.join(projectRoot, 'src/lib/forwardRetirement.t
 export const knownEntryConditionTypes = Object.freeze([
   'maCross',
   'rsi',
+  'demarker',
   'bollinger',
   'macdCross',
   'ichimokuCross',
@@ -180,6 +181,19 @@ const assertEntryCondition = (condition, context, index) => {
       // RSI period 1 degenerates to 0/100; two samples are the minimum useful window.
       assertPositiveIntegerFieldAtLeast(conditionContext, condition, 'period', 2);
       assertThresholdField(conditionContext, condition, 'threshold', 100);
+      assertConditionEnum(conditionContext, condition, 'comparison', rsiComparisons);
+      break;
+    case 'demarker':
+      // The evaluator hard domain is period >= 1, but registration deliberately
+      // keeps the stricter 2..1000 floor/ceiling used by the EA builder policy.
+      assertConditionField(
+        conditionContext,
+        condition,
+        'period',
+        (value) => positiveInteger(value) && value >= 2 && value <= 1000,
+        'must be a positive integer greater than or equal to 2 and less than or equal to 1000',
+      );
+      assertThresholdField(conditionContext, condition, 'threshold', 1);
       assertConditionEnum(conditionContext, condition, 'comparison', rsiComparisons);
       break;
     case 'bollinger':

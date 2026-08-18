@@ -188,6 +188,42 @@ const validationCases: Array<{
     message: 'RSIの期間は2以上の整数、閾値は0より大きく100未満の有限値にしてください。',
   },
   {
+    type: 'demarker',
+    valid: {
+      type: 'demarker',
+      period: 2,
+      threshold: 0.9999999999999999,
+      comparison: 'below',
+    },
+    invalid: [
+      {
+        label: 'period below minimum',
+        condition: { type: 'demarker', period: 1, threshold: 0.3, comparison: 'below' },
+      },
+      {
+        label: 'period non-integer',
+        condition: { type: 'demarker', period: 2.5, threshold: 0.3, comparison: 'below' },
+      },
+      {
+        label: 'period above registration ceiling',
+        condition: { type: 'demarker', period: 1001, threshold: 0.3, comparison: 'below' },
+      },
+      {
+        label: 'threshold at zero',
+        condition: { type: 'demarker', period: 14, threshold: 0, comparison: 'below' },
+      },
+      {
+        label: 'threshold at one',
+        condition: { type: 'demarker', period: 14, threshold: 1, comparison: 'below' },
+      },
+      {
+        label: 'threshold non-finite',
+        condition: { type: 'demarker', period: 14, threshold: Number.POSITIVE_INFINITY, comparison: 'below' },
+      },
+    ],
+    message: 'DeMarkerの期間は2以上1000以下の整数、閾値は0より大きく1未満の有限値にしてください。',
+  },
+  {
     type: 'bollinger',
     valid: {
       type: 'bollinger',

@@ -3,6 +3,7 @@ import {
   atr,
   bollingerBands,
   cci,
+  demarker,
   donchian,
   ema,
   ichimoku,
@@ -45,6 +46,13 @@ export interface MaCrossCondition {
 
 export interface RsiCondition {
   type: 'rsi';
+  period: number;
+  threshold: number;
+  comparison: RsiComparison;
+}
+
+export interface DeMarkerCondition {
+  type: 'demarker';
   period: number;
   threshold: number;
   comparison: RsiComparison;
@@ -126,6 +134,7 @@ export interface StochasticCondition {
 export type EntryCondition =
   | MaCrossCondition
   | RsiCondition
+  | DeMarkerCondition
   | BollingerCondition
   | MacdCrossCondition
   | IchimokuCrossCondition
@@ -280,6 +289,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `${movingAverageLabel(condition.fastType)}${condition.fastPeriod} x ${movingAverageLabel(condition.slowType)}${condition.slowPeriod}`;
     case 'rsi':
       return `RSI${condition.period} ${condition.comparison} ${condition.threshold}`;
+    case 'demarker':
+      return `DeMarker${condition.period} ${condition.comparison} ${condition.threshold}`;
     case 'bollinger':
       return `BB${condition.period}/${condition.multiplier} ${condition.band} ${condition.mode}`;
     case 'macdCross':
@@ -371,6 +382,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const lows = bars.map((bar) => bar.l);
   const maCache = new Map<string, CachedIndicatorValues>();
   const rsiCache = new Map<number, CachedIndicatorValues>();
+  const demarkerCache = new Map<number, CachedIndicatorValues>();
   const cciCache = new Map<number, CachedIndicatorValues>();
   const atrCache = new Map<number, CachedIndicatorValues>();
   const bbCache = new Map<string, CachedBollingerBands>();
@@ -404,6 +416,16 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     }
     const values = rsi(closes, normalizedPeriod);
     rsiCache.set(normalizedPeriod, values);
+    return values;
+  };
+
+  const getDemarker = (period: number): CachedIndicatorValues => {
+    const cached = demarkerCache.get(period);
+    if (cached) {
+      return cached;
+    }
+    const values = demarker(highs, lows, period);
+    demarkerCache.set(period, values);
     return values;
   };
 
@@ -619,6 +641,21 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
         const values = getRsi(condition.period);
         const comparison = isShort ? mirroredComparison(condition.comparison) : condition.comparison;
         const threshold = isShort ? 100 - condition.threshold : condition.threshold;
+        return compareRsi(values[index - 1], values[index], comparison, threshold);
+      }
+      case 'demarker': {
+        if (
+          !Number.isInteger(condition.period) ||
+          condition.period < 1 ||
+          !Number.isFinite(condition.threshold) ||
+          condition.threshold < 0 ||
+          condition.threshold > 1
+        ) {
+          return false;
+        }
+        const values = getDemarker(condition.period);
+        const comparison = isShort ? mirroredComparison(condition.comparison) : condition.comparison;
+        const threshold = isShort ? 1 - condition.threshold : condition.threshold;
         return compareRsi(values[index - 1], values[index], comparison, threshold);
       }
       case 'bollinger': {

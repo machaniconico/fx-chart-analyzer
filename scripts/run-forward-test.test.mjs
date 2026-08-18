@@ -154,6 +154,7 @@ describe('forward test runner', () => {
     expect(knownEntryConditionTypes).toEqual([
       'maCross',
       'rsi',
+      'demarker',
       'bollinger',
       'macdCross',
       'ichimokuCross',
@@ -375,7 +376,7 @@ describe('forward test runner', () => {
             },
           ],
         },
-        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak, adxTrend, parabolicSar, momentum/,
+        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, demarker, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, keltnerBreak, cciBreak, adxTrend, parabolicSar, momentum/,
       },
     ];
 
@@ -439,6 +440,7 @@ describe('forward test runner', () => {
     ['parabolicSar', { type: 'parabolicSar', step: 0.02, maximum: 0.2 }],
     ['momentum', { type: 'momentum', period: 14 }],
     ['rvi', { type: 'rvi', period: 10 }],
+    ['demarker', { type: 'demarker', period: 14, threshold: 0.3, comparison: 'below' }],
   ])('accepts %s entry conditions in virtual strategies', (entryType, entryCondition) => {
     const candidate = JSON.parse(JSON.stringify(strategy));
     candidate.meta.id = `virtual-${entryType}-v1`;
@@ -501,6 +503,7 @@ describe('forward test runner', () => {
       },
     ],
     ['rsi', { type: 'rsi', period: 14, threshold: 30, comparison: 'below' }],
+    ['demarker', { type: 'demarker', period: 14, threshold: 0.3, comparison: 'below' }],
     [
       'bollinger',
       { type: 'bollinger', period: 20, multiplier: 2, mode: 'break', band: 'upper' },
@@ -588,6 +591,26 @@ describe('forward test runner', () => {
       'rsi',
       { type: 'rsi', period: 14, comparison: 'below' },
       /entryConditions\[0\]\.threshold must be a finite number greater than 0 and less than 100/,
+    ],
+    [
+      'demarker (threshold floor)',
+      { type: 'demarker', period: 14, threshold: 0, comparison: 'below' },
+      /entryConditions\[0\]\.threshold must be a finite number greater than 0 and less than 1/,
+    ],
+    [
+      'demarker (threshold ceiling)',
+      { type: 'demarker', period: 14, threshold: 1, comparison: 'below' },
+      /entryConditions\[0\]\.threshold must be a finite number greater than 0 and less than 1/,
+    ],
+    [
+      'demarker (non-finite threshold)',
+      { type: 'demarker', period: 14, threshold: Number.NaN, comparison: 'below' },
+      /entryConditions\[0\]\.threshold must be a finite number greater than 0 and less than 1/,
+    ],
+    [
+      'demarker (comparison)',
+      { type: 'demarker', period: 14, threshold: 0.3, comparison: 'invalid' },
+      /entryConditions\[0\]\.comparison must be one of below, above, crossBelow, crossAbove/,
     ],
     [
       'bollinger',
@@ -739,6 +762,21 @@ describe('forward test runner', () => {
     [
       'rvi (non-integer)',
       { type: 'rvi', period: 10.5 },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'demarker (registration floor)',
+      { type: 'demarker', period: 1, threshold: 0.3, comparison: 'below' },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'demarker (registration ceiling)',
+      { type: 'demarker', period: 1001, threshold: 0.3, comparison: 'below' },
+      /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
+    ],
+    [
+      'demarker (non-integer)',
+      { type: 'demarker', period: 10.5, threshold: 0.3, comparison: 'below' },
       /entryConditions\[0\]\.period must be a positive integer greater than or equal to 2 and less than or equal to 1000/,
     ],
   ])('rejects invalid %s condition parameters before backtesting', (entryType, entryCondition, expected) => {
