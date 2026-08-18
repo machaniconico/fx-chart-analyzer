@@ -581,6 +581,14 @@ it('accepts the AO lower period registration boundaries directly', () => {
   ).toEqual([]);
 });
 
+it('accepts the AO mixed period registration boundaries directly', () => {
+  expect(
+    strategyValidationMessages(
+      baseStrategy({ type: 'ao', fastPeriod: 2, slowPeriod: 1000 }),
+    ),
+  ).toEqual([]);
+});
+
 const invalidValidationCases = validationCases.flatMap(({ type, invalid, message }) =>
   invalid.map(({ label, condition }) => ({ type, label, condition, message })),
 );
