@@ -146,6 +146,36 @@ export interface StochasticCondition {
   comparison: RsiComparison;
 }
 
+/**
+ * StochCross gives the first signal meaning to the `%D(dPeriod)` series that
+ * the existing `stochastic()` already calculates but the legacy
+ * `stochastic` condition deliberately leaves unused. It is a different signal
+ * geometry on the same indicator (%K/%D two-series cross versus threshold
+ * re-cross), so its firing frequency and market regime are different.
+ * Rejected alternatives: AO - SMA(AO, 5) has the same rejection relationship
+ * as OsMA ≈ macdCross; Bears Power and Bulls Power depend on an EMA path and
+ * have high parity cost (already rejected); a Fractals breakout materially
+ * overlaps Donchian; and MFI, Force, and OBV are volume-based with uncertain
+ * cross-source parity.
+ *
+ * The evaluator deliberately does not consume `stochastic()` at all. Both of
+ * that legacy function's smoothed series (`k` and `d`) come from the sliding
+ * `smaFromNullable` recurrence, whose accumulated rounding drift (~1e-13)
+ * breaks the exact `%K === %D` tie contract that this cross archetype's
+ * equality edges depend on. StochCross recomputes raw %K with the identical
+ * per-window highest/lowest expressions and then applies fresh, deterministic
+ * per-window sums for both the smoothed %K and %D, matching the generated MQL
+ * operation order exactly. The US-2201 review harnesses measured 0 mismatches
+ * once both series are fresh, while keeping either series on the sliding
+ * recurrence produced 1-ULP tie breaks and phantom crosses on real data.
+ */
+export interface StochCrossCondition {
+  type: 'stochCross';
+  kPeriod: number;
+  dPeriod: number;
+  smoothing: number;
+}
+
 export type EntryCondition =
   | MaCrossCondition
   | RsiCondition
@@ -156,6 +186,7 @@ export type EntryCondition =
   | IchimokuCrossCondition
   | DonchianBreakCondition
   | StochasticCondition
+  | StochCrossCondition
   | KeltnerBreakCondition
   | CciBreakCondition
   | AdxTrendCondition
@@ -322,6 +353,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `Keltner${condition.emaPeriod}/${condition.atrPeriod} x${condition.multiplier} ブレイク`;
     case 'stochastic':
       return `Stoch${condition.kPeriod}/${condition.dPeriod}/${condition.smoothing} ${condition.comparison} ${condition.threshold}`;
+    case 'stochCross':
+      return `Stoch${condition.kPeriod}/${condition.dPeriod}/${condition.smoothing} %K/%D クロス`;
     case 'cciBreak':
       return `CCI${condition.period} ±${condition.level} ブレイク`;
     case 'adxTrend':
@@ -392,9 +425,84 @@ type CachedAdxResult = ReadonlyIndicatorResult<AdxResult>;
 type CachedParabolicSarResult = ReadonlyIndicatorResult<ParabolicSarResult>;
 type CachedRviResult = ReadonlyIndicatorResult<RviResult>;
 
+type CachedStochCrossResult = {
+  readonly k: readonly IndicatorPoint[];
+  readonly d: readonly IndicatorPoint[];
+};
+
 type KeltnerEvaluation = {
   readonly channel: CachedKeltnerChannel;
   readonly atrValues: CachedIndicatorValues;
+};
+
+/**
+ * Calculate one SMA window from scratch for every output bar. This is kept
+ * separate from indicators.ts so the existing stochastic() output remains
+ * byte-stable; the fresh oldest-to-newest sum is the StochCross parity
+ * contract for both the smoothed %K and %D series.
+ */
+const freshWindowSmaFromNullable = (
+  values: readonly IndicatorPoint[],
+  period: number,
+): IndicatorPoint[] => {
+  const result: IndicatorPoint[] = Array(values.length).fill(null);
+  for (let index = period - 1; index < values.length; index += 1) {
+    let sum = 0;
+    let complete = true;
+    for (let offset = index - period + 1; offset <= index; offset += 1) {
+      const value = values[offset];
+      if (!isNumber(value)) {
+        complete = false;
+        break;
+      }
+      sum += value;
+    }
+    if (!complete || !Number.isFinite(sum)) {
+      continue;
+    }
+    const average = sum / period;
+    if (Number.isFinite(average)) {
+      result[index] = average;
+    }
+  }
+  return result;
+};
+
+/**
+ * StochCross series contract, exported for bit-level parity tests. Do not
+ * consume stochastic() here: its smoothed %K also comes from the sliding
+ * smaFromNullable recurrence, and the ~1e-13 drift on either series breaks
+ * the exact %K === %D ties this cross archetype needs. Raw %K uses the
+ * identical per-window expressions as indicators.ts stochastic() (so with
+ * smoothing=1 the two %K series are bit-identical), then both smoothed
+ * series come from fresh per-window sums matching the generated MQL
+ * operation order.
+ */
+export const computeStochCrossSeries = (
+  highs: readonly number[],
+  lows: readonly number[],
+  closes: readonly number[],
+  kPeriod: number,
+  dPeriod: number,
+  smoothing: number,
+): { k: IndicatorPoint[]; d: IndicatorPoint[] } => {
+  const rawK: (number | null)[] = Array(closes.length).fill(null);
+  for (let i = kPeriod - 1; i < closes.length; i += 1) {
+    let highest = -Infinity;
+    let lowest = Infinity;
+    for (let offset = i - kPeriod + 1; offset <= i; offset += 1) {
+      highest = Math.max(highest, highs[offset]);
+      lowest = Math.min(lowest, lows[offset]);
+    }
+
+    const range = highest - lowest;
+    rawK[i] = range === 0 ? 50 : ((closes[i] - lowest) / range) * 100;
+  }
+  const freshK = freshWindowSmaFromNullable(rawK, smoothing);
+  return {
+    k: freshK,
+    d: freshWindowSmaFromNullable(freshK, dPeriod),
+  };
 };
 
 export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator => {
@@ -414,6 +522,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
   const donchianCache = new Map<number, CachedDonchianResult>();
   const keltnerCache = new Map<string, KeltnerEvaluation>();
   const stochasticCache = new Map<string, CachedStochasticResult>();
+  const stochCrossCache = new Map<string, CachedStochCrossResult>();
   const adxCache = new Map<number, CachedAdxResult>();
   const parabolicSarCache = new Map<string, CachedParabolicSarResult>();
   const momentumCache = new Map<number, CachedIndicatorValues>();
@@ -609,6 +718,32 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
       normalizedSmoothing,
     );
     stochasticCache.set(key, values);
+    return values;
+  };
+
+  const getStochCross = (
+    kPeriod: number,
+    dPeriod: number,
+    smoothing: number,
+  ): CachedStochCrossResult => {
+    const normalizedKPeriod = normalizePeriod(kPeriod);
+    const normalizedDPeriod = normalizePeriod(dPeriod);
+    const normalizedSmoothing = normalizePeriod(smoothing);
+    const key = `${normalizedKPeriod}:${normalizedDPeriod}:${normalizedSmoothing}`;
+    const cached = stochCrossCache.get(key);
+    if (cached) {
+      return cached;
+    }
+
+    const values = computeStochCrossSeries(
+      highs,
+      lows,
+      closes,
+      normalizedKPeriod,
+      normalizedDPeriod,
+      normalizedSmoothing,
+    );
+    stochCrossCache.set(key, values);
     return values;
   };
 
@@ -934,6 +1069,43 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
         const comparison = isShort ? mirroredComparison(condition.comparison) : condition.comparison;
         const threshold = isShort ? 100 - condition.threshold : condition.threshold;
         return compareRsi(values.k[index - 1], values.k[index], comparison, threshold);
+      }
+      case 'stochCross': {
+        // This archetype has a deliberate 2..1000 K/D domain. The legacy
+        // stochastic condition keeps its dPeriod >= 1 contract unchanged;
+        // dPeriod=1 makes %D identical to %K and therefore cannot cross.
+        if (
+          !Number.isInteger(condition.kPeriod) ||
+          condition.kPeriod < 2 ||
+          condition.kPeriod > 1000 ||
+          !Number.isInteger(condition.dPeriod) ||
+          condition.dPeriod < 2 ||
+          condition.dPeriod > 1000 ||
+          !Number.isInteger(condition.smoothing) ||
+          condition.smoothing < 1
+        ) {
+          return false;
+        }
+        const values = getStochCross(
+          condition.kPeriod,
+          condition.dPeriod,
+          condition.smoothing,
+        );
+        const previousK = values.k[index - 1];
+        const previousD = values.d[index - 1];
+        const currentK = values.k[index];
+        const currentD = values.d[index];
+        if (
+          !isNumber(previousK) ||
+          !isNumber(previousD) ||
+          !isNumber(currentK) ||
+          !isNumber(currentD)
+        ) {
+          return false;
+        }
+        return isShort
+          ? previousK >= previousD && currentK < currentD
+          : previousK <= previousD && currentK > currentD;
       }
     }
   };

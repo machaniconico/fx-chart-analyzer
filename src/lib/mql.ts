@@ -22,6 +22,7 @@ import type {
   RviCondition,
   RsiComparison,
   RsiCondition,
+  StochCrossCondition,
   StochasticCondition,
   StrategyDefinition,
 } from './strategy';
@@ -174,6 +175,12 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input int InpStoch${index}Smoothing = ${integerLiteral(condition.smoothing)};`,
         `input double InpStoch${index}Threshold = ${numberLiteral(condition.threshold)};`,
       ];
+    case 'stochCross':
+      return [
+        `input int InpStoch${index}KPeriod = ${integerLiteral(condition.kPeriod)};`,
+        `input int InpStoch${index}DPeriod = ${integerLiteral(condition.dPeriod)};`,
+        `input int InpStoch${index}Smoothing = ${integerLiteral(condition.smoothing)};`,
+      ];
   }
 };
 
@@ -199,6 +206,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mql5DonchianCondition(condition, index);
     case 'stochastic':
       return mqlStochasticCondition(condition, index);
+    case 'stochCross':
+      return mqlStochCrossCondition(condition, index);
     case 'keltnerBreak':
       return mql5KeltnerCondition(condition, index);
     case 'cciBreak':
@@ -238,6 +247,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mql4DonchianCondition(condition, index);
     case 'stochastic':
       return mqlStochasticCondition(condition, index);
+    case 'stochCross':
+      return mqlStochCrossCondition(condition, index);
     case 'keltnerBreak':
       return mql4KeltnerCondition(condition, index);
     case 'cciBreak':
@@ -1017,80 +1028,76 @@ const rviParityComment = `
 `;
 
 const mqlRviCondition = (_condition: RviCondition, index: number): string => `
-${rviParityComment}bool RviBarsReady${index}(int shift)
+${rviParityComment}struct RviBarValues${index}
 {
-  double open0 = iOpen(_Symbol, _Period, shift);
-  double high0 = iHigh(_Symbol, _Period, shift);
-  double low0 = iLow(_Symbol, _Period, shift);
-  double close0 = iClose(_Symbol, _Period, shift);
-  double open1 = iOpen(_Symbol, _Period, shift + 1);
-  double high1 = iHigh(_Symbol, _Period, shift + 1);
-  double low1 = iLow(_Symbol, _Period, shift + 1);
-  double close1 = iClose(_Symbol, _Period, shift + 1);
-  double open2 = iOpen(_Symbol, _Period, shift + 2);
-  double high2 = iHigh(_Symbol, _Period, shift + 2);
-  double low2 = iLow(_Symbol, _Period, shift + 2);
-  double close2 = iClose(_Symbol, _Period, shift + 2);
-  double open3 = iOpen(_Symbol, _Period, shift + 3);
-  double high3 = iHigh(_Symbol, _Period, shift + 3);
-  double low3 = iLow(_Symbol, _Period, shift + 3);
-  double close3 = iClose(_Symbol, _Period, shift + 3);
-  if(!ValueReady(open0) || !MathIsValidNumber(open0) || !ValueReady(high0) || !MathIsValidNumber(high0) ||
-    !ValueReady(low0) || !MathIsValidNumber(low0) || !ValueReady(close0) || !MathIsValidNumber(close0) ||
-    !ValueReady(open1) || !MathIsValidNumber(open1) || !ValueReady(high1) || !MathIsValidNumber(high1) ||
-    !ValueReady(low1) || !MathIsValidNumber(low1) || !ValueReady(close1) || !MathIsValidNumber(close1) ||
-    !ValueReady(open2) || !MathIsValidNumber(open2) || !ValueReady(high2) || !MathIsValidNumber(high2) ||
-    !ValueReady(low2) || !MathIsValidNumber(low2) || !ValueReady(close2) || !MathIsValidNumber(close2) ||
-    !ValueReady(open3) || !MathIsValidNumber(open3) || !ValueReady(high3) || !MathIsValidNumber(high3) ||
-    !ValueReady(low3) || !MathIsValidNumber(low3) || !ValueReady(close3) || !MathIsValidNumber(close3) ||
-    !(open0 > 0.0 && high0 > 0.0 && low0 > 0.0 && close0 > 0.0 &&
-      open1 > 0.0 && high1 > 0.0 && low1 > 0.0 && close1 > 0.0 &&
-      open2 > 0.0 && high2 > 0.0 && low2 > 0.0 && close2 > 0.0 &&
-      open3 > 0.0 && high3 > 0.0 && low3 > 0.0 && close3 > 0.0))
+  double open0;
+  double high0;
+  double low0;
+  double close0;
+  double open1;
+  double high1;
+  double low1;
+  double close1;
+  double open2;
+  double high2;
+  double low2;
+  double close2;
+  double open3;
+  double high3;
+  double low3;
+  double close3;
+};
+
+bool RviBarsReady${index}(int shift, RviBarValues${index} &bars)
+{
+  bars.open0 = iOpen(_Symbol, _Period, shift);
+  bars.high0 = iHigh(_Symbol, _Period, shift);
+  bars.low0 = iLow(_Symbol, _Period, shift);
+  bars.close0 = iClose(_Symbol, _Period, shift);
+  bars.open1 = iOpen(_Symbol, _Period, shift + 1);
+  bars.high1 = iHigh(_Symbol, _Period, shift + 1);
+  bars.low1 = iLow(_Symbol, _Period, shift + 1);
+  bars.close1 = iClose(_Symbol, _Period, shift + 1);
+  bars.open2 = iOpen(_Symbol, _Period, shift + 2);
+  bars.high2 = iHigh(_Symbol, _Period, shift + 2);
+  bars.low2 = iLow(_Symbol, _Period, shift + 2);
+  bars.close2 = iClose(_Symbol, _Period, shift + 2);
+  bars.open3 = iOpen(_Symbol, _Period, shift + 3);
+  bars.high3 = iHigh(_Symbol, _Period, shift + 3);
+  bars.low3 = iLow(_Symbol, _Period, shift + 3);
+  bars.close3 = iClose(_Symbol, _Period, shift + 3);
+  if(!ValueReady(bars.open0) || !MathIsValidNumber(bars.open0) || !ValueReady(bars.high0) || !MathIsValidNumber(bars.high0) ||
+    !ValueReady(bars.low0) || !MathIsValidNumber(bars.low0) || !ValueReady(bars.close0) || !MathIsValidNumber(bars.close0) ||
+    !ValueReady(bars.open1) || !MathIsValidNumber(bars.open1) || !ValueReady(bars.high1) || !MathIsValidNumber(bars.high1) ||
+    !ValueReady(bars.low1) || !MathIsValidNumber(bars.low1) || !ValueReady(bars.close1) || !MathIsValidNumber(bars.close1) ||
+    !ValueReady(bars.open2) || !MathIsValidNumber(bars.open2) || !ValueReady(bars.high2) || !MathIsValidNumber(bars.high2) ||
+    !ValueReady(bars.low2) || !MathIsValidNumber(bars.low2) || !ValueReady(bars.close2) || !MathIsValidNumber(bars.close2) ||
+    !ValueReady(bars.open3) || !MathIsValidNumber(bars.open3) || !ValueReady(bars.high3) || !MathIsValidNumber(bars.high3) ||
+    !ValueReady(bars.low3) || !MathIsValidNumber(bars.low3) || !ValueReady(bars.close3) || !MathIsValidNumber(bars.close3) ||
+    !(bars.open0 > 0.0 && bars.high0 > 0.0 && bars.low0 > 0.0 && bars.close0 > 0.0 &&
+      bars.open1 > 0.0 && bars.high1 > 0.0 && bars.low1 > 0.0 && bars.close1 > 0.0 &&
+      bars.open2 > 0.0 && bars.high2 > 0.0 && bars.low2 > 0.0 && bars.close2 > 0.0 &&
+      bars.open3 > 0.0 && bars.high3 > 0.0 && bars.low3 > 0.0 && bars.close3 > 0.0))
   {
     return false;
   }
   return true;
 }
 
-double RviNumeratorSwma${index}(int shift)
+double RviNumeratorSwma${index}(RviBarValues${index} &bars)
 {
-  if(!RviBarsReady${index}(shift))
-  {
-    return EMPTY_VALUE;
-  }
-  double open0 = iOpen(_Symbol, _Period, shift);
-  double close0 = iClose(_Symbol, _Period, shift);
-  double open1 = iOpen(_Symbol, _Period, shift + 1);
-  double close1 = iClose(_Symbol, _Period, shift + 1);
-  double open2 = iOpen(_Symbol, _Period, shift + 2);
-  double close2 = iClose(_Symbol, _Period, shift + 2);
-  double open3 = iOpen(_Symbol, _Period, shift + 3);
-  double close3 = iClose(_Symbol, _Period, shift + 3);
-  return ((close0 - open0) +
-    2 * (close1 - open1) +
-    2 * (close2 - open2) +
-    (close3 - open3)) / 6.0;
+  return ((bars.close0 - bars.open0) +
+    2 * (bars.close1 - bars.open1) +
+    2 * (bars.close2 - bars.open2) +
+    (bars.close3 - bars.open3)) / 6.0;
 }
 
-double RviRangeSwma${index}(int shift)
+double RviRangeSwma${index}(RviBarValues${index} &bars)
 {
-  if(!RviBarsReady${index}(shift))
-  {
-    return EMPTY_VALUE;
-  }
-  double high0 = iHigh(_Symbol, _Period, shift);
-  double low0 = iLow(_Symbol, _Period, shift);
-  double high1 = iHigh(_Symbol, _Period, shift + 1);
-  double low1 = iLow(_Symbol, _Period, shift + 1);
-  double high2 = iHigh(_Symbol, _Period, shift + 2);
-  double low2 = iLow(_Symbol, _Period, shift + 2);
-  double high3 = iHigh(_Symbol, _Period, shift + 3);
-  double low3 = iLow(_Symbol, _Period, shift + 3);
-  return ((high0 - low0) +
-    2 * (high1 - low1) +
-    2 * (high2 - low2) +
-    (high3 - low3)) / 6.0;
+  return ((bars.high0 - bars.low0) +
+    2 * (bars.high1 - bars.low1) +
+    2 * (bars.high2 - bars.low2) +
+    (bars.high3 - bars.low3)) / 6.0;
 }
 
 double RviValue${index}(int shift)
@@ -1112,8 +1119,13 @@ double RviValue${index}(int shift)
   // item. Descending MQL shifts preserve that same chronological order.
   for(int offset = period - 1; offset >= 0; offset--)
   {
-    double numeratorAverage = RviNumeratorSwma${index}(shift + offset);
-    double rangeAverage = RviRangeSwma${index}(shift + offset);
+    RviBarValues${index} bars;
+    if(!RviBarsReady${index}(shift + offset, bars))
+    {
+      return EMPTY_VALUE;
+    }
+    double numeratorAverage = RviNumeratorSwma${index}(bars);
+    double rangeAverage = RviRangeSwma${index}(bars);
     if(!ValueReady(numeratorAverage) || !MathIsValidNumber(numeratorAverage) ||
       !ValueReady(rangeAverage) || !MathIsValidNumber(rangeAverage))
     {
@@ -1537,6 +1549,17 @@ const mql4EntryConditionOnInit = (conditions: readonly EntryCondition[]): string
         '  }',
       ];
     }
+    if (condition.type === 'stochCross') {
+      return [
+        // K/D use the registration domain 2..1000; smoothing deliberately
+        // follows the legacy stochastic positive-integer domain.
+        `  if(InpStoch${conditionIndex}KPeriod < 2 || InpStoch${conditionIndex}KPeriod > 1000 || InpStoch${conditionIndex}DPeriod < 2 || InpStoch${conditionIndex}DPeriod > 1000 || InpStoch${conditionIndex}Smoothing < 1)`,
+        '  {',
+        `    Print("StochCross${conditionIndex} rejected: K and D periods must be integers between 2 and 1000 and smoothing must be an integer greater than or equal to 1");`,
+        '    return INIT_FAILED;',
+        '  }',
+      ];
+    }
     return [];
   });
   if (initGuardLines.length === 0) {
@@ -1625,6 +1648,168 @@ bool Condition${index}(bool longSide)
 }
 `;
 };
+
+const mqlStochCrossCondition = (_condition: StochCrossCondition, index: number): string => `
+// StochCross parity: calculate the same raw %K, smoothed %K, and fresh-window
+// %D sequence as the TypeScript evaluator without using the terminal
+// stochastic buffer. The TypeScript side recomputes all three series with
+// fresh per-window oldest-to-newest sums (it does not consume the sliding
+// stochastic() recurrence), so StochCrossK and StochCrossD below both sum
+// oldest-to-newest to stay operation-order identical. Flat windows produce
+// an exact %K=50 tie on both sides, so the cross equality edges never fire
+// there.
+double StochCrossRawK${index}(int shift)
+{
+  int kPeriod = InpStoch${index}KPeriod;
+  if(kPeriod < 2 || kPeriod > 1000)
+  {
+    return EMPTY_VALUE;
+  }
+  if(iTime(_Symbol, _Period, shift + kPeriod - 1) == 0)
+  {
+    return EMPTY_VALUE;
+  }
+  int highestShift = iHighest(_Symbol, _Period, MODE_HIGH, kPeriod, shift);
+  int lowestShift = iLowest(_Symbol, _Period, MODE_LOW, kPeriod, shift);
+  if(highestShift < 0 || lowestShift < 0)
+  {
+    return EMPTY_VALUE;
+  }
+  double highest = iHigh(_Symbol, _Period, highestShift);
+  double lowest = iLow(_Symbol, _Period, lowestShift);
+  double closeAtShift = iClose(_Symbol, _Period, shift);
+  if(!ValueReady(highest) || !MathIsValidNumber(highest) ||
+    !ValueReady(lowest) || !MathIsValidNumber(lowest) ||
+    !ValueReady(closeAtShift) || !MathIsValidNumber(closeAtShift))
+  {
+    return EMPTY_VALUE;
+  }
+  double range = highest - lowest;
+  if(!MathIsValidNumber(range))
+  {
+    return EMPTY_VALUE;
+  }
+  if(range == 0.0)
+  {
+    return 50.0;
+  }
+  double value = (closeAtShift - lowest) / range * 100.0;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+double StochCrossK${index}(int shift)
+{
+  int smoothing = InpStoch${index}Smoothing;
+  if(smoothing < 1)
+  {
+    return EMPTY_VALUE;
+  }
+  double sum = 0.0;
+  // Sum oldest-to-newest (largest shift first) to match the TypeScript
+  // freshWindowSmaFromNullable operation order exactly.
+  for(int offset = smoothing - 1; offset >= 0; offset--)
+  {
+    double raw = StochCrossRawK${index}(shift + offset);
+    if(!ValueReady(raw) || !MathIsValidNumber(raw))
+    {
+      return EMPTY_VALUE;
+    }
+    sum += raw;
+  }
+  if(!MathIsValidNumber(sum))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = sum / smoothing;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+double StochCrossD${index}(int shift)
+{
+  int dPeriod = InpStoch${index}DPeriod;
+  if(dPeriod < 2 || dPeriod > 1000)
+  {
+    return EMPTY_VALUE;
+  }
+  double sum = 0.0;
+  // %D is a fresh SMA of the already-smoothed %K sequence. Visit its window
+  // oldest-to-newest so the sum/division order matches the dedicated
+  // TypeScript fresh-window implementation exactly.
+  for(int offset = dPeriod - 1; offset >= 0; offset--)
+  {
+    double k = StochCrossK${index}(shift + offset);
+    if(!ValueReady(k) || !MathIsValidNumber(k))
+    {
+      return EMPTY_VALUE;
+    }
+    sum += k;
+  }
+  if(!MathIsValidNumber(sum))
+  {
+    return EMPTY_VALUE;
+  }
+  double value = sum / dPeriod;
+  if(!ValueReady(value) || !MathIsValidNumber(value))
+  {
+    return EMPTY_VALUE;
+  }
+  return value;
+}
+
+bool Condition${index}(bool longSide)
+{
+  int kPeriod = InpStoch${index}KPeriod;
+  int dPeriod = InpStoch${index}DPeriod;
+  int smoothing = InpStoch${index}Smoothing;
+  int signalShift = 1;
+  if(kPeriod < 2 || kPeriod > 1000 || dPeriod < 2 || dPeriod > 1000 || smoothing < 1)
+  {
+    return false;
+  }
+  // The current %K requires history through signalShift + kPeriod + smoothing - 2.
+  // Its %D then requires dPeriod %K values, through signalShift + kPeriod +
+  // smoothing + dPeriod - 3. The previous %D is one bar older and therefore
+  // requires history through the same expression plus one (dPeriod+1 %K values).
+  int currentKRequiredShift = signalShift + kPeriod + smoothing - 2;
+  int previousKRequiredShift = signalShift + 1 + kPeriod + smoothing - 2;
+  int currentDRequiredShift = signalShift + kPeriod + smoothing + dPeriod - 3;
+  int previousDRequiredShift = signalShift + 1 + kPeriod + smoothing + dPeriod - 3;
+  if(iTime(_Symbol, _Period, currentKRequiredShift) == 0 ||
+    iTime(_Symbol, _Period, currentDRequiredShift) == 0)
+  {
+    return false;
+  }
+  if(iTime(_Symbol, _Period, previousKRequiredShift) == 0 ||
+    iTime(_Symbol, _Period, previousDRequiredShift) == 0)
+  {
+    return false;
+  }
+  double previousK = StochCrossK${index}(signalShift + 1);
+  double previousD = StochCrossD${index}(signalShift + 1);
+  double currentK = StochCrossK${index}(signalShift);
+  double currentD = StochCrossD${index}(signalShift);
+  if(!ValueReady(previousK) || !MathIsValidNumber(previousK) ||
+    !ValueReady(previousD) || !MathIsValidNumber(previousD) ||
+    !ValueReady(currentK) || !MathIsValidNumber(currentK) ||
+    !ValueReady(currentD) || !MathIsValidNumber(currentD))
+  {
+    return false;
+  }
+  if(longSide)
+  {
+    return previousK <= previousD && currentK > currentD;
+  }
+  return previousK >= previousD && currentK < currentD;
+}
+`;
 
 const mql5MacdCondition = (_condition: MacdCrossCondition, index: number): string => `
 bool Condition${index}(bool longSide)
@@ -1889,7 +2074,10 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
         // DeMarker is calculated from iHigh/iLow to preserve TypeScript operation order.
         return [];
       case 'donchianBreak':
+        return [];
       case 'stochastic':
+        return [];
+      case 'stochCross':
         return [];
     }
   });
@@ -2040,8 +2228,19 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '  }',
         ];
       case 'donchianBreak':
+        return [];
       case 'stochastic':
         return [];
+      case 'stochCross':
+        return [
+          // The evaluator and registration policy share K/D=2..1000;
+          // smoothing keeps the legacy stochastic domain (positive integer).
+          `  if(InpStoch${conditionIndex}KPeriod < 2 || InpStoch${conditionIndex}KPeriod > 1000 || InpStoch${conditionIndex}DPeriod < 2 || InpStoch${conditionIndex}DPeriod > 1000 || InpStoch${conditionIndex}Smoothing < 1)`,
+          '  {',
+          `    Print("StochCross${conditionIndex} rejected: K and D periods must be integers between 2 and 1000 and smoothing must be an integer greater than or equal to 1");`,
+          '    return INIT_FAILED;',
+          '  }',
+        ];
     }
   });
 
@@ -2084,7 +2283,10 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
       case 'demarker':
         return [];
       case 'donchianBreak':
+        return [];
       case 'stochastic':
+        return [];
+      case 'stochCross':
         return [];
     }
   });
