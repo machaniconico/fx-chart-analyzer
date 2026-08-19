@@ -2,18 +2,30 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { buildCandidateMatrix } from './tune-virtual-strategies.mjs';
+import {
+  buildCandidateMatrix,
+  candidateMagicNumber,
+  ENTRY_TYPE_PROFILES,
+  TUNING_ENTRY_TYPES,
+  TUNING_PAIRS,
+} from './tune-virtual-strategies.mjs';
 import {
   buildMonthlySummary,
   buildConfirmedHistoryDays,
   buildForwardArtifacts,
+  buildObservationForwardArtifacts,
   buildStrategyReport,
+  main,
   fingerprintStrategyDefinition,
   FORWARD_HISTORY_SCHEMA_VERSION,
   FORWARD_RESULTS_SCHEMA_VERSION,
+  loadObservationStrategies,
+  loadVirtualStrategies,
   SAR_MIN_STEP as FORWARD_SAR_MIN_STEP,
   knownEntryConditionTypes,
   mergeForwardHistory,
+  observationHistoryPath,
+  observationOutputPath,
   splitBarsByRegistration,
   TWO_YEARS_SECONDS,
 } from './run-forward-test.mjs';
@@ -103,6 +115,42 @@ const selectionEvidence = {
   reservations: ['採用時点の留保'],
 };
 
+const observationExpectations = [
+  ['envelope', 'USDJPY', 'h1', 170, 40, null, 20],
+  ['envelope', 'GBPUSD', 'h1', 80, 120, null, 20],
+  ['envelope', 'AUDJPY', 'h4', 20, 80, null, 20],
+  ['stochCross', 'EURJPY', 'h1', 80, 80, null, 20],
+  ['ao', 'USDJPY', 'h1', 35, 220, null, 20],
+  ['ao', 'USDJPY', 'h4', 35, 200, null, 20],
+  ['ao', 'EURUSD', 'h1', 65, 280, null, 20],
+  ['ao', 'EURUSD', 'h4', 35, 180, null, 20],
+  ['ao', 'GBPJPY', 'h4', 170, 40, null, 20],
+  ['ao', 'EURJPY', 'h4', 110, 160, null, 20],
+  ['cciBreak', 'GBPUSD', 'h1', 75, 105, null, 20],
+  ['adxTrend', 'EURUSD', 'h4', 95, 220, null, 20],
+  ['adxTrend', 'GBPJPY', 'h1', 50, 200, null, 20],
+  ['adxTrend', 'EURJPY', 'h1', 65, 200, null, 20],
+  ['adxTrend', 'AUDJPY', 'h4', 35, 220, null, 20],
+  ['parabolicSar', 'USDJPY', 'h4', 50, 220, null, 20],
+  ['parabolicSar', 'GBPUSD', 'h1', 20, 140, null, 20],
+  ['parabolicSar', 'GBPUSD', 'h4', 110, 220, null, 20],
+  ['parabolicSar', 'AUDJPY', 'h4', 50, 180, null, 20],
+  ['momentum', 'USDJPY', 'h1', 50, 120, null, 20],
+  ['momentum', 'EURUSD', 'h4', 80, 180, null, 20],
+  ['momentum', 'EURJPY', 'h4', 35, 120, null, 20],
+  ['momentum', 'AUDJPY', 'h4', 95, 40, null, 20],
+  ['rvi', 'GBPJPY', 'h4', 65, 80, null, 20],
+  ['rvi', 'GBPUSD', 'h4', 35, 160, null, 20],
+  ['demarker', 'USDJPY', 'h1', 65, 140, null, 20],
+  ['demarker', 'USDJPY', 'h4', 50, 220, null, 20],
+  ['maCross', 'AUDJPY', 'h1', 32, 78, null, 20],
+  ['alligator', 'USDJPY', 'h4', 20, 100, null, 19],
+  ['alligator', 'EURUSD', 'h1', 35, 160, null, 19],
+  ['alligator', 'GBPJPY', 'h1', 20, 160, null, 19],
+  ['alligator', 'GBPUSD', 'h1', 20, 100, 25, 19],
+  ['alligator', 'GBPUSD', 'h4', 20, 100, 25, 19],
+];
+
 const emptyBacktestResult = (bars) => ({
   pair: 'USDJPY',
   spreadPips: 0.9,
@@ -138,6 +186,301 @@ const emptyBacktestResult = (bars) => ({
 });
 
 describe('forward test runner', () => {
+  it('registers the canonical 33 observation candidates without changing the seven-EA lane', async () => {
+    const observations = await loadObservationStrategies();
+    const virtual = await loadVirtualStrategies(new URL('../strategies/virtual/', import.meta.url).pathname);
+    // reports/ is gitignored, so the canonical tuning report only exists on
+    // machines that ran the tuning locally — it is absent in CI. The verbatim
+    // report reconciliation below is a local-only deepening; every assertion
+    // against committed assets runs unconditionally in all environments.
+    let report = null;
+    try {
+      report = JSON.parse(await readFile(
+        new URL('../reports/tune-virtual-strategies-2026-08-18T22-32-23-991Z.json', import.meta.url),
+        'utf8',
+      ));
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
+    expect(observations).toHaveLength(33);
+    expect(virtual).toHaveLength(7);
+    expect(new Set(observations.map((item) => item.meta.id)).size).toBe(33);
+
+    for (const [entryType, pair, timeframe, stopLossPips, takeProfitPips, trailingStopPips, sourceEntry] of observationExpectations) {
+      const id = `obs-${entryType.toLowerCase()}-${pair.toLowerCase()}-${timeframe}-v1`;
+      const observation = observations.find((item) => item.meta.id === id);
+
+      expect(observation).toBeDefined();
+      expect(observation.description).toContain('観察候補(未採用)');
+      expect(observation.description).toContain(`エントリ(${sourceEntry})`);
+      expect(observation.description).toContain('tune-virtual-strategies-2026-08-18T22-32-23-991Z');
+      expect(observation.entryConditions).toEqual([ENTRY_TYPE_PROFILES[entryType].entryCondition]);
+      expect(observation.exit).toMatchObject({
+        stopLossPips,
+        takeProfitPips,
+        trailingStopPips,
+      });
+      expect(observation.sessionFilter.enabled).toBe(false);
+      expect(observation.selectionEvidence.reportId)
+        .toBe('tune-virtual-strategies-2026-08-18T22-32-23-991Z');
+      expect(observation.selectionEvidence.inSampleRank).toBeGreaterThanOrEqual(1);
+      expect(observation.selectionEvidence.inSampleRank)
+        .toBeLessThanOrEqual(observation.selectionEvidence.candidatePool);
+      expect(Object.hasOwn(observation.selectionEvidence, 'passedCount')).toBe(false);
+
+      if (report) {
+        const canonical = report.candidates.find((item) =>
+          item.entryType === entryType && item.pair === pair && item.timeframe === timeframe);
+        expect(canonical?.status).toBe('passed');
+        expect(canonical?.selectedCandidate).toBeDefined();
+        expect(observation.sessionFilter).toEqual(canonical.selectedCandidate.sessionFilter);
+        expect(observation.selectionEvidence).toMatchObject({
+          candidatePool: canonical.combinations.length,
+          inSampleRank: canonical.selectedCandidate.rank,
+          optimization: {
+            netProfitYen: canonical.selectedCandidate.optimizationMetrics.netProfitYen,
+            profitFactor: canonical.selectedCandidate.optimizationMetrics.profitFactor,
+            tradeCount: canonical.selectedCandidate.optimizationMetrics.tradeCount,
+          },
+          validation: {
+            netProfitYen: canonical.selectedCandidate.validationMetrics.netProfitYen,
+            profitFactor: canonical.selectedCandidate.validationMetrics.profitFactor,
+          },
+          quarterlyStability: {
+            positive: canonical.selectedCandidate.quarterlyStability.positiveSegmentCount,
+            total: canonical.selectedCandidate.quarterlyStability.segmentCount,
+          },
+        });
+      }
+    }
+  });
+
+  it('uses candidateMagicNumber values uniquely across seven EAs and 33 observations', async () => {
+    const virtual = await loadVirtualStrategies(new URL('../strategies/virtual/', import.meta.url).pathname);
+    const observations = await loadObservationStrategies();
+    const allStrategies = [...virtual, ...observations];
+    const magicNumbers = allStrategies.map((item) => item.magicNumber);
+
+    expect(new Set(magicNumbers).size).toBe(40);
+    for (const observation of observations) {
+      const entryType = observation.entryConditions[0].type;
+      expect(observation.magicNumber).toBe(
+        candidateMagicNumber(
+          TUNING_PAIRS.indexOf(observation.meta.pair),
+          TUNING_ENTRY_TYPES.indexOf(entryType),
+          ENTRY_TYPE_PROFILES[entryType].timeframes.indexOf(observation.meta.timeframe),
+        ),
+      );
+    }
+  });
+
+  it('keeps observation output files separate from the seven-EA results file', async () => {
+    const observationResults = JSON.parse(await readFile(observationOutputPath, 'utf8'));
+    const observationHistory = JSON.parse(await readFile(observationHistoryPath, 'utf8'));
+    const existingResults = JSON.parse(await readFile(
+      new URL('../public/data/forward/results.json', import.meta.url),
+      'utf8',
+    ));
+
+    expect(observationResults.schemaVersion).toBe(FORWARD_RESULTS_SCHEMA_VERSION);
+    expect(observationResults.strategies).toHaveLength(33);
+    expect(observationHistory.schemaVersion).toBe(FORWARD_HISTORY_SCHEMA_VERSION);
+    expect(Object.keys(observationHistory.strategies)).toHaveLength(33);
+    expect(existingResults.schemaVersion).toBe(FORWARD_RESULTS_SCHEMA_VERSION);
+    expect(existingResults.strategies).toHaveLength(7);
+    expect(existingResults.strategies.some((item) => item.meta.id.startsWith('obs-'))).toBe(false);
+    expect(observationResults.strategies.every((item) => item.meta.id.startsWith('obs-'))).toBe(true);
+
+    const observationDefinitions = await loadObservationStrategies();
+    const definitionsById = new Map(
+      observationDefinitions.map((item) => [item.meta.id, item]),
+    );
+    expect(observationResults.strategies.every((item) => {
+      const definition = definitionsById.get(item.meta.id);
+      return definition !== undefined
+        && item.stopLossPips === definition.exit.stopLossPips
+        && item.takeProfitPips === definition.exit.takeProfitPips
+        && item.trailingStopPips === (definition.exit.trailingStopPips ?? null);
+    })).toBe(true);
+    expect(existingResults.strategies.every((item) => (
+      !Object.hasOwn(item, 'stopLossPips')
+      && !Object.hasOwn(item, 'takeProfitPips')
+      && !Object.hasOwn(item, 'trailingStopPips')
+    ))).toBe(true);
+  });
+
+  it('validates observation ids and adopted-EA collisions before evaluation', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'fx-observation-id-validation-test-'));
+    const observationDirectory = path.join(root, 'strategies/observation');
+    const adoptedDirectory = path.join(root, 'strategies/virtual');
+    const writeJson = async (filePath, payload) => {
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    };
+    const makeStrategy = (id) => JSON.parse(JSON.stringify({
+      ...strategy,
+      meta: { ...strategy.meta, id, name: id },
+      id,
+      name: id,
+    }));
+
+    try {
+      await mkdir(adoptedDirectory, { recursive: true });
+      await writeJson(
+        path.join(observationDirectory, 'invalid-id.json'),
+        makeStrategy('virtual-looking-v1'),
+      );
+      await expect(loadObservationStrategies(observationDirectory, {
+        adoptedStrategiesDirectory: adoptedDirectory,
+      })).rejects.toThrow(/must start with obs-/);
+
+      await rm(observationDirectory, { recursive: true, force: true });
+      await writeJson(
+        path.join(observationDirectory, 'collision.json'),
+        makeStrategy('obs-collision-v1'),
+      );
+      await writeJson(
+        path.join(adoptedDirectory, 'adopted.json'),
+        makeStrategy('obs-collision-v1'),
+      );
+      await expect(loadObservationStrategies(observationDirectory, {
+        adoptedStrategiesDirectory: adoptedDirectory,
+      })).rejects.toThrow(/collides with an adopted EA id/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('persists seven-EA artifacts before containing an observation failure', async () => {
+    const runBacktest = vi.fn();
+    const cleanup = vi.fn();
+    const virtualHistory = { schemaVersion: 1, strategies: {} };
+    const emptyHistory = { schemaVersion: 1, strategies: {} };
+    const virtualIds = [];
+    const events = [];
+    const buildVirtual = vi.fn(async (options) => {
+      expect(options.runBacktest).toBe(runBacktest);
+      expect(options.strategiesDirectory).toBeUndefined();
+      const strategies = await loadVirtualStrategies();
+      virtualIds.push(...strategies.map((item) => item.meta.id));
+      for (const item of strategies) {
+        virtualHistory.strategies[item.meta.id] = {
+          meta: item.meta,
+          days: {},
+        };
+      }
+      return {
+        results: { strategies: strategies.map((item) => ({ meta: item.meta })) },
+        history: virtualHistory,
+        rebaselined: [],
+      };
+    });
+    const observationError = new Error('observation definition failure');
+    const buildObservation = vi.fn(async () => {
+      events.push('build-observation');
+      throw observationError;
+    });
+    const writes = vi.fn(async (filePath) => {
+      if (filePath.endsWith('/forward/results.json')) {
+        events.push('write-virtual-results');
+      }
+      if (filePath.endsWith('/forward/observation-results.json')) {
+        events.push('write-observation-results');
+      }
+    });
+    const error = vi.fn();
+
+    await main({
+      loadBacktestEngine: async () => ({ runBacktest, cleanup }),
+      buildForwardArtifacts: buildVirtual,
+      buildObservationForwardArtifacts: buildObservation,
+      readForwardHistory: async () => emptyHistory,
+      readObservationForwardHistory: async () => emptyHistory,
+      writeJsonAtomically: writes,
+      log: vi.fn(),
+      warn: vi.fn(),
+      error,
+    });
+
+    expect(virtualIds).toHaveLength(7);
+    expect(virtualIds.every((id) => !id.startsWith('obs-'))).toBe(true);
+    expect(events.indexOf('write-virtual-results')).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf('write-virtual-results')).toBeLessThan(
+      events.indexOf('build-observation'),
+    );
+    expect(error).toHaveBeenCalledWith(
+      'Observation forward-test failed; adopted forward artifacts were preserved:',
+      observationError,
+    );
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it('appends observation confirmed days with the same immutable history rules', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'fx-observation-history-test-'));
+    const observationDirectory = path.join(root, 'strategies/observation');
+    // Hermetic adopted dir: without this, loadObservationStrategies falls back to
+    // the real strategies/virtual and couples this tmpdir test to production JSONs.
+    const adoptedDirectory = path.join(root, 'strategies/virtual');
+    await mkdir(adoptedDirectory, { recursive: true });
+    const observationStrategy = JSON.parse(JSON.stringify({
+      ...strategy,
+      meta: {
+        ...strategy.meta,
+        id: 'obs-history-test-v1',
+        name: 'Observation history test',
+        registeredAt: 1_700_000_000,
+      },
+      id: 'obs-history-test-v1',
+      name: 'Observation history test',
+    }));
+    const writeJson = async (filePath, payload) => {
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    };
+    const emptyLedger = { schemaVersion: 1, strategies: {} };
+    const bars = (lastDay) => Array.from(
+      { length: lastDay + 1 },
+      (_, index) => bar(1_700_000_000 + (index * UTC_DAY_SECONDS)),
+    );
+    const build = (existingHistory, lastDay) => buildObservationForwardArtifacts({
+      computedAt: '2026-08-19T00:00:00.000Z',
+      existingHistory,
+      strategiesDirectory: observationDirectory,
+      adoptedStrategiesDirectory: adoptedDirectory,
+      loadBarsFor: async () => bars(lastDay),
+      runBacktest: emptyBacktestResult,
+      evaluateRetirement: () => ({ status: 'active', reason: 'observation test' }),
+      retiredLedger: emptyLedger,
+    });
+
+    try {
+      await writeJson(
+        path.join(observationDirectory, `${observationStrategy.meta.id}.json`),
+        observationStrategy,
+      );
+      const first = await build(undefined, 2);
+      const firstDays = first.history.strategies[observationStrategy.meta.id].days;
+      expect(Object.keys(firstDays)).toEqual(['2023-11-14', '2023-11-15']);
+      expect(first.results.strategies).toHaveLength(1);
+      expect(first.results.strategies[0]).toMatchObject({
+        stopLossPips: observationStrategy.exit.stopLossPips,
+        takeProfitPips: observationStrategy.exit.takeProfitPips,
+        trailingStopPips: observationStrategy.exit.trailingStopPips,
+      });
+
+      const second = await build(first.history, 3);
+      const secondDays = second.history.strategies[observationStrategy.meta.id].days;
+      expect(Object.keys(secondDays)).toEqual(['2023-11-14', '2023-11-15', '2023-11-16']);
+      expect(secondDays['2023-11-14']).toEqual(firstDays['2023-11-14']);
+      expect(second.rebaselined).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('keeps the plain-Node SAR step literal aligned with the indicator policy', () => {
     // run-forward-test.mjs cannot import TypeScript in its plain-Node workflow;
     // this guard prevents its validation floor from drifting from indicators.ts.
@@ -1175,6 +1518,9 @@ describe('forward test runner', () => {
         status: 'active',
         reason: expect.stringContaining('サンプル不足'),
       });
+      expect(Object.hasOwn(item, 'stopLossPips')).toBe(false);
+      expect(Object.hasOwn(item, 'takeProfitPips')).toBe(false);
+      expect(Object.hasOwn(item, 'trailingStopPips')).toBe(false);
       expect(item.operationStatus.reason).toContain('PF=0.00');
       expect(item.operationStatus.reason).toContain('取引数=0件');
       expect(item.operationStatus.reason).toContain('確定日数=');

@@ -33,9 +33,23 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const defaultProjectRoot = path.resolve(__dirname, '..');
 
+export const RETIREMENT_SCOPES = Object.freeze({
+  virtual: Object.freeze({
+    strategyDirectory: 'strategies/virtual',
+    historyPath: 'public/data/forward/history.json',
+    ledgerPath: 'public/data/forward/retired.json',
+  }),
+  observation: Object.freeze({
+    strategyDirectory: 'strategies/observation',
+    historyPath: 'public/data/forward/observation-history.json',
+    ledgerPath: 'public/data/forward/observation-retired.json',
+  }),
+});
+
 export const CLI_USAGE = `Usage:
   npm run retire:strategy -- <strategy-id> --reason <retirement reason>
-  npm run retire:strategy -- <strategy-id> <retirement reason>`;
+  npm run retire:strategy -- <strategy-id> <retirement reason>
+  npm run retire:strategy -- <strategy-id> --scope observation --reason <retirement reason>`;
 
 const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -133,6 +147,13 @@ const normalizeReason = (value) => {
   return reason;
 };
 
+export const normalizeRetirementScope = (value = 'virtual') => {
+  if (!Object.hasOwn(RETIREMENT_SCOPES, value)) {
+    throw new Error(`scope must be one of ${Object.keys(RETIREMENT_SCOPES).join(', ')}`);
+  }
+  return value;
+};
+
 const normalizeRetiredAt = (value) => {
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) {
@@ -228,8 +249,16 @@ export const buildFinalSnapshot = (strategy, strategyHistory) => {
   };
 };
 
-const strategyPaths = (projectRoot, strategyId, registeredAt) => ({
-  source: path.join(projectRoot, 'strategies/virtual', `${strategyId}.json`),
+const strategyPaths = (
+  projectRoot,
+  strategyId,
+  registeredAt,
+  strategyDirectory = RETIREMENT_SCOPES.virtual.strategyDirectory,
+) => ({
+  source: path.join(projectRoot, strategyDirectory, `${strategyId}.json`),
+  // Both scopes (virtual/observation) archive into the shared strategies/retired
+  // directory. Ledger files are scope-separated; filename collision safety here
+  // rests on the obs- id prefix invariant enforced at observation load time.
   destination: path.join(
     projectRoot,
     'strategies/retired',
@@ -271,8 +300,13 @@ const latestLedgerEntry = (entries) => [...entries].sort((left, right) => {
   return String(left[1].retiredAt ?? '').localeCompare(String(right[1].retiredAt ?? ''));
 }).at(-1);
 
-const findArchiveForGeneration = async (root, strategyId, registeredAt) => {
-  const paths = strategyPaths(root, strategyId, registeredAt);
+const findArchiveForGeneration = async (
+  root,
+  strategyId,
+  registeredAt,
+  strategyDirectory = RETIREMENT_SCOPES.virtual.strategyDirectory,
+) => {
+  const paths = strategyPaths(root, strategyId, registeredAt, strategyDirectory);
   if (await exists(paths.destination)) {
     return paths.destination;
   }
@@ -328,15 +362,19 @@ export const retireStrategy = async ({
   retiredAt = new Date(),
   projectRoot = defaultProjectRoot,
   writeLedger = writeJsonAtomically,
+  scope: rawScope,
+  strategyScope,
 } = {}) => {
   const strategyId = normalizeStrategyId(rawStrategyId);
   const reason = normalizeReason(rawReason);
   const retiredAtIso = normalizeRetiredAt(retiredAt);
+  const scope = normalizeRetirementScope(rawScope ?? strategyScope ?? 'virtual');
+  const scopeConfig = RETIREMENT_SCOPES[scope];
   const root = path.resolve(projectRoot);
-  const ledgerPath = path.join(root, 'public/data/forward/retired.json');
-  const historyPath = path.join(root, 'public/data/forward/history.json');
+  const ledgerPath = path.join(root, scopeConfig.ledgerPath);
+  const historyPath = path.join(root, scopeConfig.historyPath);
   const lockPath = path.join(root, 'strategies/.retire-strategy.lock');
-  const sourcePath = path.join(root, 'strategies/virtual', `${strategyId}.json`);
+  const sourcePath = path.join(root, scopeConfig.strategyDirectory, `${strategyId}.json`);
   const legacyDestinationPath = path.join(root, 'strategies/retired', `${strategyId}.json`);
   const releaseLock = await acquireFileLock(lockPath);
   try {
@@ -358,7 +396,12 @@ export const retireStrategy = async ({
       const registeredAt = retiredEntryRegisteredAt(existingKey, existingEntry);
       const strategyPath = registeredAt === null
         ? ((await exists(legacyDestinationPath)) ? legacyDestinationPath : null)
-        : await findArchiveForGeneration(root, strategyId, registeredAt);
+        : await findArchiveForGeneration(
+          root,
+          strategyId,
+          registeredAt,
+          scopeConfig.strategyDirectory,
+        );
       if (strategyPath === null) {
         throw new Error(
           `${strategyId}: retirement ledger entry exists, but its archived strategy definition was not found`,
@@ -386,7 +429,12 @@ export const retireStrategy = async ({
       : recoveryCandidate?.definitionPath ?? legacyDestinationPath;
     const strategy = recoveryCandidate?.strategy ?? await readJson(definitionPath);
     assertStrategyDefinition(strategy, strategyId, definitionPath);
-    const paths = strategyPaths(root, strategyId, strategy.meta.registeredAt);
+    const paths = strategyPaths(
+      root,
+      strategyId,
+      strategy.meta.registeredAt,
+      scopeConfig.strategyDirectory,
+    );
     const ledgerKey = retiredStrategyLedgerKey(strategyId, strategy.meta.registeredAt);
     const existingGeneration = entriesForStrategy.find(([key, entry]) =>
       retiredEntryRegisteredAt(key, entry) === strategy.meta.registeredAt);
@@ -397,6 +445,7 @@ export const retireStrategy = async ({
         root,
         strategyId,
         strategy.meta.registeredAt,
+        scopeConfig.strategyDirectory,
       );
       const moved = await moveStrategyDefinition({
         source: paths.source,
@@ -477,6 +526,7 @@ export const retireStrategy = async ({
 export const parseCliArgs = (args = []) => {
   let strategyId;
   let optionReason;
+  let scope = 'virtual';
   const positionalReason = [];
   let help = false;
 
@@ -499,6 +549,19 @@ export const parseCliArgs = (args = []) => {
       optionReason = argument.slice('--reason='.length);
       continue;
     }
+    if (argument === '--scope') {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith('--')) {
+        throw new Error('Missing value for --scope');
+      }
+      scope = normalizeRetirementScope(value);
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('--scope=')) {
+      scope = normalizeRetirementScope(argument.slice('--scope='.length));
+      continue;
+    }
     if (argument.startsWith('-')) {
       throw new Error(`Unknown option: ${argument}`);
     }
@@ -518,6 +581,9 @@ export const parseCliArgs = (args = []) => {
   return {
     strategyId: normalizeStrategyId(strategyId),
     reason: normalizeReason(optionReason ?? positionalReason.join(' ')),
+    // Deliberate backward compatibility: omit the scope key for the default
+    // virtual scope so legacy parseCliArgs toEqual assertions keep passing.
+    ...(scope === 'virtual' ? {} : { scope }),
     help: false,
   };
 };
@@ -537,6 +603,7 @@ export const main = async ({
     projectRoot,
     strategyId: parsed.strategyId,
     reason: parsed.reason,
+    scope: parsed.scope,
     retiredAt,
   });
   log(

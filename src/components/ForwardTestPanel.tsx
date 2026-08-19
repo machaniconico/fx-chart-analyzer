@@ -13,7 +13,6 @@ import {
   selectionRankLabel,
   loadForwardResults,
   loadRetiredForwardStrategies,
-  type ForwardMetrics,
   type ForwardResultsFile,
   type ForwardStrategyResult,
   type MonthlySummary,
@@ -38,11 +37,34 @@ type ForwardPerformanceWithHistory = ForwardStrategyResult['forward']
 type ForwardStrategyResultWithHistory = Omit<ForwardStrategyResult, 'forward'> & {
   forward: ForwardPerformanceWithHistory;
   backtestReferenceCoverage?: BacktestReferenceCoverage;
+  stopLossPips?: number | null;
+  takeProfitPips?: number | null;
+  trailingStopPips?: number | null;
 };
 
 type ForwardResultsFileWithHistory = Omit<ForwardResultsFile, 'strategies'> & {
   schemaVersion?: number;
   strategies: ForwardStrategyResultWithHistory[];
+};
+
+export interface ObservationCandidate extends ForwardStrategyResultWithHistory {
+  observationType: string;
+  stopLossPips: number | null;
+  takeProfitPips: number | null;
+  historyDayCount: number;
+  historyAvailable: boolean;
+}
+
+export type ObservationPanelState = {
+  status: 'loading' | 'ready' | 'unavailable';
+  candidates: ObservationCandidate[];
+  historyAvailable: boolean;
+};
+
+const initialObservationPanelState: ObservationPanelState = {
+  status: 'loading',
+  candidates: [],
+  historyAvailable: false,
 };
 
 const yenFormatter = new Intl.NumberFormat('ja-JP', {
@@ -72,6 +94,160 @@ const formatEvidenceMetrics = (
 ): string => `${formatYen(netProfitYen)} / PF ${profitFactor.toFixed(2)}${
   tradeCount === undefined ? '' : ` / ${numberFormatter.format(tradeCount)}件`
 }`;
+
+interface ObservationHistoryEntry {
+  days?: Record<string, unknown>;
+}
+
+interface ObservationHistoryFile {
+  schemaVersion: number;
+  strategies: Record<string, ObservationHistoryEntry>;
+}
+
+const asRecord = (value: unknown): Record<string, unknown> | undefined => (
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+);
+
+const isNullableFiniteNumber = (value: unknown): value is number | null => (
+  value === null || (typeof value === 'number' && Number.isFinite(value))
+);
+
+const isOptionalNullableFiniteNumber = (
+  value: unknown,
+): value is number | null | undefined => (
+  value === undefined || isNullableFiniteNumber(value)
+);
+
+const isObservationStrategy = (value: unknown): value is ForwardStrategyResultWithHistory => {
+  const strategy = asRecord(value);
+  const meta = asRecord(strategy?.meta);
+  const forward = asRecord(strategy?.forward);
+  const metrics = asRecord(forward?.metrics);
+
+  return meta !== undefined
+    && typeof meta.id === 'string'
+    && typeof meta.name === 'string'
+    && meta.version === 1
+    && typeof meta.pair === 'string'
+    && typeof meta.timeframe === 'string'
+    && Object.prototype.hasOwnProperty.call(timeframeLabels, meta.timeframe)
+    && typeof meta.registeredAt === 'number'
+    && Number.isFinite(meta.registeredAt)
+    && forward !== undefined
+    && metrics !== undefined
+    && Array.isArray(forward.trades)
+    && Array.isArray(forward.equityCurve)
+    && typeof metrics.tradeCount === 'number'
+    && Number.isInteger(metrics.tradeCount)
+    && metrics.tradeCount >= 0
+    && isNullableFiniteNumber(metrics.netProfitYen)
+    && isNullableFiniteNumber(metrics.netPips)
+    && isOptionalNullableFiniteNumber(strategy?.stopLossPips)
+    && isOptionalNullableFiniteNumber(strategy?.takeProfitPips)
+    && isOptionalNullableFiniteNumber(strategy?.trailingStopPips);
+};
+
+const isObservationResultsFile = (
+  value: unknown,
+): value is ForwardResultsFileWithHistory => {
+  const payload = asRecord(value);
+  return payload !== undefined
+    && typeof payload.schemaVersion === 'number'
+    && typeof payload.computedAt === 'string'
+    && Array.isArray(payload.strategies)
+    && payload.strategies.every(isObservationStrategy);
+};
+
+const isObservationHistoryFile = (value: unknown): value is ObservationHistoryFile => {
+  const payload = asRecord(value);
+  const strategies = asRecord(payload?.strategies);
+  return payload !== undefined
+    && typeof payload.schemaVersion === 'number'
+    && strategies !== undefined
+    && Object.values(strategies).every((entry) => {
+      const record = asRecord(entry);
+      return record !== undefined
+        && (record.days === undefined || asRecord(record.days) !== undefined);
+    });
+};
+
+const observationTypeLabel = (strategy: ForwardStrategyResultWithHistory): string => {
+  const namePrefix = `${strategy.meta.pair} ${strategy.meta.timeframe} `;
+  if (!strategy.meta.name.startsWith(namePrefix)) {
+    return strategy.meta.name;
+  }
+
+  const candidateName = strategy.meta.name.slice(namePrefix.length);
+  const observationSuffix = ' 観察候補';
+  return candidateName.endsWith(observationSuffix)
+    ? candidateName.slice(0, -observationSuffix.length)
+    : candidateName;
+};
+
+const observationExitPips = (
+  strategy: ForwardStrategyResultWithHistory,
+  key: 'stopLossPips' | 'takeProfitPips',
+): number | null => {
+  return strategy[key] ?? null;
+};
+
+const normalizeObservationCandidates = (
+  results: ForwardResultsFileWithHistory,
+  history: ObservationHistoryFile | undefined,
+): ObservationCandidate[] => results.strategies.map((strategy) => {
+  const historyEntry = history?.strategies[strategy.meta.id];
+  const historyDays = asRecord(historyEntry?.days);
+  const resultDayCount = typeof strategy.forward.confirmedDayCount === 'number'
+    ? strategy.forward.confirmedDayCount
+    : 0;
+  return {
+    ...strategy,
+    observationType: observationTypeLabel(strategy),
+    stopLossPips: observationExitPips(strategy, 'stopLossPips'),
+    takeProfitPips: observationExitPips(strategy, 'takeProfitPips'),
+    historyDayCount: historyDays ? Object.keys(historyDays).length : resultDayCount,
+    historyAvailable: history !== undefined,
+  };
+});
+
+const fetchObservationJson = async (path: string): Promise<unknown> => {
+  const response = await fetch(path, { cache: 'no-cache' });
+  if (!response.ok) {
+    throw new Error(`観察データを読み込めませんでした: ${path}`);
+  }
+  return response.json();
+};
+
+export const loadObservationData = async (): Promise<ObservationPanelState> => {
+  const [resultsOutcome, historyOutcome] = await Promise.allSettled([
+    fetchObservationJson('/data/forward/observation-results.json'),
+    fetchObservationJson('/data/forward/observation-history.json'),
+  ]);
+
+  if (
+    resultsOutcome.status !== 'fulfilled'
+    || !isObservationResultsFile(resultsOutcome.value)
+  ) {
+    return {
+      status: 'unavailable',
+      candidates: [],
+      historyAvailable: false,
+    };
+  }
+
+  const history = historyOutcome.status === 'fulfilled'
+    && isObservationHistoryFile(historyOutcome.value)
+    ? historyOutcome.value
+    : undefined;
+
+  return {
+    status: 'ready',
+    candidates: normalizeObservationCandidates(resultsOutcome.value, history),
+    historyAvailable: history !== undefined,
+  };
+};
 
 const operationStatusLabels: Record<
   NonNullable<ForwardStrategyResult['operationStatus']>['status'],
@@ -737,17 +913,188 @@ function RetiredStrategyArchive({ strategies }: { strategies: RetiredForwardStra
   );
 }
 
+const formatObservationPips = (value: number | null): string => (
+  value === null ? '未提供' : `${value.toLocaleString('ja-JP')}p`
+);
+
+const hasObservationData = (candidate: ObservationCandidate): boolean => (
+  candidate.historyDayCount > 0
+  || candidate.forward.metrics.tradeCount > 0
+  || (
+    candidate.forward.metrics.netProfitYen !== null
+    && candidate.forward.metrics.netProfitYen !== 0
+  )
+);
+
+const observationProfitLabel = (candidate: ObservationCandidate): string => (
+  hasObservationData(candidate) ? formatYen(candidate.forward.metrics.netProfitYen) : '未計上'
+);
+
+export function ObservationCandidateSection({
+  state,
+}: {
+  state: ObservationPanelState;
+}) {
+  const { candidates } = state;
+  const allCandidatesHaveNoData = state.historyAvailable
+    && candidates.length > 0
+    && candidates.every((candidate) => !hasObservationData(candidate));
+
+  return (
+    <section
+      className="forward-retired-archive forward-observation-section"
+      aria-labelledby="forward-observation-title"
+      style={{
+        borderColor: 'rgba(89, 214, 255, 0.54)',
+        background: '#0d1821',
+      }}
+    >
+      <header className="forward-retired-heading">
+        <div>
+          <p className="eyebrow" style={{ color: '#59d6ff' }}>採用EAとは別枠</p>
+          <h2 id="forward-observation-title">観察候補(未採用)</h2>
+        </div>
+        <p>
+          {candidates.length > 0
+            ? `${numberFormatter.format(candidates.length)}件を候補別に表示しています。`
+            : '採用判断を保留している候補を表示します。'}
+        </p>
+      </header>
+
+      <div
+        className="forward-operation-alert"
+        role="note"
+        style={{
+          borderColor: 'rgba(89, 214, 255, 0.46)',
+          background: 'rgba(89, 214, 255, 0.09)',
+          color: '#bfefff',
+        }}
+      >
+        <strong>未採用・観察中</strong>
+        <span>
+          観察中の候補であり、採用EAではありません。新しい市場データでフォワード実績を蓄積し、
+          再現性を確認する目的で記録しています。
+        </span>
+      </div>
+
+      {state.status === 'loading' && (
+        <p className="empty-copy" role="status">観察候補を読み込んでいます...</p>
+      )}
+
+      {state.status === 'unavailable' && (
+        <p className="empty-copy state-error" role="status">
+          観察候補データを読み込めませんでした。採用EAの表示は継続しています。
+        </p>
+      )}
+
+      {state.status === 'ready' && candidates.length === 0 && (
+        <p className="empty-copy" role="status">観察候補のデータはまだありません。</p>
+      )}
+
+      {state.status === 'ready' && candidates.length > 0 && (
+        <>
+          {!state.historyAvailable && (
+            <p
+              className="forward-waiting-message"
+              role="note"
+              style={{
+                borderColor: 'rgba(246, 200, 95, 0.42)',
+                background: 'rgba(246, 200, 95, 0.09)',
+                color: '#f6c85f',
+              }}
+            >
+              観察履歴ファイルを取得できないため、結果ファイルに含まれる範囲だけを表示しています。
+            </p>
+          )}
+
+          {allCandidatesHaveNoData && (
+            <p
+              className="forward-waiting-message"
+              role="note"
+              style={{
+                borderColor: 'rgba(89, 214, 255, 0.38)',
+                background: 'rgba(89, 214, 255, 0.07)',
+                color: '#bfefff',
+              }}
+            >
+              {numberFormatter.format(candidates.length)}件すべて観察開始直後で、確定履歴ゼロ・取引なしです。
+              データが蓄積されるまで累積損益は未計上として表示します。
+            </p>
+          )}
+
+          <div className="trade-table-wrap">
+            <table className="trade-table observation-candidate-table">
+              <caption style={{ padding: '8px 12px', color: '#8e9bb3', textAlign: 'left' }}>
+                観察候補のフォワード累積状況。SL/TPが結果ファイルにない候補は未提供と表示します。
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">候補</th>
+                  <th scope="col">ペア</th>
+                  <th scope="col">時間足</th>
+                  <th scope="col">型</th>
+                  <th scope="col">SL</th>
+                  <th scope="col">TP</th>
+                  <th scope="col">観察開始日</th>
+                  <th scope="col">累積損益</th>
+                  <th scope="col">取引数</th>
+                  <th scope="col">観察履歴</th>
+                </tr>
+              </thead>
+              <tbody>
+                {candidates.map((candidate) => (
+                  <tr key={`${candidate.meta.id}@${candidate.meta.registeredAt}`}>
+                    <td>
+                      <strong>{candidate.meta.name}</strong>
+                      <small style={{ display: 'block', color: '#8e9bb3', marginTop: 4 }}>
+                        {candidate.meta.id}
+                      </small>
+                    </td>
+                    <td>{candidate.meta.pair}</td>
+                    <td>{timeframeLabels[candidate.meta.timeframe]}</td>
+                    <td>{candidate.observationType}</td>
+                    <td>{formatObservationPips(candidate.stopLossPips)}</td>
+                    <td>{formatObservationPips(candidate.takeProfitPips)}</td>
+                    <td>{retiredDateLabel(candidate.meta.registeredAt)}</td>
+                    <td className={hasObservationData(candidate) ? (
+                      (candidate.forward.metrics.netProfitYen ?? 0) >= 0 ? 'metric-up' : 'metric-down'
+                    ) : ''}>
+                      {observationProfitLabel(candidate)}
+                    </td>
+                    <td>{numberFormatter.format(candidate.forward.metrics.tradeCount)}件</td>
+                    <td>
+                      {!candidate.historyAvailable
+                        ? '履歴未取得'
+                        : candidate.historyDayCount === 0
+                          ? '履歴ゼロ'
+                          : `${numberFormatter.format(candidate.historyDayCount)}日`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 export function ForwardTestPanel({ now }: ForwardTestPanelProps) {
   const [results, setResults] = useState<ForwardResultsFileWithHistory | null>(null);
   const [retiredStrategies, setRetiredStrategies] = useState<RetiredForwardStrategy[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [observationState, setObservationState] = useState<ObservationPanelState>(
+    initialObservationPanelState,
+  );
 
   useEffect(() => {
     let disposed = false;
     setLoading(true);
     setError(null);
     setRetiredStrategies([]);
+    setObservationState(initialObservationPanelState);
     loadForwardResults()
       .then((payload) => {
         if (!disposed) {
@@ -777,6 +1124,22 @@ export function ForwardTestPanel({ now }: ForwardTestPanelProps) {
       .catch(() => {
         if (!disposed) {
           setRetiredStrategies([]);
+        }
+      });
+
+    loadObservationData()
+      .then((observation) => {
+        if (!disposed) {
+          setObservationState(observation);
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setObservationState({
+            status: 'unavailable',
+            candidates: [],
+            historyAvailable: false,
+          });
         }
       });
 
@@ -812,11 +1175,27 @@ export function ForwardTestPanel({ now }: ForwardTestPanelProps) {
 
       {results.monthlySummary && <MonthlySummarySection summary={results.monthlySummary} />}
 
-      <div className="forward-strategy-grid">
-        {results.strategies.map((strategy) => (
-          <StrategyCard key={strategy.meta.id} strategy={strategy} now={now} />
-        ))}
-      </div>
+      <section
+        aria-labelledby="forward-adopted-title"
+        style={{ display: 'grid', gap: 14 }}
+      >
+        <header className="forward-retired-heading">
+          <div>
+            <p className="eyebrow">採用済み・運用監視</p>
+            <h2 id="forward-adopted-title">
+              採用EA({numberFormatter.format(results.strategies.length)}件)
+            </h2>
+          </div>
+          <p>採用判断済みのEAです。観察候補とは別の運用監視対象として表示しています。</p>
+        </header>
+        <div className="forward-strategy-grid">
+          {results.strategies.map((strategy) => (
+            <StrategyCard key={strategy.meta.id} strategy={strategy} now={now} />
+          ))}
+        </div>
+      </section>
+
+      <ObservationCandidateSection state={observationState} />
 
       {retiredStrategies.length > 0 && (
         <RetiredStrategyArchive strategies={retiredStrategies} />

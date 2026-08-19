@@ -15,9 +15,22 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 const dataRoot = path.join(projectRoot, 'public/data');
 const strategiesRoot = path.join(projectRoot, 'strategies/virtual');
+/**
+ * Observation registration rule: take the pair×timeframe×entry-type targets
+ * from ea-selection-log.md entries (20) and (19), then register exactly one
+ * JSON for every target whose candidate in the canonical
+ * tune-virtual-strategies-2026-08-18T22-32-23-991Z report has status=passed.
+ * Entry (20) supplies the 32-row reproduction ledger; entry (19) supplies the
+ * alligator 12-candidate ledger. The JSON is deliberately kept outside the
+ * adopted virtual lane and is evaluated by this runner's same backtest path.
+ */
+export const observationStrategiesRoot = path.join(projectRoot, 'strategies/observation');
 const outputPath = path.join(dataRoot, 'forward/results.json');
 const historyPath = path.join(dataRoot, 'forward/history.json');
 const retiredLedgerPath = path.join(dataRoot, 'forward/retired.json');
+export const observationOutputPath = path.join(dataRoot, 'forward/observation-results.json');
+export const observationHistoryPath = path.join(dataRoot, 'forward/observation-history.json');
+const observationRetiredLedgerPath = path.join(dataRoot, 'forward/observation-retired.json');
 const retirementEnginePath = path.join(projectRoot, 'src/lib/forwardRetirement.ts');
 export const knownEntryConditionTypes = Object.freeze([
   'maCross',
@@ -422,6 +435,9 @@ export const assertSelectionEvidence = (value, context = 'selectionEvidence') =>
   if (!positiveInteger(value.candidatePool)) {
     throw new Error(`${context}.candidatePool must be a positive integer`);
   }
+  // Observation JSON intentionally omits passedCount: rank is over the full
+  // combination set, so comparing inSampleRank with passedCount would reject
+  // valid canonical candidates. Keep the field optional for legacy/adopted JSON.
   if (
     Object.hasOwn(value, 'passedCount')
     && (!nonNegativeInteger(value.passedCount) || value.passedCount > value.candidatePool)
@@ -612,7 +628,14 @@ export const fingerprintStrategyDefinition = (strategy) => createHash('sha256')
 export const readRetiredLedger = async (filePath = retiredLedgerPath) =>
   readRetiredLedgerFile(filePath);
 
-export const assertNoRetiredStrategyConflicts = (strategies, retiredLedger) => {
+export const assertNoRetiredStrategyConflicts = (
+  strategies,
+  retiredLedger,
+  {
+    strategyScope = 'strategies/virtual',
+    retiredLedgerDisplayPath = 'public/data/forward/retired.json',
+  } = {},
+) => {
   assertRetiredLedger(retiredLedger);
   const activeById = new Map(
     strategies.map((strategy) => [strategy.meta.id, strategy.meta.registeredAt]),
@@ -636,9 +659,9 @@ export const assertNoRetiredStrategyConflicts = (strategies, retiredLedger) => {
 
   if (conflicts.length > 0) {
     throw new Error(
-      'Forward-test configuration contradiction: strategies/virtual contains '
+      `Forward-test configuration contradiction: ${strategyScope} contains `
       + `retired strategy generation(s) ${conflicts.join(', ')} already recorded in `
-      + 'public/data/forward/retired.json. Remove the duplicate active definition or '
+      + `${retiredLedgerDisplayPath}. Remove the duplicate active definition or `
       + 'correct the retirement ledger before running the forward test.',
     );
   }
@@ -648,6 +671,9 @@ const assertHistoryGenerationTransitionsAreRetired = (
   strategies,
   existingHistory,
   retiredLedger,
+  {
+    retiredLedgerDisplayPath = 'public/data/forward/retired.json',
+  } = {},
 ) => {
   for (const strategy of strategies) {
     const strategyId = strategy.meta.id;
@@ -666,7 +692,7 @@ const assertHistoryGenerationTransitionsAreRetired = (
       throw new Error(
         `${strategyId}: existing forward history belongs to generation `
         + `${strategyId}@${previousRegisteredAt}, but that generation is not recorded in `
-        + 'public/data/forward/retired.json. Refusing to replace confirmed history for '
+        + `${retiredLedgerDisplayPath}. Refusing to replace confirmed history for `
         + `the re-registered generation ${strategyId}@${strategy.meta.registeredAt}.`,
       );
     }
@@ -805,6 +831,8 @@ export const buildMonthlySummary = ({
   activeStrategyIds = [],
   retiredLedger = { schemaVersion: 1, strategies: {} },
   computedAt = new Date().toISOString(),
+  strategyScope = 'strategies/virtual',
+  retiredLedgerDisplayPath = 'public/data/forward/retired.json',
 }) => {
   assertForwardHistory(history, 'forward history for monthly summary');
   assertRetiredLedger(retiredLedger, 'retired ledger for monthly summary');
@@ -823,8 +851,8 @@ export const buildMonthlySummary = ({
     if (retired && !hasRetiredGeneration(retiredLedger, strategyHistory)) {
       throw new Error(
         `Forward history integrity error: ${strategyId}@${strategyHistory.meta.registeredAt} `
-        + 'is not present in strategies/virtual and is not recorded in '
-        + 'public/data/forward/retired.json.',
+        + `is not present in ${strategyScope} and is not recorded in `
+        + `${retiredLedgerDisplayPath}.`,
       );
     }
 
@@ -1324,6 +1352,7 @@ export const buildStrategyReport = ({
   runBacktest,
   computedAt = new Date().toISOString(),
   existingStrategyHistory,
+  includeExitPips = false,
 }) => {
   assertVirtualStrategy(strategy, strategy?.meta?.id ?? 'strategy');
   const meta = normalizeMeta(strategy.meta);
@@ -1349,6 +1378,13 @@ export const buildStrategyReport = ({
     meta,
     ...(Object.hasOwn(strategy, 'selectionEvidence')
       ? { selectionEvidence: strategy.selectionEvidence }
+      : {}),
+    ...(includeExitPips
+      ? {
+        stopLossPips: strategy.exit.stopLossPips,
+        takeProfitPips: strategy.exit.takeProfitPips,
+        trailingStopPips: strategy.exit.trailingStopPips ?? null,
+      }
       : {}),
     forward: {
       metrics: summarizeMetrics(forwardResult),
@@ -1414,6 +1450,33 @@ export const loadVirtualStrategies = async (directory = strategiesRoot) => {
   return strategies;
 };
 
+export const loadObservationStrategies = async (
+  directory = observationStrategiesRoot,
+  { adoptedStrategiesDirectory = strategiesRoot } = {},
+) => {
+  const [observations, adoptedStrategies] = await Promise.all([
+    loadVirtualStrategies(directory),
+    loadVirtualStrategies(adoptedStrategiesDirectory),
+  ]);
+  const adoptedIds = new Set(adoptedStrategies.map((strategy) => strategy.meta.id));
+  const observationIds = new Set();
+
+  for (const observation of observations) {
+    const strategyId = observation.meta.id;
+    if (!strategyId.startsWith('obs-')) {
+      throw new Error(`${strategyId}: observation strategy id must start with obs-`);
+    }
+    if (adoptedIds.has(strategyId)) {
+      throw new Error(`${strategyId}: observation strategy id collides with an adopted EA id`);
+    }
+    if (observationIds.has(strategyId)) {
+      throw new Error(`${strategyId}: duplicate observation strategy id`);
+    }
+    observationIds.add(strategyId);
+  }
+  return observations;
+};
+
 const loadBars = async (pair, timeframe) => {
   const payload = await readJson(path.join(dataRoot, pair, `${timeframe}.json`));
   return payload.bars;
@@ -1428,19 +1491,27 @@ export const buildForwardArtifacts = async ({
   evaluateRetirement,
   retiredLedger,
   retiredLedgerFile = retiredLedgerPath,
+  strategyScope = 'strategies/virtual',
+  retiredLedgerDisplayPath = 'public/data/forward/retired.json',
+  loadStrategies = loadVirtualStrategies,
+  includeExitPips = false,
 }) => {
   assertForwardHistoryIntegrity(existingHistory, 'existing forward history');
   const [strategies, effectiveRetiredLedger] = await Promise.all([
-    loadVirtualStrategies(strategiesDirectory),
+    loadStrategies(strategiesDirectory),
     retiredLedger === undefined
       ? readRetiredLedger(retiredLedgerFile)
       : Promise.resolve(retiredLedger),
   ]);
-  assertNoRetiredStrategyConflicts(strategies, effectiveRetiredLedger);
+  assertNoRetiredStrategyConflicts(strategies, effectiveRetiredLedger, {
+    strategyScope,
+    retiredLedgerDisplayPath,
+  });
   assertHistoryGenerationTransitionsAreRetired(
     strategies,
     existingHistory,
     effectiveRetiredLedger,
+    { retiredLedgerDisplayPath },
   );
   const evaluateForwardRetirement = evaluateRetirement
     ?? await loadForwardRetirementEvaluator();
@@ -1472,6 +1543,7 @@ export const buildForwardArtifacts = async ({
         persistedHistory?.meta.registeredAt === strategy.meta.registeredAt
           ? persistedHistory
           : undefined,
+      includeExitPips,
     }));
   }
 
@@ -1495,6 +1567,8 @@ export const buildForwardArtifacts = async ({
       activeStrategyIds: strategies.map((strategy) => strategy.meta.id),
       retiredLedger: effectiveRetiredLedger,
       computedAt,
+      strategyScope,
+      retiredLedgerDisplayPath,
     }),
     strategies: reports.map((report) => {
       const forward = buildForwardFromHistory(history.strategies[report.meta.id]);
@@ -1503,6 +1577,13 @@ export const buildForwardArtifacts = async ({
         ...(report.selectionEvidence === undefined
           ? {}
           : { selectionEvidence: report.selectionEvidence }),
+        ...(includeExitPips
+          ? {
+            stopLossPips: report.stopLossPips,
+            takeProfitPips: report.takeProfitPips,
+            trailingStopPips: report.trailingStopPips,
+          }
+          : {}),
         operationStatus: evaluateForwardRetirement({
           profitFactor: forward.metrics.profitFactor,
           tradeCount: forward.metrics.tradeCount,
@@ -1524,10 +1605,36 @@ export const buildForwardArtifacts = async ({
 export const buildForwardResults = async (options) =>
   (await buildForwardArtifacts(options)).results;
 
-const readForwardHistory = async () => {
+/**
+ * Observation candidates use the same evaluator, history merge, and retirement
+ * policy as virtual EAs, but their strategy directory and ledger scope are
+ * deliberately separate. Their selectionEvidence.adoptedAt is required by the
+ * shared schema but means the observation registration date, not an adoption date.
+ * Main persists the adopted lane before entering this lane and catches observation
+ * failures separately, so an observation error cannot suppress adopted output.
+ */
+export const buildObservationForwardArtifacts = async (options = {}) => {
+  const adoptedStrategiesDirectory = options.adoptedStrategiesDirectory ?? strategiesRoot;
+  return buildForwardArtifacts({
+    ...options,
+    strategiesDirectory: options.strategiesDirectory ?? observationStrategiesRoot,
+    retiredLedgerFile: options.retiredLedgerFile ?? observationRetiredLedgerPath,
+    strategyScope: options.strategyScope ?? 'strategies/observation',
+    retiredLedgerDisplayPath:
+      options.retiredLedgerDisplayPath ?? 'public/data/forward/observation-retired.json',
+    includeExitPips: true,
+    loadStrategies: options.loadStrategies
+      ?? ((directory) => loadObservationStrategies(directory, { adoptedStrategiesDirectory })),
+  });
+};
+
+export const buildObservationForwardResults = async (options) =>
+  (await buildObservationForwardArtifacts(options)).results;
+
+const readForwardHistoryFile = async (filePath, context = 'forward history') => {
   try {
-    const history = await readJson(historyPath);
-    assertForwardHistoryIntegrity(history);
+    const history = await readJson(filePath);
+    assertForwardHistoryIntegrity(history, context);
     return history;
   } catch (error) {
     if (error?.code === 'ENOENT') {
@@ -1536,6 +1643,12 @@ const readForwardHistory = async () => {
     throw error;
   }
 };
+
+const readForwardHistory = async () =>
+  readForwardHistoryFile(historyPath);
+
+const readObservationForwardHistory = async () =>
+  readForwardHistoryFile(observationHistoryPath, 'observation forward history');
 
 const writeJsonAtomically = async (filePath, payload) => {
   await mkdir(path.dirname(filePath), { recursive: true });
@@ -1553,16 +1666,27 @@ const historyDayCount = (history) => Object.values(history.strategies).reduce(
   0,
 );
 
-export const main = async () => {
-  const engine = await loadBacktestEngine();
+export const main = async ({
+  loadBacktestEngine: loadEngine = loadBacktestEngine,
+  buildForwardArtifacts: buildVirtualForwardArtifacts = buildForwardArtifacts,
+  buildObservationForwardArtifacts: buildObservationForwardArtifactsForRun =
+    buildObservationForwardArtifacts,
+  readForwardHistory: readVirtualHistory = readForwardHistory,
+  readObservationForwardHistory: readObservationHistory = readObservationForwardHistory,
+  writeJsonAtomically: writeJson = writeJsonAtomically,
+  log = console.log,
+  warn = console.warn,
+  error = console.error,
+} = {}) => {
+  const engine = await loadEngine();
   try {
-    const existingHistory = await readForwardHistory();
-    const { results, history, rebaselined } = await buildForwardArtifacts({
+    const existingHistory = await readVirtualHistory();
+    const { results, history, rebaselined } = await buildVirtualForwardArtifacts({
       runBacktest: engine.runBacktest,
       existingHistory,
     });
     for (const event of rebaselined) {
-      console.warn(
+      warn(
         `${event.strategyId}: rules changed; forward history rebaselined `
         + `(discarded ${event.discardedDayCount} confirmed day(s); fingerprint `
         + `${event.previousFingerprint.slice(0, 12)}... -> ${event.nextFingerprint.slice(0, 12)}...)`,
@@ -1570,13 +1694,60 @@ export const main = async () => {
     }
     const appendedDays = historyDayCount(history) - historyDayCount(existingHistory);
     if (JSON.stringify(history) !== JSON.stringify(existingHistory)) {
-      await writeJsonAtomically(historyPath, history);
+      await writeJson(historyPath, history);
     }
-    await writeJsonAtomically(outputPath, results);
-    console.log(
+    await writeJson(outputPath, results);
+    log(
       `Generated ${results.strategies.length} forward-test results; `
       + `appended ${appendedDays} confirmed day(s) to ${path.relative(process.cwd(), historyPath)}`,
     );
+
+    // Keep the observation lane failure-contained. The adopted lane is already
+    // persisted above, so a bad observation definition or ledger cannot prevent
+    // the daily seven-EA history from being committed.
+    try {
+      const existingObservationHistory = await readObservationHistory();
+      const {
+        results: observationResults,
+        history: observationHistory,
+        rebaselined: observationRebaselined,
+      } = await buildObservationForwardArtifactsForRun({
+        runBacktest: engine.runBacktest,
+        existingHistory: existingObservationHistory,
+      });
+      for (const event of observationRebaselined) {
+        warn(
+          `${event.strategyId}: observation rules changed; observation history rebaselined `
+          + `(discarded ${event.discardedDayCount} confirmed day(s); fingerprint `
+          + `${event.previousFingerprint.slice(0, 12)}... -> ${event.nextFingerprint.slice(0, 12)}...)`,
+        );
+      }
+      const observationAppendedDays =
+        historyDayCount(observationHistory) - historyDayCount(existingObservationHistory);
+      if (JSON.stringify(observationHistory) !== JSON.stringify(existingObservationHistory)) {
+        await writeJson(observationHistoryPath, observationHistory);
+      }
+      await writeJson(observationOutputPath, observationResults);
+      log(
+        `Generated ${observationResults.strategies.length} observation results; `
+        + `appended ${observationAppendedDays} observation confirmed day(s) to `
+        + `${path.relative(process.cwd(), observationHistoryPath)}`,
+      );
+    } catch (observationError) {
+      error(
+        'Observation forward-test failed; adopted forward artifacts were preserved:',
+        observationError,
+      );
+      // Surface the failure in the GitHub Actions run summary. The step must
+      // stay exit 0 so the adopted-lane commit proceeds, but without this
+      // annotation a broken observation lane would rot silently for days with
+      // the only evidence buried in step logs.
+      const observationFailureMessage =
+        observationError instanceof Error ? observationError.message : String(observationError);
+      console.log(
+        `::error title=observation forward lane::${observationFailureMessage.replace(/\r?\n/g, ' ')}`,
+      );
+    }
   } finally {
     await engine.cleanup();
   }

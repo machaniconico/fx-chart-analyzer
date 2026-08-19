@@ -1,0 +1,72 @@
+{
+  "meta": {
+    "id": "obs-momentum-eurjpy-h4-v1",
+    "name": "EURJPY h4 モメンタム100クロス順張り 観察候補",
+    "version": 1,
+    "pair": "EURJPY",
+    "timeframe": "h4",
+    "registeredAt": 1787098354
+  },
+  "id": "obs-momentum-eurjpy-h4-v1",
+  "name": "EURJPY h4 モメンタム100クロス順張り 観察候補",
+  "description": "観察候補(未採用): EURJPY h4 モメンタム100クロス順張り。出典は ea-selection-log.md エントリ(20) と正典レポート tune-virtual-strategies-2026-08-18T22-32-23-991Z。新しい市場データでの選択行再現確認まで採用しない。",
+  "selectionEvidence": {
+    "adoptedAt": "2026-08-19",
+    "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+    "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+    "candidatePool": 140,
+    "inSampleRank": 1,
+    "optimization": {
+      "netProfitYen": 357501,
+      "profitFactor": 1.2106761536476043,
+      "tradeCount": 220
+    },
+    "validation": {
+      "netProfitYen": 148362,
+      "profitFactor": 1.3908006616864577
+    },
+    "quarterlyStability": {
+      "positive": 3,
+      "total": 4
+    },
+    "reservations": [
+      "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+    ]
+  },
+  "direction": "long",
+  "entryDirections": [
+    "long",
+    "short"
+  ],
+  "entryConditions": [
+    {
+      "type": "momentum",
+      "period": 14
+    }
+  ],
+  "exit": {
+    "stopLossPips": 35,
+    "takeProfitPips": 120,
+    "closeOnOppositeSignal": true,
+    "trailingStopPips": null
+  },
+  "sessionFilter": {
+    "enabled": false,
+    "start": "00:00",
+    "end": "23:59",
+    "serverUtcOffsetMinutes": 0
+  },
+  "newsFilter": {
+    "enabled": false,
+    "blockMinutes": 30
+  },
+  "lotSize": 0.1,
+  "moneyManagement": {
+    "initialBalanceYen": 1000000,
+    "lotSizingMode": "fixedRisk",
+    "fixedLot": 0.1,
+    "riskPercent": 1,
+    "maxLot": 100
+  },
+  "magicNumber": 1783200311
+}

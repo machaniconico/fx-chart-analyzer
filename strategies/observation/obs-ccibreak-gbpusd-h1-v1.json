@@ -1,0 +1,73 @@
+{
+  "meta": {
+    "id": "obs-ccibreak-gbpusd-h1-v1",
+    "name": "GBPUSD h1 CCIブレイク順張り 観察候補",
+    "version": 1,
+    "pair": "GBPUSD",
+    "timeframe": "h1",
+    "registeredAt": 1787098354
+  },
+  "id": "obs-ccibreak-gbpusd-h1-v1",
+  "name": "GBPUSD h1 CCIブレイク順張り 観察候補",
+  "description": "観察候補(未採用): GBPUSD h1 CCIブレイク順張り。出典は ea-selection-log.md エントリ(20) と正典レポート tune-virtual-strategies-2026-08-18T22-32-23-991Z。新しい市場データでの選択行再現確認まで採用しない。",
+  "selectionEvidence": {
+    "adoptedAt": "2026-08-19",
+    "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+    "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+    "candidatePool": 84,
+    "inSampleRank": 14,
+    "optimization": {
+      "netProfitYen": 111973,
+      "profitFactor": 1.1197788691217985,
+      "tradeCount": 157
+    },
+    "validation": {
+      "netProfitYen": 100440,
+      "profitFactor": 1.3359197324414716
+    },
+    "quarterlyStability": {
+      "positive": 3,
+      "total": 4
+    },
+    "reservations": [
+      "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+    ]
+  },
+  "direction": "long",
+  "entryDirections": [
+    "long",
+    "short"
+  ],
+  "entryConditions": [
+    {
+      "type": "cciBreak",
+      "period": 14,
+      "level": 100
+    }
+  ],
+  "exit": {
+    "stopLossPips": 75,
+    "takeProfitPips": 105,
+    "closeOnOppositeSignal": false,
+    "trailingStopPips": null
+  },
+  "sessionFilter": {
+    "enabled": false,
+    "start": "00:00",
+    "end": "23:59",
+    "serverUtcOffsetMinutes": 0
+  },
+  "newsFilter": {
+    "enabled": false,
+    "blockMinutes": 30
+  },
+  "lotSize": 0.1,
+  "moneyManagement": {
+    "initialBalanceYen": 1000000,
+    "lotSizingMode": "fixedRisk",
+    "fixedLot": 0.1,
+    "riskPercent": 1,
+    "maxLot": 100
+  },
+  "magicNumber": 1783100481
+}
