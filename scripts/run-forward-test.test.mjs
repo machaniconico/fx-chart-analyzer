@@ -169,6 +169,7 @@ describe('forward test runner', () => {
       'ao',
       'rvi',
       'envelope',
+      'alligator',
     ]);
   });
 
@@ -379,7 +380,7 @@ describe('forward test runner', () => {
             },
           ],
         },
-        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, demarker, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, stochCross, keltnerBreak, cciBreak, adxTrend, parabolicSar, momentum, ao, rvi, envelope/,
+        expected: /invalid-condition-type-v1: entryConditions\[0\]\.type must be one of maCross, rsi, demarker, bollinger, macdCross, ichimokuCross, donchianBreak, stochastic, stochCross, keltnerBreak, cciBreak, adxTrend, parabolicSar, momentum, ao, rvi, envelope, alligator/,
       },
     ];
 
@@ -447,6 +448,18 @@ describe('forward test runner', () => {
     ['rvi', { type: 'rvi', period: 10 }],
     ['demarker', { type: 'demarker', period: 14, threshold: 0.3, comparison: 'below' }],
     ['envelope', { type: 'envelope', period: 14, deviation: 0.1 }],
+    [
+      'alligator',
+      {
+        type: 'alligator',
+        jawPeriod: 13,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 8,
+        teethShift: 5,
+        lipsShift: 3,
+      },
+    ],
   ])('accepts %s entry conditions in virtual strategies', (entryType, entryCondition) => {
     const candidate = JSON.parse(JSON.stringify(strategy));
     candidate.meta.id = `virtual-${entryType}-v1`;
@@ -872,6 +885,162 @@ describe('forward test runner', () => {
       'envelope (non-finite deviation)',
       { type: 'envelope', period: 14, deviation: Number.POSITIVE_INFINITY },
       /entryConditions\[0\]\.deviation must be a positive finite number/,
+    ],
+    [
+      'alligator (period floor)',
+      {
+        type: 'alligator',
+        jawPeriod: 1,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 8,
+        teethShift: 5,
+        lipsShift: 3,
+      },
+      /entryConditions\[0\]\.jawPeriod must be an integer between 2 and 1000/,
+    ],
+    [
+      'alligator (period ceiling)',
+      {
+        type: 'alligator',
+        jawPeriod: 1001,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 8,
+        teethShift: 5,
+        lipsShift: 3,
+      },
+      /entryConditions\[0\]\.jawPeriod must be an integer between 2 and 1000/,
+    ],
+    [
+      'alligator (period non-integer)',
+      {
+        type: 'alligator',
+        jawPeriod: 13.5,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 8,
+        teethShift: 5,
+        lipsShift: 3,
+      },
+      /entryConditions\[0\]\.jawPeriod must be an integer between 2 and 1000/,
+    ],
+    [
+      'alligator (equal periods)',
+      {
+        type: 'alligator',
+        jawPeriod: 8,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 8,
+        teethShift: 5,
+        lipsShift: 3,
+      },
+      /entryConditions\[0\]\.jawPeriod must be greater than teethPeriod/,
+    ],
+    [
+      'alligator (equal teeth and lips periods)',
+      {
+        type: 'alligator',
+        jawPeriod: 13,
+        teethPeriod: 5,
+        lipsPeriod: 5,
+        jawShift: 8,
+        teethShift: 5,
+        lipsShift: 3,
+      },
+      /entryConditions\[0\]\.teethPeriod must be greater than lipsPeriod/,
+    ],
+    [
+      'alligator (reversed periods)',
+      {
+        type: 'alligator',
+        jawPeriod: 5,
+        teethPeriod: 8,
+        lipsPeriod: 3,
+        jawShift: 8,
+        teethShift: 5,
+        lipsShift: 3,
+      },
+      /entryConditions\[0\]\.jawPeriod must be greater than teethPeriod/,
+    ],
+    [
+      'alligator (shift floor)',
+      {
+        type: 'alligator',
+        jawPeriod: 13,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: -1,
+        teethShift: 5,
+        lipsShift: 3,
+      },
+      /entryConditions\[0\]\.jawShift must be an integer between 0 and 500/,
+    ],
+    [
+      'alligator (shift ceiling)',
+      {
+        type: 'alligator',
+        jawPeriod: 13,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 501,
+        teethShift: 5,
+        lipsShift: 3,
+      },
+      /entryConditions\[0\]\.jawShift must be an integer between 0 and 500/,
+    ],
+    [
+      'alligator (shift non-integer)',
+      {
+        type: 'alligator',
+        jawPeriod: 13,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 8.5,
+        teethShift: 5,
+        lipsShift: 3,
+      },
+      /entryConditions\[0\]\.jawShift must be an integer between 0 and 500/,
+    ],
+    [
+      'alligator (equal shifts)',
+      {
+        type: 'alligator',
+        jawPeriod: 13,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 5,
+        teethShift: 5,
+        lipsShift: 3,
+      },
+      /entryConditions\[0\]\.jawShift must be greater than teethShift/,
+    ],
+    [
+      'alligator (equal teeth and lips shifts)',
+      {
+        type: 'alligator',
+        jawPeriod: 13,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 8,
+        teethShift: 3,
+        lipsShift: 3,
+      },
+      /entryConditions\[0\]\.teethShift must be greater than lipsShift/,
+    ],
+    [
+      'alligator (reversed shifts)',
+      {
+        type: 'alligator',
+        jawPeriod: 13,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 3,
+        teethShift: 5,
+        lipsShift: 1,
+      },
+      /entryConditions\[0\]\.jawShift must be greater than teethShift/,
     ],
   ])('rejects invalid %s condition parameters before backtesting', (entryType, entryCondition, expected) => {
     const candidate = JSON.parse(JSON.stringify(strategy));

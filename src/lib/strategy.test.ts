@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Bar } from '../types';
 import * as indicators from './indicators';
 import {
+  computeAlligatorSeries,
   computeStochCrossSeries,
   conditionLabel,
   createStrategyEvaluator,
@@ -104,6 +105,19 @@ const strategyFor = (
   lotSize: 0.1,
   magicNumber: 1,
 });
+
+const alligatorBarsFromMedians = (medians: readonly number[]): Bar[] =>
+  barsFrom(medians, medians, medians);
+
+const alligatorBoundaryCondition = {
+  type: 'alligator' as const,
+  jawPeriod: 4,
+  teethPeriod: 3,
+  lipsPeriod: 2,
+  jawShift: 2,
+  teethShift: 1,
+  lipsShift: 0,
+};
 
 describe('strategy evaluator', () => {
   it('evaluates DeMarker threshold re-crosses with exact boundaries and short mirroring', () => {
@@ -1640,6 +1654,357 @@ describe('strategy evaluator', () => {
     ).toBe(false);
   });
 
+  it('computes median-price SMMA with a fresh oldest-to-newest seed and exact recurrence', () => {
+    const highs = [3, 7, 11, 15, 19];
+    const lows = [1, 3, 7, 9, 11];
+    const series = computeAlligatorSeries(highs, lows, 4, 3, 2);
+    const seededTeeth = (2 + 5 + 9) / 3;
+    const nextTeeth = (seededTeeth * (3 - 1) + 12) / 3;
+    const finalTeeth = (nextTeeth * (3 - 1) + 15) / 3;
+
+    expect(series.jaw).toEqual([null, null, null, 7, 9]);
+    expect(series.teeth).toEqual([null, null, seededTeeth, nextTeeth, finalTeeth]);
+    expect(series.lips).toEqual([null, 3.5, 6.25, 9.125, 12.0625]);
+    expect(() => computeAlligatorSeries([1], [], 4, 3, 2)).toThrow(
+      'highs and lows must have the same length',
+    );
+  });
+
+  it('fixes all six Alligator equality edges with mutation-sensitive fixtures', () => {
+    const fixtures = [
+      {
+        name: 'long previous Lips <= Teeth boundary',
+        direction: 'long' as const,
+        medians: [-2, -2, -3, 2, 2, -1, 0, 2, 0.09655778463648823, 1.2445273205304068],
+        expected: true,
+        edge: 'previous' as const,
+        mutateAt: 8,
+        delta: 0.5,
+      },
+      {
+        name: 'long current Lips > Teeth boundary',
+        direction: 'long' as const,
+        medians: [-2, -2, -3, 2, 2, -1, 0, 2, 0, 0.22843435642432552],
+        expected: false,
+        edge: 'lips' as const,
+        mutateAt: 9,
+        delta: 0.5,
+      },
+      {
+        name: 'long current Teeth > Jaw boundary',
+        direction: 'long' as const,
+        medians: [-2, -2, -3, 2, 2, -1, 0, 2, -0.5565187221364882, 1.135681236068244],
+        expected: false,
+        edge: 'jaw' as const,
+        mutateAt: 7,
+        delta: -0.5,
+      },
+      {
+        name: 'short previous Lips >= Teeth boundary',
+        direction: 'short' as const,
+        medians: [2, 0, -1, 3, -1, -3, -3, 0, -0.8431498628257887, -1.8849165523548241],
+        expected: true,
+        edge: 'previous' as const,
+        mutateAt: 7,
+        delta: 0.5,
+      },
+      {
+        name: 'short current Lips < Teeth boundary',
+        direction: 'short' as const,
+        medians: [1, 3, 1, 3, 3, -4, -2, -2, 0, -0.48459290695016],
+        expected: false,
+        edge: 'lips' as const,
+        mutateAt: 9,
+        delta: -0.5,
+      },
+      {
+        name: 'short current Teeth < Jaw boundary',
+        direction: 'short' as const,
+        medians: [2, 0, -1, 3, -1, -3, -3, 0, -0.38341263717421126, -1.8082936814128945],
+        expected: false,
+        edge: 'jaw' as const,
+        mutateAt: 7,
+        delta: 0.5,
+      },
+    ];
+
+    for (const fixture of fixtures) {
+      const bars = alligatorBarsFromMedians(fixture.medians);
+      const series = computeAlligatorSeries(
+        fixture.medians,
+        fixture.medians,
+        alligatorBoundaryCondition.jawPeriod,
+        alligatorBoundaryCondition.teethPeriod,
+        alligatorBoundaryCondition.lipsPeriod,
+      );
+      const equalLines =
+        fixture.edge === 'previous'
+          ? [series.lips[8], series.teeth[7]]
+          : fixture.edge === 'lips'
+            ? [series.lips[9], series.teeth[8]]
+            : [series.teeth[8], series.jaw[7]];
+      expect(equalLines[0], fixture.name).toBe(equalLines[1]);
+      expect(
+        createStrategyEvaluator(bars).isEntrySignal(
+          strategyFor(alligatorBoundaryCondition, fixture.direction),
+          9,
+        ),
+        fixture.name,
+      ).toBe(fixture.expected);
+
+      const mutatedMedians = [...fixture.medians];
+      mutatedMedians[fixture.mutateAt] += fixture.delta;
+      expect(
+        createStrategyEvaluator(alligatorBarsFromMedians(mutatedMedians)).isEntrySignal(
+          strategyFor(alligatorBoundaryCondition, fixture.direction),
+          9,
+        ),
+        `${fixture.name} mutation`,
+      ).toBe(!fixture.expected);
+    }
+  });
+
+  it('keeps Alligator flat windows closed and never consumes indicators.ts helpers', () => {
+    const flatBars = alligatorBarsFromMedians(Array.from({ length: 12 }, () => 5));
+    const flatSeries = computeAlligatorSeries(
+      flatBars.map((item) => item.h),
+      flatBars.map((item) => item.l),
+      4,
+      3,
+      2,
+    );
+    expect(flatSeries.jaw[11]).toBe(5);
+    expect(flatSeries.teeth[11]).toBe(5);
+    expect(flatSeries.lips[11]).toBe(5);
+    const flatEvaluator = createStrategyEvaluator(flatBars);
+    expect(flatEvaluator.isEntrySignal(strategyFor(alligatorBoundaryCondition), 11)).toBe(false);
+    expect(
+      flatEvaluator.isEntrySignal(strategyFor(alligatorBoundaryCondition, 'short'), 11),
+    ).toBe(false);
+
+    const smaSpy = vi.spyOn(indicators, 'sma').mockImplementation(() => {
+      throw new Error('Alligator must not consume indicators.sma');
+    });
+    const emaSpy = vi.spyOn(indicators, 'ema').mockImplementation(() => {
+      throw new Error('Alligator must not consume indicators.ema');
+    });
+    try {
+      const signalBars = alligatorBarsFromMedians([
+        -2,
+        -2,
+        -3,
+        2,
+        2,
+        -1,
+        0,
+        2,
+        0.09655778463648823,
+        1.2445273205304068,
+      ]);
+      expect(
+        createStrategyEvaluator(signalBars).isEntrySignal(
+          strategyFor(alligatorBoundaryCondition),
+          9,
+        ),
+      ).toBe(true);
+      expect(smaSpy).not.toHaveBeenCalled();
+      expect(emaSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('pins shifted Alligator warm-up one bar before and after the boundary', () => {
+    const medians = [-5.5, -3, -9, 1, -5, 0.5];
+    const series = computeAlligatorSeries(medians, medians, 4, 3, 2);
+    expect(series.jaw[2]).toBeNull();
+    expect(series.jaw[3]).toBe(-4.125);
+
+    const evaluator = createStrategyEvaluator(alligatorBarsFromMedians(medians));
+    expect(evaluator.isEntrySignal(strategyFor(alligatorBoundaryCondition), 4)).toBe(false);
+    expect(evaluator.isEntrySignal(strategyFor(alligatorBoundaryCondition), 5)).toBe(true);
+  });
+
+  it('keeps Alligator signals causal in both directions and separates cache keys', () => {
+    const longMedians = [
+      -2,
+      -2,
+      -3,
+      2,
+      2,
+      -1,
+      0,
+      2,
+      0.09655778463648823,
+      1.2445273205304068,
+    ];
+    const shortMedians = [
+      2,
+      0,
+      -1,
+      3,
+      -1,
+      -3,
+      -3,
+      0,
+      -0.8431498628257887,
+      -1.8849165523548241,
+    ];
+    const longCondition = alligatorBoundaryCondition;
+    const differentPeriodCondition = {
+      ...longCondition,
+      jawPeriod: 5,
+      teethPeriod: 4,
+    } as const;
+    const cachedEvaluator = createStrategyEvaluator(alligatorBarsFromMedians(longMedians));
+    expect(cachedEvaluator.isEntrySignal(strategyFor(longCondition), 9)).toBe(true);
+    expect(cachedEvaluator.isEntrySignal(strategyFor(differentPeriodCondition), 9)).toBe(false);
+
+    const futureShock = [bar(10, 1_000_000, -1_000_000, 1_000_000)];
+    expect(
+      createStrategyEvaluator([
+        ...alligatorBarsFromMedians(longMedians),
+        ...futureShock,
+      ]).isEntrySignal(strategyFor(longCondition), 9),
+    ).toBe(true);
+    expect(
+      createStrategyEvaluator([
+        ...alligatorBarsFromMedians(shortMedians),
+        ...futureShock,
+      ]).isEntrySignal(strategyFor({ ...longCondition }, 'short'), 9),
+    ).toBe(true);
+
+    const falseMedians = [-3, 0, 1, 0, 3, 2, -2, -3, 3, 0];
+    expect(
+      createStrategyEvaluator(alligatorBarsFromMedians(falseMedians)).isEntrySignal(
+        strategyFor(longCondition),
+        9,
+      ),
+    ).toBe(false);
+    expect(
+      createStrategyEvaluator([
+        ...alligatorBarsFromMedians(falseMedians),
+        bar(10, 1_000_000, 1_000_000, 1_000_000),
+      ]).isEntrySignal(strategyFor(longCondition), 9),
+    ).toBe(false);
+  });
+
+  it('fails closed for invalid Alligator domains and non-finite median data', () => {
+    const bars = alligatorBarsFromMedians([
+      -2,
+      -2,
+      -3,
+      2,
+      2,
+      -1,
+      0,
+      2,
+      0.09655778463648823,
+      1.2445273205304068,
+    ]);
+    const evaluator = createStrategyEvaluator(bars);
+    const invalidConditions: EntryCondition[] = [
+      { ...alligatorBoundaryCondition, jawPeriod: 1 },
+      { ...alligatorBoundaryCondition, teethPeriod: 1001 },
+      { ...alligatorBoundaryCondition, lipsPeriod: 2.5 },
+      { ...alligatorBoundaryCondition, jawPeriod: 4, teethPeriod: 4 },
+      { ...alligatorBoundaryCondition, jawPeriod: 4, teethPeriod: 5 },
+      { ...alligatorBoundaryCondition, jawPeriod: 4, teethPeriod: 3, lipsPeriod: 3 },
+      { ...alligatorBoundaryCondition, jawShift: -1 },
+      { ...alligatorBoundaryCondition, teethShift: 501 },
+      { ...alligatorBoundaryCondition, lipsShift: 1.5 },
+      { ...alligatorBoundaryCondition, jawShift: 2, teethShift: 2 },
+      { ...alligatorBoundaryCondition, jawShift: 1, teethShift: 2 },
+      { ...alligatorBoundaryCondition, jawShift: 8, teethShift: 3, lipsShift: 3 },
+    ];
+    for (const condition of invalidConditions) {
+      expect(evaluator.isEntrySignal(strategyFor(condition), 9)).toBe(false);
+    }
+
+    // These use enough history to distinguish each ordering/shift guard from
+    // the independent SMMA warm-up null path. Each corresponding unguarded
+    // mutant produces a signal at the specified index.
+    const domainGuardFixtures: Array<{
+      name: string;
+      medians: readonly number[];
+      condition: EntryCondition;
+      direction: 'long' | 'short';
+      index: number;
+    }> = [
+      {
+        name: 'teeth and lips periods must be strictly ordered',
+        medians: [-2, -2, -3, 2, 2, -1, 0, 2, 0.09655778463648823, 1.2445273205304068],
+        condition: { ...alligatorBoundaryCondition, teethPeriod: 3, lipsPeriod: 3 },
+        direction: 'long',
+        index: 9,
+      },
+      {
+        name: 'teeth and lips shifts must be strictly ordered',
+        medians: [-2, 2, -1, 2, 1, -3, 1, 3, -3, 1, -1, 2, 3, 0],
+        condition: { ...alligatorBoundaryCondition, jawShift: 2, teethShift: 1, lipsShift: 1 },
+        direction: 'long',
+        index: 7,
+      },
+      {
+        name: 'jaw and teeth shifts must be strictly ordered',
+        medians: [0, -1, 3, -1, 3, -2, 2, -2, 1, -1],
+        condition: { ...alligatorBoundaryCondition, jawShift: 1, teethShift: 1, lipsShift: 0 },
+        direction: 'short',
+        index: 9,
+      },
+      {
+        name: 'jaw and teeth periods must be strictly ordered',
+        medians: [0, 0, 3, -3, 0, -2, 2, 0, 0, 1, -1, 0, 3],
+        condition: { ...alligatorBoundaryCondition, jawPeriod: 3, teethPeriod: 3, lipsPeriod: 2 },
+        direction: 'long',
+        index: 12,
+      },
+      {
+        name: 'negative shifts must fail closed instead of looking ahead',
+        medians: [-3, -3, -3, 3, -2, -1, -3, -1, 2, 0, -3, 0, 2, 2],
+        condition: { ...alligatorBoundaryCondition, jawShift: -1, teethShift: -2, lipsShift: -3 },
+        direction: 'long',
+        index: 2,
+      },
+    ];
+    for (const fixture of domainGuardFixtures) {
+      expect(
+        createStrategyEvaluator(alligatorBarsFromMedians(fixture.medians)).isEntrySignal(
+          strategyFor(fixture.condition, fixture.direction),
+          fixture.index,
+        ),
+        fixture.name,
+      ).toBe(false);
+    }
+
+    const nonFiniteBars = alligatorBarsFromMedians([
+      -2,
+      -2,
+      -3,
+      2,
+      2,
+      -1,
+      0,
+      2,
+      Number.NaN,
+      1.2445273205304068,
+    ]);
+    const nonFiniteSeries = computeAlligatorSeries(
+      nonFiniteBars.map((item) => item.h),
+      nonFiniteBars.map((item) => item.l),
+      4,
+      3,
+      2,
+    );
+    expect(nonFiniteSeries.jaw[8]).toBeNull();
+    expect(
+      createStrategyEvaluator(nonFiniteBars).isEntrySignal(
+        strategyFor(alligatorBoundaryCondition),
+        9,
+      ),
+    ).toBe(false);
+  });
+
   it('labels the new strategy conditions', () => {
     expect(conditionLabel({ type: 'donchianBreak', period: 20 })).toBe('Donchian20 ブレイク');
     expect(
@@ -1675,5 +2040,16 @@ describe('strategy evaluator', () => {
     expect(
       conditionLabel({ type: 'demarker', period: 14, threshold: 0.5, comparison: 'above' }),
     ).toBe('DeMarker14 above 0.5');
+    expect(
+      conditionLabel({
+        type: 'alligator',
+        jawPeriod: 13,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 8,
+        teethShift: 5,
+        lipsShift: 3,
+      }),
+    ).toBe('Alligator 13/8/5 (8/5/3) クロス');
   });
 });

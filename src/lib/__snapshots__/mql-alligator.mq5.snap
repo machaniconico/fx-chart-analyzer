@@ -1,0 +1,712 @@
+#property strict
+#property description "FullTestEA"
+
+// Session filter uses broker server time via TimeCurrent(); it is independent of this app's backtest UTC offset.
+// In Strategy Tester, economic calendar data can be unavailable. If CalendarValueHistory fails,
+// the MQL5 news filter blocks entries while NewsFilterEnable is true.
+
+#include <Trade/Trade.mqh>
+CTrade trade;
+
+input int InpLotSizingMode = 0; // 0=fixed lot, 1=fixed risk %, 2=compound balance %
+input double InpLots = 0.2;
+input double InpInitialBalance = 1000000;
+input double InpRiskPercent = 1;
+input double InpMaxLots = 100;
+input int InpMagicNumber = 67890;
+input bool InpTradeLong = true;
+input bool InpSessionFilterEnable = true;
+input string InpSessionStart = "08:00";
+input string InpSessionEnd = "17:30";
+input bool NewsFilterEnable = true;
+input int NewsBlockMinutes = 45;
+input int InpStopLossPips = 25;
+input int InpTakeProfitPips = 50;
+input bool InpUseTrailingStop = true;
+input int InpTrailingStopPips = 15;
+input bool InpCloseOnOppositeSignal = true;
+input int InpAlligator1JawPeriod = 13;
+input int InpAlligator1TeethPeriod = 8;
+input int InpAlligator1LipsPeriod = 5;
+input int InpAlligator1JawShift = 8;
+input int InpAlligator1TeethShift = 5;
+input int InpAlligator1LipsShift = 3;
+
+datetime lastBarTime = 0;
+
+
+double PipPoint()
+{
+  if(_Digits == 3 || _Digits == 5)
+  {
+    return _Point * 10.0;
+  }
+  return _Point;
+}
+
+double NormalizeLots(double lots)
+{
+  double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+  double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+  double step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+  if(minLot <= 0.0)
+  {
+    minLot = 0.01;
+  }
+  if(maxLot <= 0.0)
+  {
+    maxLot = lots;
+  }
+  if(InpMaxLots > 0.0)
+  {
+    maxLot = MathMin(maxLot, InpMaxLots);
+  }
+  lots = MathMax(minLot, MathMin(maxLot, lots));
+  if(step > 0.0)
+  {
+    lots = MathFloor(lots / step) * step;
+  }
+  return NormalizeDouble(lots, 2);
+}
+
+double LotSizeForEntry()
+{
+  if(InpLotSizingMode == 0)
+  {
+    return NormalizeLots(InpLots);
+  }
+  // Fixed-risk live sizing uses the current account balance and broker tick value.
+  double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+  if(InpLotSizingMode == 2)
+  {
+    if(balance <= 0.0 || InpInitialBalance <= 0.0)
+    {
+      return NormalizeLots(InpLots);
+    }
+    return NormalizeLots(InpLots * balance / InpInitialBalance);
+  }
+  if(InpRiskPercent <= 0.0 || InpStopLossPips <= 0)
+  {
+    return NormalizeLots(InpLots);
+  }
+  double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+  double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+  double pipValuePerLot = tickSize > 0.0 ? tickValue * (PipPoint() / tickSize) : 0.0;
+  if(balance <= 0.0 || pipValuePerLot <= 0.0)
+  {
+    return NormalizeLots(InpLots);
+  }
+  double riskAmount = balance * InpRiskPercent / 100.0;
+  double spreadPips = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point / PipPoint();
+  double riskPips = InpStopLossPips + MathMax(0.0, spreadPips);
+  return NormalizeLots(riskAmount / (riskPips * pipValuePerLot));
+}
+
+bool ValueReady(double value)
+{
+  return value != EMPTY_VALUE && value == value;
+}
+
+bool CrossedAbove(double previousFast, double previousSlow, double currentFast, double currentSlow)
+{
+  return previousFast <= previousSlow && currentFast > currentSlow;
+}
+
+bool CrossedBelow(double previousFast, double previousSlow, double currentFast, double currentSlow)
+{
+  return previousFast >= previousSlow && currentFast < currentSlow;
+}
+
+int TimeTextToMinutes(string value)
+{
+  int separator = StringFind(value, ":");
+  if(separator < 0)
+  {
+    return 0;
+  }
+  int hour = (int)StringToInteger(StringSubstr(value, 0, separator));
+  int minute = (int)StringToInteger(StringSubstr(value, separator + 1));
+  if(hour < 0)
+  {
+    hour = 0;
+  }
+  if(hour > 23)
+  {
+    hour = 23;
+  }
+  if(minute < 0)
+  {
+    minute = 0;
+  }
+  if(minute > 59)
+  {
+    minute = 59;
+  }
+  return hour * 60 + minute;
+}
+
+bool IsInTradingSession()
+{
+  if(!InpSessionFilterEnable)
+  {
+    return true;
+  }
+  MqlDateTime current;
+  TimeToStruct(TimeCurrent(), current);
+  int nowMinutes = current.hour * 60 + current.min;
+  int startMinutes = TimeTextToMinutes(InpSessionStart);
+  int endMinutes = TimeTextToMinutes(InpSessionEnd);
+  if(startMinutes == endMinutes)
+  {
+    return true;
+  }
+  if(startMinutes < endMinutes)
+  {
+    return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+  }
+  return nowMinutes >= startMinutes || nowMinutes < endMinutes;
+}
+
+string BaseCurrency()
+{
+  if(StringLen(_Symbol) < 6)
+  {
+    return "";
+  }
+  return StringSubstr(_Symbol, 0, 3);
+}
+
+string QuoteCurrency()
+{
+  if(StringLen(_Symbol) < 6)
+  {
+    return "";
+  }
+  return StringSubstr(_Symbol, 3, 3);
+}
+
+bool CurrencyHasHighImpactNews(string currency, datetime fromTime, datetime toTime)
+{
+  if(currency == "")
+  {
+    return false;
+  }
+  MqlCalendarValue values[];
+  ResetLastError();
+  if(!CalendarValueHistory(values, fromTime, toTime, NULL, currency))
+  {
+    return true;
+  }
+  int count = ArraySize(values);
+  if(count <= 0)
+  {
+    return false;
+  }
+  for(int i = 0; i < count; i++)
+  {
+    MqlCalendarEvent eventInfo;
+    if(CalendarEventById(values[i].event_id, eventInfo) && eventInfo.importance == CALENDAR_IMPORTANCE_HIGH)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool IsHighImpactNewsWindow()
+{
+  if(!NewsFilterEnable || NewsBlockMinutes <= 0)
+  {
+    return false;
+  }
+  datetime nowTime = TimeCurrent();
+  datetime fromTime = nowTime - NewsBlockMinutes * 60;
+  datetime toTime = nowTime + NewsBlockMinutes * 60;
+  return CurrencyHasHighImpactNews(BaseCurrency(), fromTime, toTime) ||
+    CurrencyHasHighImpactNews(QuoteCurrency(), fromTime, toTime);
+}
+
+bool EntryFiltersAllow()
+{
+  return IsInTradingSession() && !IsHighImpactNewsWindow();
+}
+
+bool EnsureIndicator(int handle, string label)
+{
+  if(handle != INVALID_HANDLE)
+  {
+    return true;
+  }
+  Print(label, " handle creation failed: ", GetLastError());
+  return false;
+}
+
+void ReleaseIndicator(int &handle)
+{
+  if(handle == INVALID_HANDLE)
+  {
+    return;
+  }
+  IndicatorRelease(handle);
+  handle = INVALID_HANDLE;
+}
+
+double BufferValue(int handle, int bufferIndex, int shift)
+{
+  if(handle == INVALID_HANDLE)
+  {
+    return EMPTY_VALUE;
+  }
+  double values[];
+  ArraySetAsSeries(values, true);
+  int copied = CopyBuffer(handle, bufferIndex, shift, 1, values);
+  if(copied <= 0)
+  {
+    return EMPTY_VALUE;
+  }
+  return values[0];
+}
+
+int OnInit()
+{
+  if(InpAlligator1JawPeriod < 2 || InpAlligator1JawPeriod > 1000 || InpAlligator1TeethPeriod < 2 || InpAlligator1TeethPeriod > 1000 || InpAlligator1LipsPeriod < 2 || InpAlligator1LipsPeriod > 1000 || InpAlligator1JawPeriod <= InpAlligator1TeethPeriod || InpAlligator1TeethPeriod <= InpAlligator1LipsPeriod || InpAlligator1JawShift < 0 || InpAlligator1JawShift > 500 || InpAlligator1TeethShift < 0 || InpAlligator1TeethShift > 500 || InpAlligator1LipsShift < 0 || InpAlligator1LipsShift > 500 || InpAlligator1JawShift <= InpAlligator1TeethShift || InpAlligator1TeethShift <= InpAlligator1LipsShift)
+  {
+    Print("Alligator1 rejected: periods must be integers between 2 and 1000 with Jaw > Teeth > Lips, and shifts must be integers between 0 and 500 with Jaw > Teeth > Lips");
+    return INIT_FAILED;
+  }
+  return INIT_SUCCEEDED;
+}
+
+void OnDeinit(const int reason)
+{
+
+}
+
+
+
+// Alligator parity: both generated EAs calculate median=(high+low)/2 and
+// then seed each SMMA with a fresh SMA of the first N medians. In MQL series
+// indexing, the largest shift in each seed window is its oldest bar; the shared
+// decrementing walk therefore visits every seed oldest-to-newest before
+// applying SMMA=(previous*(period-1)+median)/period toward newer bars. All
+// three SMMA states share one history walk and the five requested values are
+// cached for the current chart bar. For finite, positive OHLC this mirrors
+// computeAlligatorSeries in strategy.ts exactly; no terminal Alligator buffer
+// is consumed. MQL additionally rejects non-positive OHLC because MT4/MT5
+// use 0.0 for unavailable history, while the TypeScript calculator accepts
+// signed synthetic inputs for deterministic tests. Non-finite history aborts
+// the MQL walk; TypeScript re-seeds only after such input. A display line at
+// bar i reads the causal source SMMA at i-shift, so MQL signal shifts are
+// 1+displayShift and 2+displayShift for the current and previous closed bars.
+
+bool AlligatorWarmupReady1()
+{
+  int jawPeriod = InpAlligator1JawPeriod;
+  int teethPeriod = InpAlligator1TeethPeriod;
+  int lipsPeriod = InpAlligator1LipsPeriod;
+  int jawShift = InpAlligator1JawShift;
+  int teethShift = InpAlligator1TeethShift;
+  int lipsShift = InpAlligator1LipsShift;
+  if(jawPeriod < 2 || jawPeriod > 1000 || teethPeriod < 2 || teethPeriod > 1000 ||
+    lipsPeriod < 2 || lipsPeriod > 1000 || jawPeriod <= teethPeriod ||
+    teethPeriod <= lipsPeriod || jawShift < 0 || jawShift > 500 ||
+    teethShift < 0 || teethShift > 500 || lipsShift < 0 || lipsShift > 500 ||
+    jawShift <= teethShift || teethShift <= lipsShift)
+  {
+    return false;
+  }
+  int requiredShift = 1 + jawShift + jawPeriod - 1;
+  int teethRequiredShift = 2 + teethShift + teethPeriod - 1;
+  int lipsRequiredShift = 2 + lipsShift + lipsPeriod - 1;
+  if(teethRequiredShift > requiredShift)
+  {
+    requiredShift = teethRequiredShift;
+  }
+  if(lipsRequiredShift > requiredShift)
+  {
+    requiredShift = lipsRequiredShift;
+  }
+  // Match the existing parabolicSar generator's fail-closed history rule:
+  // no signal is considered until the oldest required closed-bar source exists.
+  return iTime(_Symbol, _Period, requiredShift) != 0;
+}
+
+bool AlligatorValues1(
+  double &previousLips,
+  double &previousTeeth,
+  double &currentLips,
+  double &currentTeeth,
+  double &currentJaw)
+{
+  static datetime cachedBarTime = 0;
+  static bool cachedResult = false;
+  static double cachedPreviousLips = EMPTY_VALUE;
+  static double cachedPreviousTeeth = EMPTY_VALUE;
+  static double cachedCurrentLips = EMPTY_VALUE;
+  static double cachedCurrentTeeth = EMPTY_VALUE;
+  static double cachedCurrentJaw = EMPTY_VALUE;
+  datetime currentBarTime = iTime(_Symbol, _Period, 0);
+  if(currentBarTime == 0)
+  {
+    return false;
+  }
+  if(cachedBarTime == currentBarTime)
+  {
+    previousLips = cachedPreviousLips;
+    previousTeeth = cachedPreviousTeeth;
+    currentLips = cachedCurrentLips;
+    currentTeeth = cachedCurrentTeeth;
+    currentJaw = cachedCurrentJaw;
+    return cachedResult;
+  }
+  cachedBarTime = currentBarTime;
+  cachedResult = false;
+  cachedPreviousLips = EMPTY_VALUE;
+  cachedPreviousTeeth = EMPTY_VALUE;
+  cachedCurrentLips = EMPTY_VALUE;
+  cachedCurrentTeeth = EMPTY_VALUE;
+  cachedCurrentJaw = EMPTY_VALUE;
+
+  int jawPeriod = InpAlligator1JawPeriod;
+  int teethPeriod = InpAlligator1TeethPeriod;
+  int lipsPeriod = InpAlligator1LipsPeriod;
+  int jawShift = InpAlligator1JawShift;
+  int teethShift = InpAlligator1TeethShift;
+  int lipsShift = InpAlligator1LipsShift;
+  int previousLipsTarget = 2 + lipsShift;
+  int previousTeethTarget = 2 + teethShift;
+  int currentLipsTarget = 1 + lipsShift;
+  int currentTeethTarget = 1 + teethShift;
+  int currentJawTarget = 1 + jawShift;
+  int minimumTargetShift = currentJawTarget;
+  if(currentTeethTarget < minimumTargetShift)
+  {
+    minimumTargetShift = currentTeethTarget;
+  }
+  if(currentLipsTarget < minimumTargetShift)
+  {
+    minimumTargetShift = currentLipsTarget;
+  }
+  if(previousTeethTarget < minimumTargetShift)
+  {
+    minimumTargetShift = previousTeethTarget;
+  }
+  if(previousLipsTarget < minimumTargetShift)
+  {
+    minimumTargetShift = previousLipsTarget;
+  }
+
+  int totalBars = Bars(_Symbol, _Period);
+  if(totalBars <= 0)
+  {
+    return false;
+  }
+  // These are the newest shifts in each line's oldest seed window. Since the
+  // periods are strictly ordered, one walk can seed and then advance all
+  // three states without rereading any OHLC bar.
+  int jawSeedShift = totalBars - jawPeriod;
+  int teethSeedShift = totalBars - teethPeriod;
+  int lipsSeedShift = totalBars - lipsPeriod;
+  if(jawSeedShift < currentJawTarget ||
+    teethSeedShift < previousTeethTarget ||
+    lipsSeedShift < previousLipsTarget)
+  {
+    return false;
+  }
+
+  double jawSeedSum = 0.0;
+  double teethSeedSum = 0.0;
+  double lipsSeedSum = 0.0;
+  double jawSmma = EMPTY_VALUE;
+  double teethSmma = EMPTY_VALUE;
+  double lipsSmma = EMPTY_VALUE;
+  // MQL series shifts decrease from the oldest bar to the newest bar. This
+  // single loop is therefore both the fresh oldest-to-newest seed walk and
+  // the shared recursive walk for all three lines.
+  for(int currentShift = totalBars - 1; currentShift >= minimumTargetShift; currentShift--)
+  {
+    double high = iHigh(_Symbol, _Period, currentShift);
+    double low = iLow(_Symbol, _Period, currentShift);
+    if(!ValueReady(high) || !MathIsValidNumber(high) ||
+      !ValueReady(low) || !MathIsValidNumber(low))
+    {
+      return false;
+    }
+    // MT4/MT5 return 0.0 for unavailable history. FX prices are strictly
+    // positive, so reject zero before it can enter the median/SMMA walk.
+    if(!(high > 0.0 && low > 0.0))
+    {
+      return false;
+    }
+    double median = (high + low) / 2.0;
+    if(!ValueReady(median) || !MathIsValidNumber(median))
+    {
+      return false;
+    }
+
+    if(currentShift >= jawSeedShift)
+    {
+      jawSeedSum += median;
+      if(currentShift == jawSeedShift)
+      {
+        jawSmma = jawSeedSum / jawPeriod;
+      }
+    }
+    else
+    {
+      jawSmma = (jawSmma * (jawPeriod - 1) + median) / jawPeriod;
+    }
+    if(currentShift >= teethSeedShift)
+    {
+      teethSeedSum += median;
+      if(currentShift == teethSeedShift)
+      {
+        teethSmma = teethSeedSum / teethPeriod;
+      }
+    }
+    else
+    {
+      teethSmma = (teethSmma * (teethPeriod - 1) + median) / teethPeriod;
+    }
+    if(currentShift >= lipsSeedShift)
+    {
+      lipsSeedSum += median;
+      if(currentShift == lipsSeedShift)
+      {
+        lipsSmma = lipsSeedSum / lipsPeriod;
+      }
+    }
+    else
+    {
+      lipsSmma = (lipsSmma * (lipsPeriod - 1) + median) / lipsPeriod;
+    }
+
+    if(currentShift < jawSeedShift &&
+      (!ValueReady(jawSmma) || !MathIsValidNumber(jawSmma)))
+    {
+      return false;
+    }
+    if(currentShift < teethSeedShift &&
+      (!ValueReady(teethSmma) || !MathIsValidNumber(teethSmma)))
+    {
+      return false;
+    }
+    if(currentShift < lipsSeedShift &&
+      (!ValueReady(lipsSmma) || !MathIsValidNumber(lipsSmma)))
+    {
+      return false;
+    }
+
+    if(currentShift == previousLipsTarget)
+    {
+      cachedPreviousLips = lipsSmma;
+    }
+    if(currentShift == previousTeethTarget)
+    {
+      cachedPreviousTeeth = teethSmma;
+    }
+    if(currentShift == currentLipsTarget)
+    {
+      cachedCurrentLips = lipsSmma;
+    }
+    if(currentShift == currentTeethTarget)
+    {
+      cachedCurrentTeeth = teethSmma;
+    }
+    if(currentShift == currentJawTarget)
+    {
+      cachedCurrentJaw = jawSmma;
+    }
+  }
+  if(!ValueReady(cachedPreviousLips) || !MathIsValidNumber(cachedPreviousLips) ||
+    !ValueReady(cachedPreviousTeeth) || !MathIsValidNumber(cachedPreviousTeeth) ||
+    !ValueReady(cachedCurrentLips) || !MathIsValidNumber(cachedCurrentLips) ||
+    !ValueReady(cachedCurrentTeeth) || !MathIsValidNumber(cachedCurrentTeeth) ||
+    !ValueReady(cachedCurrentJaw) || !MathIsValidNumber(cachedCurrentJaw))
+  {
+    return false;
+  }
+  cachedResult = true;
+  previousLips = cachedPreviousLips;
+  previousTeeth = cachedPreviousTeeth;
+  currentLips = cachedCurrentLips;
+  currentTeeth = cachedCurrentTeeth;
+  currentJaw = cachedCurrentJaw;
+  return true;
+}
+
+bool Condition1(bool longSide)
+{
+  int jawPeriod = InpAlligator1JawPeriod;
+  int teethPeriod = InpAlligator1TeethPeriod;
+  int lipsPeriod = InpAlligator1LipsPeriod;
+  int jawShift = InpAlligator1JawShift;
+  int teethShift = InpAlligator1TeethShift;
+  int lipsShift = InpAlligator1LipsShift;
+  if(jawPeriod < 2 || jawPeriod > 1000 || teethPeriod < 2 || teethPeriod > 1000 ||
+    lipsPeriod < 2 || lipsPeriod > 1000 || jawPeriod <= teethPeriod ||
+    teethPeriod <= lipsPeriod || jawShift < 0 || jawShift > 500 ||
+    teethShift < 0 || teethShift > 500 || lipsShift < 0 || lipsShift > 500 ||
+    jawShift <= teethShift || teethShift <= lipsShift)
+  {
+    return false;
+  }
+  if(!AlligatorWarmupReady1())
+  {
+    return false;
+  }
+  double previousLips = EMPTY_VALUE;
+  double previousTeeth = EMPTY_VALUE;
+  double currentLips = EMPTY_VALUE;
+  double currentTeeth = EMPTY_VALUE;
+  double currentJaw = EMPTY_VALUE;
+  if(!AlligatorValues1(
+    previousLips,
+    previousTeeth,
+    currentLips,
+    currentTeeth,
+    currentJaw))
+  {
+    return false;
+  }
+  if(!ValueReady(previousLips) || !MathIsValidNumber(previousLips) ||
+    !ValueReady(previousTeeth) || !MathIsValidNumber(previousTeeth) ||
+    !ValueReady(currentLips) || !MathIsValidNumber(currentLips) ||
+    !ValueReady(currentTeeth) || !MathIsValidNumber(currentTeeth) ||
+    !ValueReady(currentJaw) || !MathIsValidNumber(currentJaw))
+  {
+    return false;
+  }
+  if(longSide)
+  {
+    return previousLips <= previousTeeth && currentLips > currentTeeth && currentTeeth > currentJaw;
+  }
+  return previousLips >= previousTeeth && currentLips < currentTeeth && currentTeeth < currentJaw;
+}
+
+
+bool EntrySignal(bool longSide)
+{
+  return Condition1(longSide);
+}
+
+
+bool IsNewBar()
+{
+  datetime currentBarTime = iTime(_Symbol, _Period, 0);
+  if(currentBarTime == 0)
+  {
+    return false;
+  }
+  if(currentBarTime == lastBarTime)
+  {
+    return false;
+  }
+  lastBarTime = currentBarTime;
+  return true;
+}
+
+bool SelectCurrentPosition()
+{
+  for(int i = PositionsTotal() - 1; i >= 0; i--)
+  {
+    ulong ticket = PositionGetTicket(i);
+    if(ticket == 0)
+    {
+      continue;
+    }
+    if(!PositionSelectByTicket(ticket))
+    {
+      continue;
+    }
+    if(PositionGetString(POSITION_SYMBOL) == _Symbol && (int)PositionGetInteger(POSITION_MAGIC) == InpMagicNumber)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+void OpenPosition()
+{
+  double pip = PipPoint();
+  double lots = LotSizeForEntry();
+  trade.SetExpertMagicNumber(InpMagicNumber);
+  trade.SetDeviationInPoints(20);
+  if(InpTradeLong)
+  {
+    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double sl = NormalizeDouble(ask - InpStopLossPips * pip, _Digits);
+    double tp = NormalizeDouble(ask + InpTakeProfitPips * pip, _Digits);
+    trade.Buy(lots, _Symbol, ask, sl, tp, "FullTestEA");
+    return;
+  }
+  double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+  double sl = NormalizeDouble(bid + InpStopLossPips * pip, _Digits);
+  double tp = NormalizeDouble(bid - InpTakeProfitPips * pip, _Digits);
+  trade.Sell(lots, _Symbol, bid, sl, tp, "FullTestEA");
+}
+
+void CloseCurrentPosition()
+{
+  if(!SelectCurrentPosition())
+  {
+    return;
+  }
+  ulong ticket = (ulong)PositionGetInteger(POSITION_TICKET);
+  trade.PositionClose(ticket);
+}
+
+void ManageTrailingStop()
+{
+  if(!InpUseTrailingStop || InpTrailingStopPips <= 0)
+  {
+    return;
+  }
+  if(!SelectCurrentPosition())
+  {
+    return;
+  }
+  double pip = PipPoint();
+  ulong ticket = (ulong)PositionGetInteger(POSITION_TICKET);
+  double currentSL = PositionGetDouble(POSITION_SL);
+  double currentTP = PositionGetDouble(POSITION_TP);
+  long positionType = PositionGetInteger(POSITION_TYPE);
+  if(positionType == POSITION_TYPE_BUY)
+  {
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double nextSL = NormalizeDouble(bid - InpTrailingStopPips * pip, _Digits);
+    if((currentSL == 0.0 || nextSL > currentSL) && nextSL < bid)
+    {
+      trade.PositionModify(ticket, nextSL, currentTP);
+    }
+    return;
+  }
+  double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+  double nextSL = NormalizeDouble(ask + InpTrailingStopPips * pip, _Digits);
+  if((currentSL == 0.0 || nextSL < currentSL) && nextSL > ask)
+  {
+    trade.PositionModify(ticket, nextSL, currentTP);
+  }
+}
+
+void OnTick()
+{
+  ManageTrailingStop();
+  if(!IsNewBar())
+  {
+    return;
+  }
+  if(SelectCurrentPosition())
+  {
+    if(InpCloseOnOppositeSignal && EntrySignal(!InpTradeLong))
+    {
+      CloseCurrentPosition();
+    }
+    return;
+  }
+  if(EntryFiltersAllow() && EntrySignal(InpTradeLong))
+  {
+    OpenPosition();
+  }
+}

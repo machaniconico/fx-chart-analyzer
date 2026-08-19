@@ -5,6 +5,7 @@ import type {
   BollingerConditionMode,
   CciBreakCondition,
   AdxTrendCondition,
+  AlligatorCondition,
   AoCondition,
   DeMarkerCondition,
   DonchianBreakCondition,
@@ -181,6 +182,15 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input int InpStoch${index}DPeriod = ${integerLiteral(condition.dPeriod)};`,
         `input int InpStoch${index}Smoothing = ${integerLiteral(condition.smoothing)};`,
       ];
+    case 'alligator':
+      return [
+        `input int InpAlligator${index}JawPeriod = ${integerLiteral(condition.jawPeriod)};`,
+        `input int InpAlligator${index}TeethPeriod = ${integerLiteral(condition.teethPeriod)};`,
+        `input int InpAlligator${index}LipsPeriod = ${integerLiteral(condition.lipsPeriod)};`,
+        `input int InpAlligator${index}JawShift = ${integerLiteral(condition.jawShift)};`,
+        `input int InpAlligator${index}TeethShift = ${integerLiteral(condition.teethShift)};`,
+        `input int InpAlligator${index}LipsShift = ${integerLiteral(condition.lipsShift)};`,
+      ];
   }
 };
 
@@ -208,6 +218,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mqlStochasticCondition(condition, index);
     case 'stochCross':
       return mqlStochCrossCondition(condition, index);
+    case 'alligator':
+      return mqlAlligatorCondition(condition, index);
     case 'keltnerBreak':
       return mql5KeltnerCondition(condition, index);
     case 'cciBreak':
@@ -249,6 +261,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mqlStochasticCondition(condition, index);
     case 'stochCross':
       return mqlStochCrossCondition(condition, index);
+    case 'alligator':
+      return mqlAlligatorCondition(condition, index);
     case 'keltnerBreak':
       return mql4KeltnerCondition(condition, index);
     case 'cciBreak':
@@ -1560,6 +1574,17 @@ const mql4EntryConditionOnInit = (conditions: readonly EntryCondition[]): string
         '  }',
       ];
     }
+    if (condition.type === 'alligator') {
+      return [
+        // Inputs are integers in MQL; keep the evaluator's full period/shift
+        // domain and strict ordering explicit in the generated EA.
+        `  if(InpAlligator${conditionIndex}JawPeriod < 2 || InpAlligator${conditionIndex}JawPeriod > 1000 || InpAlligator${conditionIndex}TeethPeriod < 2 || InpAlligator${conditionIndex}TeethPeriod > 1000 || InpAlligator${conditionIndex}LipsPeriod < 2 || InpAlligator${conditionIndex}LipsPeriod > 1000 || InpAlligator${conditionIndex}JawPeriod <= InpAlligator${conditionIndex}TeethPeriod || InpAlligator${conditionIndex}TeethPeriod <= InpAlligator${conditionIndex}LipsPeriod || InpAlligator${conditionIndex}JawShift < 0 || InpAlligator${conditionIndex}JawShift > 500 || InpAlligator${conditionIndex}TeethShift < 0 || InpAlligator${conditionIndex}TeethShift > 500 || InpAlligator${conditionIndex}LipsShift < 0 || InpAlligator${conditionIndex}LipsShift > 500 || InpAlligator${conditionIndex}JawShift <= InpAlligator${conditionIndex}TeethShift || InpAlligator${conditionIndex}TeethShift <= InpAlligator${conditionIndex}LipsShift)`,
+        '  {',
+        `    Print("Alligator${conditionIndex} rejected: periods must be integers between 2 and 1000 with Jaw > Teeth > Lips, and shifts must be integers between 0 and 500 with Jaw > Teeth > Lips");`,
+        '    return INIT_FAILED;',
+        '  }',
+      ];
+    }
     return [];
   });
   if (initGuardLines.length === 0) {
@@ -1808,6 +1833,311 @@ bool Condition${index}(bool longSide)
     return previousK <= previousD && currentK > currentD;
   }
   return previousK >= previousD && currentK < currentD;
+}
+`;
+
+const alligatorParityComment = `
+// Alligator parity: both generated EAs calculate median=(high+low)/2 and
+// then seed each SMMA with a fresh SMA of the first N medians. In MQL series
+// indexing, the largest shift in each seed window is its oldest bar; the shared
+// decrementing walk therefore visits every seed oldest-to-newest before
+// applying SMMA=(previous*(period-1)+median)/period toward newer bars. All
+// three SMMA states share one history walk and the five requested values are
+// cached for the current chart bar. For finite, positive OHLC this mirrors
+// computeAlligatorSeries in strategy.ts exactly; no terminal Alligator buffer
+// is consumed. MQL additionally rejects non-positive OHLC because MT4/MT5
+// use 0.0 for unavailable history, while the TypeScript calculator accepts
+// signed synthetic inputs for deterministic tests. Non-finite history aborts
+// the MQL walk; TypeScript re-seeds only after such input. A display line at
+// bar i reads the causal source SMMA at i-shift, so MQL signal shifts are
+// 1+displayShift and 2+displayShift for the current and previous closed bars.
+`;
+
+const mqlAlligatorCondition = (_condition: AlligatorCondition, index: number): string => `
+${alligatorParityComment}
+bool AlligatorWarmupReady${index}()
+{
+  int jawPeriod = InpAlligator${index}JawPeriod;
+  int teethPeriod = InpAlligator${index}TeethPeriod;
+  int lipsPeriod = InpAlligator${index}LipsPeriod;
+  int jawShift = InpAlligator${index}JawShift;
+  int teethShift = InpAlligator${index}TeethShift;
+  int lipsShift = InpAlligator${index}LipsShift;
+  if(jawPeriod < 2 || jawPeriod > 1000 || teethPeriod < 2 || teethPeriod > 1000 ||
+    lipsPeriod < 2 || lipsPeriod > 1000 || jawPeriod <= teethPeriod ||
+    teethPeriod <= lipsPeriod || jawShift < 0 || jawShift > 500 ||
+    teethShift < 0 || teethShift > 500 || lipsShift < 0 || lipsShift > 500 ||
+    jawShift <= teethShift || teethShift <= lipsShift)
+  {
+    return false;
+  }
+  int requiredShift = 1 + jawShift + jawPeriod - 1;
+  int teethRequiredShift = 2 + teethShift + teethPeriod - 1;
+  int lipsRequiredShift = 2 + lipsShift + lipsPeriod - 1;
+  if(teethRequiredShift > requiredShift)
+  {
+    requiredShift = teethRequiredShift;
+  }
+  if(lipsRequiredShift > requiredShift)
+  {
+    requiredShift = lipsRequiredShift;
+  }
+  // Match the existing parabolicSar generator's fail-closed history rule:
+  // no signal is considered until the oldest required closed-bar source exists.
+  return iTime(_Symbol, _Period, requiredShift) != 0;
+}
+
+bool AlligatorValues${index}(
+  double &previousLips,
+  double &previousTeeth,
+  double &currentLips,
+  double &currentTeeth,
+  double &currentJaw)
+{
+  static datetime cachedBarTime = 0;
+  static bool cachedResult = false;
+  static double cachedPreviousLips = EMPTY_VALUE;
+  static double cachedPreviousTeeth = EMPTY_VALUE;
+  static double cachedCurrentLips = EMPTY_VALUE;
+  static double cachedCurrentTeeth = EMPTY_VALUE;
+  static double cachedCurrentJaw = EMPTY_VALUE;
+  datetime currentBarTime = iTime(_Symbol, _Period, 0);
+  if(currentBarTime == 0)
+  {
+    return false;
+  }
+  if(cachedBarTime == currentBarTime)
+  {
+    previousLips = cachedPreviousLips;
+    previousTeeth = cachedPreviousTeeth;
+    currentLips = cachedCurrentLips;
+    currentTeeth = cachedCurrentTeeth;
+    currentJaw = cachedCurrentJaw;
+    return cachedResult;
+  }
+  cachedBarTime = currentBarTime;
+  cachedResult = false;
+  cachedPreviousLips = EMPTY_VALUE;
+  cachedPreviousTeeth = EMPTY_VALUE;
+  cachedCurrentLips = EMPTY_VALUE;
+  cachedCurrentTeeth = EMPTY_VALUE;
+  cachedCurrentJaw = EMPTY_VALUE;
+
+  int jawPeriod = InpAlligator${index}JawPeriod;
+  int teethPeriod = InpAlligator${index}TeethPeriod;
+  int lipsPeriod = InpAlligator${index}LipsPeriod;
+  int jawShift = InpAlligator${index}JawShift;
+  int teethShift = InpAlligator${index}TeethShift;
+  int lipsShift = InpAlligator${index}LipsShift;
+  int previousLipsTarget = 2 + lipsShift;
+  int previousTeethTarget = 2 + teethShift;
+  int currentLipsTarget = 1 + lipsShift;
+  int currentTeethTarget = 1 + teethShift;
+  int currentJawTarget = 1 + jawShift;
+  int minimumTargetShift = currentJawTarget;
+  if(currentTeethTarget < minimumTargetShift)
+  {
+    minimumTargetShift = currentTeethTarget;
+  }
+  if(currentLipsTarget < minimumTargetShift)
+  {
+    minimumTargetShift = currentLipsTarget;
+  }
+  if(previousTeethTarget < minimumTargetShift)
+  {
+    minimumTargetShift = previousTeethTarget;
+  }
+  if(previousLipsTarget < minimumTargetShift)
+  {
+    minimumTargetShift = previousLipsTarget;
+  }
+
+  int totalBars = Bars(_Symbol, _Period);
+  if(totalBars <= 0)
+  {
+    return false;
+  }
+  // These are the newest shifts in each line's oldest seed window. Since the
+  // periods are strictly ordered, one walk can seed and then advance all
+  // three states without rereading any OHLC bar.
+  int jawSeedShift = totalBars - jawPeriod;
+  int teethSeedShift = totalBars - teethPeriod;
+  int lipsSeedShift = totalBars - lipsPeriod;
+  if(jawSeedShift < currentJawTarget ||
+    teethSeedShift < previousTeethTarget ||
+    lipsSeedShift < previousLipsTarget)
+  {
+    return false;
+  }
+
+  double jawSeedSum = 0.0;
+  double teethSeedSum = 0.0;
+  double lipsSeedSum = 0.0;
+  double jawSmma = EMPTY_VALUE;
+  double teethSmma = EMPTY_VALUE;
+  double lipsSmma = EMPTY_VALUE;
+  // MQL series shifts decrease from the oldest bar to the newest bar. This
+  // single loop is therefore both the fresh oldest-to-newest seed walk and
+  // the shared recursive walk for all three lines.
+  for(int currentShift = totalBars - 1; currentShift >= minimumTargetShift; currentShift--)
+  {
+    double high = iHigh(_Symbol, _Period, currentShift);
+    double low = iLow(_Symbol, _Period, currentShift);
+    if(!ValueReady(high) || !MathIsValidNumber(high) ||
+      !ValueReady(low) || !MathIsValidNumber(low))
+    {
+      return false;
+    }
+    // MT4/MT5 return 0.0 for unavailable history. FX prices are strictly
+    // positive, so reject zero before it can enter the median/SMMA walk.
+    if(!(high > 0.0 && low > 0.0))
+    {
+      return false;
+    }
+    double median = (high + low) / 2.0;
+    if(!ValueReady(median) || !MathIsValidNumber(median))
+    {
+      return false;
+    }
+
+    if(currentShift >= jawSeedShift)
+    {
+      jawSeedSum += median;
+      if(currentShift == jawSeedShift)
+      {
+        jawSmma = jawSeedSum / jawPeriod;
+      }
+    }
+    else
+    {
+      jawSmma = (jawSmma * (jawPeriod - 1) + median) / jawPeriod;
+    }
+    if(currentShift >= teethSeedShift)
+    {
+      teethSeedSum += median;
+      if(currentShift == teethSeedShift)
+      {
+        teethSmma = teethSeedSum / teethPeriod;
+      }
+    }
+    else
+    {
+      teethSmma = (teethSmma * (teethPeriod - 1) + median) / teethPeriod;
+    }
+    if(currentShift >= lipsSeedShift)
+    {
+      lipsSeedSum += median;
+      if(currentShift == lipsSeedShift)
+      {
+        lipsSmma = lipsSeedSum / lipsPeriod;
+      }
+    }
+    else
+    {
+      lipsSmma = (lipsSmma * (lipsPeriod - 1) + median) / lipsPeriod;
+    }
+
+    if(currentShift < jawSeedShift &&
+      (!ValueReady(jawSmma) || !MathIsValidNumber(jawSmma)))
+    {
+      return false;
+    }
+    if(currentShift < teethSeedShift &&
+      (!ValueReady(teethSmma) || !MathIsValidNumber(teethSmma)))
+    {
+      return false;
+    }
+    if(currentShift < lipsSeedShift &&
+      (!ValueReady(lipsSmma) || !MathIsValidNumber(lipsSmma)))
+    {
+      return false;
+    }
+
+    if(currentShift == previousLipsTarget)
+    {
+      cachedPreviousLips = lipsSmma;
+    }
+    if(currentShift == previousTeethTarget)
+    {
+      cachedPreviousTeeth = teethSmma;
+    }
+    if(currentShift == currentLipsTarget)
+    {
+      cachedCurrentLips = lipsSmma;
+    }
+    if(currentShift == currentTeethTarget)
+    {
+      cachedCurrentTeeth = teethSmma;
+    }
+    if(currentShift == currentJawTarget)
+    {
+      cachedCurrentJaw = jawSmma;
+    }
+  }
+  if(!ValueReady(cachedPreviousLips) || !MathIsValidNumber(cachedPreviousLips) ||
+    !ValueReady(cachedPreviousTeeth) || !MathIsValidNumber(cachedPreviousTeeth) ||
+    !ValueReady(cachedCurrentLips) || !MathIsValidNumber(cachedCurrentLips) ||
+    !ValueReady(cachedCurrentTeeth) || !MathIsValidNumber(cachedCurrentTeeth) ||
+    !ValueReady(cachedCurrentJaw) || !MathIsValidNumber(cachedCurrentJaw))
+  {
+    return false;
+  }
+  cachedResult = true;
+  previousLips = cachedPreviousLips;
+  previousTeeth = cachedPreviousTeeth;
+  currentLips = cachedCurrentLips;
+  currentTeeth = cachedCurrentTeeth;
+  currentJaw = cachedCurrentJaw;
+  return true;
+}
+
+bool Condition${index}(bool longSide)
+{
+  int jawPeriod = InpAlligator${index}JawPeriod;
+  int teethPeriod = InpAlligator${index}TeethPeriod;
+  int lipsPeriod = InpAlligator${index}LipsPeriod;
+  int jawShift = InpAlligator${index}JawShift;
+  int teethShift = InpAlligator${index}TeethShift;
+  int lipsShift = InpAlligator${index}LipsShift;
+  if(jawPeriod < 2 || jawPeriod > 1000 || teethPeriod < 2 || teethPeriod > 1000 ||
+    lipsPeriod < 2 || lipsPeriod > 1000 || jawPeriod <= teethPeriod ||
+    teethPeriod <= lipsPeriod || jawShift < 0 || jawShift > 500 ||
+    teethShift < 0 || teethShift > 500 || lipsShift < 0 || lipsShift > 500 ||
+    jawShift <= teethShift || teethShift <= lipsShift)
+  {
+    return false;
+  }
+  if(!AlligatorWarmupReady${index}())
+  {
+    return false;
+  }
+  double previousLips = EMPTY_VALUE;
+  double previousTeeth = EMPTY_VALUE;
+  double currentLips = EMPTY_VALUE;
+  double currentTeeth = EMPTY_VALUE;
+  double currentJaw = EMPTY_VALUE;
+  if(!AlligatorValues${index}(
+    previousLips,
+    previousTeeth,
+    currentLips,
+    currentTeeth,
+    currentJaw))
+  {
+    return false;
+  }
+  if(!ValueReady(previousLips) || !MathIsValidNumber(previousLips) ||
+    !ValueReady(previousTeeth) || !MathIsValidNumber(previousTeeth) ||
+    !ValueReady(currentLips) || !MathIsValidNumber(currentLips) ||
+    !ValueReady(currentTeeth) || !MathIsValidNumber(currentTeeth) ||
+    !ValueReady(currentJaw) || !MathIsValidNumber(currentJaw))
+  {
+    return false;
+  }
+  if(longSide)
+  {
+    return previousLips <= previousTeeth && currentLips > currentTeeth && currentTeeth > currentJaw;
+  }
+  return previousLips >= previousTeeth && currentLips < currentTeeth && currentTeeth < currentJaw;
 }
 `;
 
@@ -2079,6 +2409,9 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
         return [];
       case 'stochCross':
         return [];
+      case 'alligator':
+        // Alligator is calculated directly from OHLC for operation-order parity.
+        return [];
     }
   });
 
@@ -2241,6 +2574,14 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '    return INIT_FAILED;',
           '  }',
         ];
+      case 'alligator':
+        return [
+          `  if(InpAlligator${conditionIndex}JawPeriod < 2 || InpAlligator${conditionIndex}JawPeriod > 1000 || InpAlligator${conditionIndex}TeethPeriod < 2 || InpAlligator${conditionIndex}TeethPeriod > 1000 || InpAlligator${conditionIndex}LipsPeriod < 2 || InpAlligator${conditionIndex}LipsPeriod > 1000 || InpAlligator${conditionIndex}JawPeriod <= InpAlligator${conditionIndex}TeethPeriod || InpAlligator${conditionIndex}TeethPeriod <= InpAlligator${conditionIndex}LipsPeriod || InpAlligator${conditionIndex}JawShift < 0 || InpAlligator${conditionIndex}JawShift > 500 || InpAlligator${conditionIndex}TeethShift < 0 || InpAlligator${conditionIndex}TeethShift > 500 || InpAlligator${conditionIndex}LipsShift < 0 || InpAlligator${conditionIndex}LipsShift > 500 || InpAlligator${conditionIndex}JawShift <= InpAlligator${conditionIndex}TeethShift || InpAlligator${conditionIndex}TeethShift <= InpAlligator${conditionIndex}LipsShift)`,
+          '  {',
+          `    Print("Alligator${conditionIndex} rejected: periods must be integers between 2 and 1000 with Jaw > Teeth > Lips, and shifts must be integers between 0 and 500 with Jaw > Teeth > Lips");`,
+          '    return INIT_FAILED;',
+          '  }',
+        ];
     }
   });
 
@@ -2287,6 +2628,8 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
       case 'stochastic':
         return [];
       case 'stochCross':
+        return [];
+      case 'alligator':
         return [];
     }
   });

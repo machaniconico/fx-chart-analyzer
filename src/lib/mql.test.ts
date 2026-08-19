@@ -272,6 +272,15 @@ describe('mql generation', () => {
       { type: 'rvi', period: 10 },
       { type: 'envelope', period: 14, deviation: 0.1 },
       { type: 'demarker', period: 14, threshold: 0.3, comparison: 'below' },
+      {
+        type: 'alligator',
+        jawPeriod: 13,
+        teethPeriod: 8,
+        lipsPeriod: 5,
+        jawShift: 8,
+        teethShift: 5,
+        lipsShift: 3,
+      },
     ];
     for (const condition of allConditions) {
       const source = generateMql4({
@@ -457,6 +466,82 @@ describe('mql generation', () => {
 
     await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-stochCross.mq4'));
     await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-stochCross.mq5'));
+  });
+
+  it('generates Alligator SMMA median-price parity code and snapshots for MQL4/MQL5', async () => {
+    const strategy: StrategyDefinition = {
+      ...fullStrategy,
+      entryConditions: [
+        {
+          type: 'alligator',
+          jawPeriod: 13,
+          teethPeriod: 8,
+          lipsPeriod: 5,
+          jawShift: 8,
+          teethShift: 5,
+          lipsShift: 3,
+        },
+      ],
+    };
+    const mql4 = generateMql4(strategy);
+    const mql5 = generateMql5(strategy);
+
+    for (const source of [mql4, mql5]) {
+      expect(source).toContain('input int InpAlligator1JawPeriod = 13;');
+      expect(source).toContain('input int InpAlligator1TeethPeriod = 8;');
+      expect(source).toContain('input int InpAlligator1LipsPeriod = 5;');
+      expect(source).toContain('input int InpAlligator1JawShift = 8;');
+      expect(source).toContain('input int InpAlligator1TeethShift = 5;');
+      expect(source).toContain('input int InpAlligator1LipsShift = 3;');
+      expect(source).toContain('bool AlligatorValues1(');
+      expect(source).toContain('static datetime cachedBarTime = 0;');
+      expect(source).toContain('double median = (high + low) / 2.0;');
+      expect(source).toContain('if(!(high > 0.0 && low > 0.0))');
+      expect(source).toContain('jawSmma = jawSeedSum / jawPeriod;');
+      expect(source).toContain('jawSmma = (jawSmma * (jawPeriod - 1) + median) / jawPeriod;');
+      expect(source).toContain(
+        'for(int currentShift = totalBars - 1; currentShift >= minimumTargetShift; currentShift--)',
+      );
+      expect(source).not.toContain('double AlligatorSmma1(int period, int targetShift)');
+      expect(source).not.toContain('AlligatorSmma1(lipsPeriod');
+      expect(source).not.toContain(
+        'for(int currentShift = minimumTargetShift; currentShift <= totalBars - 1; currentShift++)',
+      );
+      expect(source).toContain('bool AlligatorWarmupReady1()');
+      expect(source).toContain('int requiredShift = 1 + jawShift + jawPeriod - 1;');
+      expect(source).toContain('if(!AlligatorValues1(');
+      expect(source).toContain('double previousLips = EMPTY_VALUE;');
+      expect(source).toContain('double currentJaw = EMPTY_VALUE;');
+      expect(source).toContain(
+        'return previousLips <= previousTeeth && currentLips > currentTeeth && currentTeeth > currentJaw;',
+      );
+      expect(source).toContain(
+        'return previousLips >= previousTeeth && currentLips < currentTeeth && currentTeeth < currentJaw;',
+      );
+      expect(source).toContain('oldest-to-newest');
+      expect(source).toContain('parabolicSar generator\'s fail-closed history rule');
+      expect(source).toContain('For finite, positive OHLC this mirrors');
+      expect(source).toContain('Non-finite history aborts');
+      expectBalanced(source);
+    }
+
+    // The operation-order contract is intentionally two-sided: an ascending
+    // loop can look equivalent while changing floating-point parity.
+    expect(mql4).toContain(
+      'for(int currentShift = totalBars - 1; currentShift >= minimumTargetShift; currentShift--)',
+    );
+    expect(mql4).not.toContain(
+      'for(int currentShift = minimumTargetShift; currentShift <= totalBars - 1; currentShift++)',
+    );
+    expect(mql5).toContain(
+      'for(int currentShift = totalBars - 1; currentShift >= minimumTargetShift; currentShift--)',
+    );
+    expect(mql5).not.toContain(
+      'for(int currentShift = minimumTargetShift; currentShift <= totalBars - 1; currentShift++)',
+    );
+
+    await expect(mql4).toMatchFileSnapshot(mqlSnapshotPath('mql-alligator.mq4'));
+    await expect(mql5).toMatchFileSnapshot(mqlSnapshotPath('mql-alligator.mq5'));
   });
 
   it('generates shift-1 Keltner breakout signals with platform indicator guards', async () => {

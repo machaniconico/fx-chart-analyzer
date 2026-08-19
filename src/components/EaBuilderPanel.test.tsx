@@ -616,6 +616,77 @@ const validationCases: Array<{
     ],
     message: 'エンベロープの期間は2以上1000以下の整数、乖離率は0より大きい有限値にしてください。',
   },
+  {
+    type: 'alligator',
+    valid: {
+      type: 'alligator',
+      jawPeriod: 1000,
+      teethPeriod: 999,
+      lipsPeriod: 998,
+      jawShift: 500,
+      teethShift: 499,
+      lipsShift: 498,
+    },
+    invalid: [
+      {
+        label: 'period below minimum',
+        condition: { type: 'alligator', jawPeriod: 1, teethPeriod: 8, lipsPeriod: 5, jawShift: 8, teethShift: 5, lipsShift: 3 },
+      },
+      {
+        label: 'period above maximum',
+        condition: { type: 'alligator', jawPeriod: 1001, teethPeriod: 8, lipsPeriod: 5, jawShift: 8, teethShift: 5, lipsShift: 3 },
+      },
+      {
+        label: 'period non-integer',
+        condition: { type: 'alligator', jawPeriod: 13.5, teethPeriod: 8, lipsPeriod: 5, jawShift: 8, teethShift: 5, lipsShift: 3 },
+      },
+      {
+        label: 'period non-finite',
+        condition: { type: 'alligator', jawPeriod: Number.NaN, teethPeriod: 8, lipsPeriod: 5, jawShift: 8, teethShift: 5, lipsShift: 3 },
+      },
+      {
+        label: 'equal periods',
+        condition: { type: 'alligator', jawPeriod: 8, teethPeriod: 8, lipsPeriod: 5, jawShift: 8, teethShift: 5, lipsShift: 3 },
+      },
+      {
+        label: 'equal teeth and lips periods',
+        condition: { type: 'alligator', jawPeriod: 13, teethPeriod: 5, lipsPeriod: 5, jawShift: 8, teethShift: 5, lipsShift: 3 },
+      },
+      {
+        label: 'reversed periods',
+        condition: { type: 'alligator', jawPeriod: 5, teethPeriod: 8, lipsPeriod: 3, jawShift: 8, teethShift: 5, lipsShift: 3 },
+      },
+      {
+        label: 'shift below minimum',
+        condition: { type: 'alligator', jawPeriod: 13, teethPeriod: 8, lipsPeriod: 5, jawShift: -1, teethShift: 5, lipsShift: 3 },
+      },
+      {
+        label: 'shift above maximum',
+        condition: { type: 'alligator', jawPeriod: 13, teethPeriod: 8, lipsPeriod: 5, jawShift: 8, teethShift: 501, lipsShift: 3 },
+      },
+      {
+        label: 'shift non-integer',
+        condition: { type: 'alligator', jawPeriod: 13, teethPeriod: 8, lipsPeriod: 5, jawShift: 8, teethShift: 5, lipsShift: 3.5 },
+      },
+      {
+        label: 'shift non-finite',
+        condition: { type: 'alligator', jawPeriod: 13, teethPeriod: 8, lipsPeriod: 5, jawShift: Number.POSITIVE_INFINITY, teethShift: 5, lipsShift: 3 },
+      },
+      {
+        label: 'equal shifts',
+        condition: { type: 'alligator', jawPeriod: 13, teethPeriod: 8, lipsPeriod: 5, jawShift: 5, teethShift: 5, lipsShift: 3 },
+      },
+      {
+        label: 'equal teeth and lips shifts',
+        condition: { type: 'alligator', jawPeriod: 13, teethPeriod: 8, lipsPeriod: 5, jawShift: 8, teethShift: 3, lipsShift: 3 },
+      },
+      {
+        label: 'reversed shifts',
+        condition: { type: 'alligator', jawPeriod: 13, teethPeriod: 8, lipsPeriod: 5, jawShift: 3, teethShift: 5, lipsShift: 1 },
+      },
+    ],
+    message: 'Alligatorの期間は2以上1000以下の整数でJaw>Teeth>Lips、シフトは0以上500以下の整数でJaw>Teeth>Lipsにしてください。',
+  },
 ];
 
 it('covers every registered entry condition type exactly once and in registry order', () => {
@@ -626,6 +697,53 @@ it('covers every registered entry condition type exactly once and in registry or
 
 it.each(validationCases)('$type accepts its valid boundary values', ({ valid }) => {
   expect(strategyValidationMessages(baseStrategy(valid))).toEqual([]);
+});
+
+it('accepts the Alligator lower strict-order boundaries', () => {
+  expect(
+    strategyValidationMessages(
+      baseStrategy({
+        type: 'alligator',
+        jawPeriod: 4,
+        teethPeriod: 3,
+        lipsPeriod: 2,
+        jawShift: 2,
+        teethShift: 1,
+        lipsShift: 0,
+      }),
+    ),
+  ).toEqual([]);
+});
+
+it.each([
+  {
+    label: 'equal Teeth/Lips periods',
+    condition: {
+      type: 'alligator' as const,
+      jawPeriod: 13,
+      teethPeriod: 5,
+      lipsPeriod: 5,
+      jawShift: 8,
+      teethShift: 5,
+      lipsShift: 3,
+    },
+  },
+  {
+    label: 'equal Teeth/Lips shifts',
+    condition: {
+      type: 'alligator' as const,
+      jawPeriod: 13,
+      teethPeriod: 8,
+      lipsPeriod: 5,
+      jawShift: 8,
+      teethShift: 3,
+      lipsShift: 3,
+    },
+  },
+])('reports the Alligator $label validation message', ({ condition }) => {
+  expect(strategyValidationMessages(baseStrategy(condition))).toEqual([
+    'Alligatorの期間は2以上1000以下の整数でJaw>Teeth>Lips、シフトは0以上500以下の整数でJaw>Teeth>Lipsにしてください。',
+  ]);
 });
 
 it.each([
@@ -734,5 +852,46 @@ describe('EaBuilderPanel SAR controls', () => {
     const { markup: clampedMarkup } = renderSarPanel(0.4, 0.4);
     expect(clampedMarkup).toMatch(/<span>maximum<\/span><input[^>]*value="0\.4"/);
     expect(strategyValidationMessages(nextStrategy)).toEqual([]);
+  });
+});
+
+describe('EaBuilderPanel Alligator controls', () => {
+  it('renders all six Alligator inputs with their domain boundaries', () => {
+    const strategy = baseStrategy({
+      type: 'alligator',
+      jawPeriod: 13,
+      teethPeriod: 8,
+      lipsPeriod: 5,
+      jawShift: 8,
+      teethShift: 5,
+      lipsShift: 3,
+    });
+    panelHarness.injectedStates = [strategy];
+    panelHarness.stateCalls = [];
+    panelHarness.stateCount = 0;
+    panelHarness.inputs = [];
+
+    const markup = renderToStaticMarkup(
+      <EaBuilderPanel bars={[]} pair="USDJPY" timeframe="h1" />,
+    );
+
+    expect(markup).toContain('Alligator整列クロス');
+    expect(markup).toContain('Jaw期間');
+    expect(markup).toContain('Teeth期間');
+    expect(markup).toContain('Lips期間');
+    expect(markup).toContain('Jawシフト');
+    expect(markup).toContain('Teethシフト');
+    expect(markup).toContain('Lipsシフト');
+
+    const numberInputs = panelHarness.inputs.filter((input) => input.props.type === 'number');
+    expect(
+      numberInputs.filter((input) => input.props.min === '2' && input.props.max === '1000'),
+    ).toHaveLength(3);
+    expect(
+      numberInputs.filter((input) => input.props.min === '0' && input.props.max === '500'),
+    ).toHaveLength(3);
+    expect(numberInputs.map((input) => input.props.value)).toEqual(
+      expect.arrayContaining([13, 8, 5, 8, 5, 3]),
+    );
   });
 });
