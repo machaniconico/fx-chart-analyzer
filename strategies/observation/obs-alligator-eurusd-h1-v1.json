@@ -1,0 +1,77 @@
+{
+  "meta": {
+    "id": "obs-alligator-eurusd-h1-v1",
+    "name": "EURUSD h1 Alligator整列クロス順張り 観察候補",
+    "version": 1,
+    "pair": "EURUSD",
+    "timeframe": "h1",
+    "registeredAt": 1787098354
+  },
+  "id": "obs-alligator-eurusd-h1-v1",
+  "name": "EURUSD h1 Alligator整列クロス順張り 観察候補",
+  "description": "観察候補(未採用): EURUSD h1 Alligator整列クロス順張り。出典は ea-selection-log.md エントリ(19) と正典レポート tune-virtual-strategies-2026-08-18T22-32-23-991Z。新しい市場データでの選択行再現確認まで採用しない。",
+  "selectionEvidence": {
+    "adoptedAt": "2026-08-19",
+    "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+    "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+    "candidatePool": 140,
+    "inSampleRank": 18,
+    "optimization": {
+      "netProfitYen": 216917,
+      "profitFactor": 1.4035567511855527,
+      "tradeCount": 69
+    },
+    "validation": {
+      "netProfitYen": 83062,
+      "profitFactor": 1.4538981513358142
+    },
+    "quarterlyStability": {
+      "positive": 3,
+      "total": 4
+    },
+    "reservations": [
+      "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+    ]
+  },
+  "direction": "long",
+  "entryDirections": [
+    "long",
+    "short"
+  ],
+  "entryConditions": [
+    {
+      "type": "alligator",
+      "jawPeriod": 13,
+      "teethPeriod": 8,
+      "lipsPeriod": 5,
+      "jawShift": 8,
+      "teethShift": 5,
+      "lipsShift": 3
+    }
+  ],
+  "exit": {
+    "stopLossPips": 35,
+    "takeProfitPips": 160,
+    "closeOnOppositeSignal": true,
+    "trailingStopPips": null
+  },
+  "sessionFilter": {
+    "enabled": false,
+    "start": "00:00",
+    "end": "23:59",
+    "serverUtcOffsetMinutes": 0
+  },
+  "newsFilter": {
+    "enabled": false,
+    "blockMinutes": 30
+  },
+  "lotSize": 0.1,
+  "moneyManagement": {
+    "initialBalanceYen": 1000000,
+    "lotSizingMode": "fixedRisk",
+    "fixedLot": 0.1,
+    "riskPercent": 1,
+    "maxLot": 100
+  },
+  "magicNumber": 1783200170
+}

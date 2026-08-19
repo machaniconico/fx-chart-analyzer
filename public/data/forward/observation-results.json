@@ -1,0 +1,3045 @@
+{
+  "schemaVersion": 3,
+  "computedAt": "2026-08-19T00:53:04.631Z",
+  "monthlySummary": {
+    "months": []
+  },
+  "strategies": [
+    {
+      "meta": {
+        "id": "obs-adxtrend-audjpy-h4-v1",
+        "name": "AUDJPY h4 ADXトレンド順張り 観察候補",
+        "version": 1,
+        "pair": "AUDJPY",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 1,
+        "optimization": {
+          "netProfitYen": 175796,
+          "profitFactor": 1.2870349658342246,
+          "tradeCount": 83
+        },
+        "validation": {
+          "netProfitYen": 90790,
+          "profitFactor": 1.4519613699721226
+        },
+        "quarterlyStability": {
+          "positive": 4,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.2,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.2,
+        "winRate": 36.61971830985916,
+        "profitFactor": 1.439551379956968,
+        "maxDrawdownPips": 552.6,
+        "maxDrawdownYen": 154579,
+        "maxDrawdownPct": 14.281306039337144,
+        "tradeCount": 71,
+        "netPips": 656.1,
+        "netProfitYen": 184474,
+        "grossProfitPips": 2148.6,
+        "grossLossPips": -1492.5,
+        "grossProfitYen": 604161,
+        "grossLossYen": -419687,
+        "riskRewardRatio": 2.491531234540906,
+        "averageWinYen": 23237,
+        "averageLossYen": -9326,
+        "maxConsecutiveWins": 4,
+        "maxConsecutiveLosses": 9
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1747886400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-adxtrend-eurjpy-h1-v1",
+        "name": "EURJPY h1 ADXトレンド順張り 観察候補",
+        "version": 1,
+        "pair": "EURJPY",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 4,
+        "optimization": {
+          "netProfitYen": 116152,
+          "profitFactor": 1.1268353407514988,
+          "tradeCount": 211
+        },
+        "validation": {
+          "netProfitYen": 80461,
+          "profitFactor": 1.3083068622905467
+        },
+        "quarterlyStability": {
+          "positive": 4,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.1,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.1,
+        "winRate": 45.65217391304348,
+        "profitFactor": 0.7774507362879705,
+        "maxDrawdownPips": 386.8,
+        "maxDrawdownYen": 57582,
+        "maxDrawdownPct": 5.717207621354919,
+        "tradeCount": 46,
+        "netPips": -164.8,
+        "netProfitYen": -25027,
+        "grossProfitPips": 586.8,
+        "grossLossPips": -751.6,
+        "grossProfitYen": 87429,
+        "grossLossYen": -112456,
+        "riskRewardRatio": 0.9255365908190125,
+        "averageWinYen": 4163,
+        "averageLossYen": -4498,
+        "maxConsecutiveWins": 6,
+        "maxConsecutiveLosses": 5
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-adxtrend-eurusd-h4-v1",
+        "name": "EURUSD h4 ADXトレンド順張り 観察候補",
+        "version": 1,
+        "pair": "EURUSD",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 5,
+        "optimization": {
+          "netProfitYen": 52613,
+          "profitFactor": 1.384364749457566,
+          "tradeCount": 59
+        },
+        "validation": {
+          "netProfitYen": 19690,
+          "profitFactor": 1.4005777759694022
+        },
+        "quarterlyStability": {
+          "positive": 4,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.7,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.7,
+        "winRate": 38.297872340425535,
+        "profitFactor": 0.9346483251480167,
+        "maxDrawdownPips": 347.6,
+        "maxDrawdownYen": 35521,
+        "maxDrawdownPct": 3.549773432727861,
+        "tradeCount": 47,
+        "netPips": -63.3,
+        "netProfitYen": -8157,
+        "grossProfitPips": 1116.7,
+        "grossLossPips": -1180,
+        "grossProfitYen": 116660,
+        "grossLossYen": -124817,
+        "riskRewardRatio": 1.5058223016273604,
+        "averageWinYen": 6481,
+        "averageLossYen": -4304,
+        "maxConsecutiveWins": 5,
+        "maxConsecutiveLosses": 6
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1747886400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-adxtrend-gbpjpy-h1-v1",
+        "name": "GBPJPY h1 ADXトレンド順張り 観察候補",
+        "version": 1,
+        "pair": "GBPJPY",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 11,
+        "optimization": {
+          "netProfitYen": 5853,
+          "profitFactor": 1.0045974862676315,
+          "tradeCount": 241
+        },
+        "validation": {
+          "netProfitYen": 15208,
+          "profitFactor": 1.0315826635931302
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.6,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.6,
+        "winRate": 33.33333333333333,
+        "profitFactor": 1.2628744530461125,
+        "maxDrawdownPips": 346.9,
+        "maxDrawdownYen": 70042,
+        "maxDrawdownPct": 6.535012259795699,
+        "tradeCount": 48,
+        "netPips": 262.9,
+        "netProfitYen": 48422,
+        "grossProfitPips": 1190,
+        "grossLossPips": -927.1,
+        "grossProfitYen": 232624,
+        "grossLossYen": -184202,
+        "riskRewardRatio": 2.525748906092225,
+        "averageWinYen": 14539,
+        "averageLossYen": -5756,
+        "maxConsecutiveWins": 4,
+        "maxConsecutiveLosses": 8
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-alligator-eurusd-h1-v1",
+        "name": "EURUSD h1 Alligator整列クロス順張り 観察候補",
+        "version": 1,
+        "pair": "EURUSD",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 18,
+        "optimization": {
+          "netProfitYen": 216917,
+          "profitFactor": 1.4035567511855527,
+          "tradeCount": 69
+        },
+        "validation": {
+          "netProfitYen": 83062,
+          "profitFactor": 1.4538981513358142
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.7,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.7,
+        "winRate": 45.45454545454545,
+        "profitFactor": 0.91519300560871,
+        "maxDrawdownPips": 135.1,
+        "maxDrawdownYen": 37825,
+        "maxDrawdownPct": 3.666062036317002,
+        "tradeCount": 11,
+        "netPips": -12,
+        "netProfitYen": -5141,
+        "grossProfitPips": 202.2,
+        "grossLossPips": -214.2,
+        "grossProfitYen": 55479,
+        "grossLossYen": -60620,
+        "riskRewardRatio": 1.0982316067304518,
+        "averageWinYen": 11096,
+        "averageLossYen": -10103,
+        "maxConsecutiveWins": 2,
+        "maxConsecutiveLosses": 2
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-alligator-gbpjpy-h1-v1",
+        "name": "GBPJPY h1 Alligator整列クロス順張り 観察候補",
+        "version": 1,
+        "pair": "GBPJPY",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 25,
+        "optimization": {
+          "netProfitYen": 127455,
+          "profitFactor": 1.1013277428371768,
+          "tradeCount": 128
+        },
+        "validation": {
+          "netProfitYen": 68926,
+          "profitFactor": 1.1586007897134758
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.6,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.6,
+        "winRate": 13.636363636363635,
+        "profitFactor": 0.9490363471737162,
+        "maxDrawdownPips": 232.2,
+        "maxDrawdownYen": 106548,
+        "maxDrawdownPct": 10.344747235847088,
+        "tradeCount": 22,
+        "netPips": -6.6,
+        "netProfitYen": -9456,
+        "grossProfitPips": 403.8,
+        "grossLossPips": -410.4,
+        "grossProfitYen": 176088,
+        "grossLossYen": -185544,
+        "riskRewardRatio": 6.010563532100202,
+        "averageWinYen": 58696,
+        "averageLossYen": -9765,
+        "maxConsecutiveWins": 1,
+        "maxConsecutiveLosses": 8
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-alligator-gbpusd-h1-v1",
+        "name": "GBPUSD h1 Alligator整列クロス順張り 観察候補",
+        "version": 1,
+        "pair": "GBPUSD",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 25,
+        "optimization": {
+          "netProfitYen": 13365,
+          "profitFactor": 1.02187089869511,
+          "tradeCount": 127
+        },
+        "validation": {
+          "netProfitYen": 20270,
+          "profitFactor": 1.0891549413477482
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1,
+        "winRate": 50,
+        "profitFactor": 1.9872127848752865,
+        "maxDrawdownPips": 75.7,
+        "maxDrawdownYen": 38364,
+        "maxDrawdownPct": 3.5665597839475884,
+        "tradeCount": 24,
+        "netPips": 176,
+        "netProfitYen": 84383,
+        "grossProfitPips": 343.7,
+        "grossLossPips": -167.7,
+        "grossProfitYen": 169859,
+        "grossLossYen": -85476,
+        "riskRewardRatio": 1.9872127848752865,
+        "averageWinYen": 14155,
+        "averageLossYen": -7123,
+        "maxConsecutiveWins": 3,
+        "maxConsecutiveLosses": 3
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-alligator-gbpusd-h4-v1",
+        "name": "GBPUSD h4 Alligator整列クロス順張り 観察候補",
+        "version": 1,
+        "pair": "GBPUSD",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 1,
+        "optimization": {
+          "netProfitYen": 3539,
+          "profitFactor": 1.0196443043174173,
+          "tradeCount": 32
+        },
+        "validation": {
+          "netProfitYen": 43242,
+          "profitFactor": 1.5574434074150467
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1,
+        "winRate": 40.625,
+        "profitFactor": 1.111033815887415,
+        "maxDrawdownPips": 99,
+        "maxDrawdownYen": 47764,
+        "maxDrawdownPct": 4.725085293879059,
+        "tradeCount": 32,
+        "netPips": 40.3,
+        "netProfitYen": 15961,
+        "grossProfitPips": 344.1,
+        "grossLossPips": -303.8,
+        "grossProfitYen": 159710,
+        "grossLossYen": -143749,
+        "riskRewardRatio": 1.6238186539892987,
+        "averageWinYen": 12285,
+        "averageLossYen": -7566,
+        "maxConsecutiveWins": 2,
+        "maxConsecutiveLosses": 5
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1745251200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-alligator-usdjpy-h4-v1",
+        "name": "USDJPY h4 Alligator整列クロス順張り 観察候補",
+        "version": 1,
+        "pair": "USDJPY",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 1,
+        "optimization": {
+          "netProfitYen": 361267,
+          "profitFactor": 2.421505130949383,
+          "tradeCount": 31
+        },
+        "validation": {
+          "netProfitYen": 194141,
+          "profitFactor": 2.717013505027903
+        },
+        "quarterlyStability": {
+          "positive": 4,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.9,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.9,
+        "winRate": 29.03225806451613,
+        "profitFactor": 1.825909637490435,
+        "maxDrawdownPips": 153.6,
+        "maxDrawdownYen": 72632,
+        "maxDrawdownPct": 7.069771063697185,
+        "tradeCount": 31,
+        "netPips": 397.1,
+        "netProfitYen": 196436,
+        "grossProfitPips": 856.9,
+        "grossLossPips": -459.8,
+        "grossProfitYen": 434278,
+        "grossLossYen": -237842,
+        "riskRewardRatio": 4.463334669421063,
+        "averageWinYen": 48253,
+        "averageLossYen": -10811,
+        "maxConsecutiveWins": 2,
+        "maxConsecutiveLosses": 4
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1747886400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-ao-eurjpy-h4-v1",
+        "name": "EURJPY h4 AOゼロラインクロス順張り 観察候補",
+        "version": 1,
+        "pair": "EURJPY",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 352,
+        "inSampleRank": 21,
+        "optimization": {
+          "netProfitYen": 4469,
+          "profitFactor": 1.0134446854533257,
+          "tradeCount": 67
+        },
+        "validation": {
+          "netProfitYen": 18630,
+          "profitFactor": 1.1680467608377982
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.1,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.1,
+        "winRate": 35.714285714285715,
+        "profitFactor": 1.0464010955814234,
+        "maxDrawdownPips": 715.8,
+        "maxDrawdownYen": 69810,
+        "maxDrawdownPct": 6.455938520155755,
+        "tradeCount": 56,
+        "netPips": 196.4,
+        "netProfitYen": 11520,
+        "grossProfitPips": 2868.9,
+        "grossLossPips": -2672.5,
+        "grossProfitYen": 259790,
+        "grossLossYen": -248270,
+        "riskRewardRatio": 1.8835219720465624,
+        "averageWinYen": 12990,
+        "averageLossYen": -6896,
+        "maxConsecutiveWins": 4,
+        "maxConsecutiveLosses": 6
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1745294400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-ao-eurusd-h1-v1",
+        "name": "EURUSD h1 AOゼロラインクロス順張り 観察候補",
+        "version": 1,
+        "pair": "EURUSD",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 352,
+        "inSampleRank": 32,
+        "optimization": {
+          "netProfitYen": 110748,
+          "profitFactor": 1.2255923050755622,
+          "tradeCount": 186
+        },
+        "validation": {
+          "netProfitYen": 50185,
+          "profitFactor": 1.2639551457709846
+        },
+        "quarterlyStability": {
+          "positive": 4,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.7,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.7,
+        "winRate": 27.27272727272727,
+        "profitFactor": 0.9692835515030106,
+        "maxDrawdownPips": 285.2,
+        "maxDrawdownYen": 45413,
+        "maxDrawdownPct": 4.384184686825295,
+        "tradeCount": 44,
+        "netPips": 0.1,
+        "netProfitYen": -2668,
+        "grossProfitPips": 550.6,
+        "grossLossPips": -550.5,
+        "grossProfitYen": 84191,
+        "grossLossYen": -86859,
+        "riskRewardRatio": 2.584756137341362,
+        "averageWinYen": 7016,
+        "averageLossYen": -2714,
+        "maxConsecutiveWins": 2,
+        "maxConsecutiveLosses": 8
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-ao-eurusd-h4-v1",
+        "name": "EURUSD h4 AOゼロラインクロス順張り 観察候補",
+        "version": 1,
+        "pair": "EURUSD",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 352,
+        "inSampleRank": 1,
+        "optimization": {
+          "netProfitYen": 139634,
+          "profitFactor": 1.2405251680337894,
+          "tradeCount": 75
+        },
+        "validation": {
+          "netProfitYen": 110510,
+          "profitFactor": 1.6605301694510026
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.7,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.7,
+        "winRate": 29.850746268656714,
+        "profitFactor": 1.1279620437828295,
+        "maxDrawdownPips": 464.5,
+        "maxDrawdownYen": 134763,
+        "maxDrawdownPct": 12.259472650113047,
+        "tradeCount": 67,
+        "netPips": 225.2,
+        "netProfitYen": 58418,
+        "grossProfitPips": 1763.2,
+        "grossLossPips": -1538,
+        "grossProfitYen": 514944,
+        "grossLossYen": -456526,
+        "riskRewardRatio": 2.650710802889649,
+        "averageWinYen": 25747,
+        "averageLossYen": -9713,
+        "maxConsecutiveWins": 6,
+        "maxConsecutiveLosses": 12
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1747886400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-ao-gbpjpy-h4-v1",
+        "name": "GBPJPY h4 AOゼロラインクロス順張り 観察候補",
+        "version": 1,
+        "pair": "GBPJPY",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 352,
+        "inSampleRank": 75,
+        "optimization": {
+          "netProfitYen": 40944,
+          "profitFactor": 1.3906124785346308,
+          "tradeCount": 82
+        },
+        "validation": {
+          "netProfitYen": 16524,
+          "profitFactor": 1.3617021276595744
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.6,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.6,
+        "winRate": 77.63157894736842,
+        "profitFactor": 1.2734325247496092,
+        "maxDrawdownPips": 372.9,
+        "maxDrawdownYen": 22374,
+        "maxDrawdownPct": 2.1551093062501336,
+        "tradeCount": 76,
+        "netPips": 472.3,
+        "netProfitYen": 28338,
+        "grossProfitPips": 2199.6,
+        "grossLossPips": -1727.3,
+        "grossProfitYen": 131976,
+        "grossLossYen": -103638,
+        "riskRewardRatio": 0.3669212359448027,
+        "averageWinYen": 2237,
+        "averageLossYen": -6096,
+        "maxConsecutiveWins": 10,
+        "maxConsecutiveLosses": 2
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1745467200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-ao-usdjpy-h1-v1",
+        "name": "USDJPY h1 AOゼロラインクロス順張り 観察候補",
+        "version": 1,
+        "pair": "USDJPY",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 352,
+        "inSampleRank": 16,
+        "optimization": {
+          "netProfitYen": 338444,
+          "profitFactor": 1.183724973848109,
+          "tradeCount": 276
+        },
+        "validation": {
+          "netProfitYen": 233426,
+          "profitFactor": 1.4432986558190237
+        },
+        "quarterlyStability": {
+          "positive": 4,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.9,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.9,
+        "winRate": 35.41666666666667,
+        "profitFactor": 1.2651444323428207,
+        "maxDrawdownPips": 241.6,
+        "maxDrawdownYen": 67044,
+        "maxDrawdownPct": 6.529411764705928,
+        "tradeCount": 48,
+        "netPips": 208.7,
+        "netProfitYen": 55018,
+        "grossProfitPips": 935.5,
+        "grossLossPips": -726.8,
+        "grossProfitYen": 262520,
+        "grossLossYen": -207502,
+        "riskRewardRatio": 2.3070280825074967,
+        "averageWinYen": 15442,
+        "averageLossYen": -6694,
+        "maxConsecutiveWins": 4,
+        "maxConsecutiveLosses": 14
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-ao-usdjpy-h4-v1",
+        "name": "USDJPY h4 AOゼロラインクロス順張り 観察候補",
+        "version": 1,
+        "pair": "USDJPY",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 352,
+        "inSampleRank": 1,
+        "optimization": {
+          "netProfitYen": 363172,
+          "profitFactor": 1.433356204022457,
+          "tradeCount": 90
+        },
+        "validation": {
+          "netProfitYen": 197477,
+          "profitFactor": 1.7612719927217777
+        },
+        "quarterlyStability": {
+          "positive": 4,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.9,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.9,
+        "winRate": 19.480519480519483,
+        "profitFactor": 1.1552230410616735,
+        "maxDrawdownPips": 636.2,
+        "maxDrawdownYen": 205921,
+        "maxDrawdownPct": 16.305769705876745,
+        "tradeCount": 77,
+        "netPips": 421.7,
+        "netProfitYen": 97689,
+        "grossProfitPips": 2569.4,
+        "grossLossPips": -2147.7,
+        "grossProfitYen": 727035,
+        "grossLossYen": -629346,
+        "riskRewardRatio": 4.774921903054917,
+        "averageWinYen": 48469,
+        "averageLossYen": -10151,
+        "maxConsecutiveWins": 4,
+        "maxConsecutiveLosses": 15
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1747886400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-ccibreak-gbpusd-h1-v1",
+        "name": "GBPUSD h1 CCIブレイク順張り 観察候補",
+        "version": 1,
+        "pair": "GBPUSD",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 84,
+        "inSampleRank": 14,
+        "optimization": {
+          "netProfitYen": 111973,
+          "profitFactor": 1.1197788691217985,
+          "tradeCount": 157
+        },
+        "validation": {
+          "netProfitYen": 100440,
+          "profitFactor": 1.3359197324414716
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1,
+        "winRate": 47.82608695652174,
+        "profitFactor": 1.271178075074685,
+        "maxDrawdownPips": 399.3,
+        "maxDrawdownYen": 52927,
+        "maxDrawdownPct": 5.117688576242114,
+        "tradeCount": 23,
+        "netPips": 276.4,
+        "netProfitYen": 31317,
+        "grossProfitPips": 1144,
+        "grossLossPips": -867.6,
+        "grossProfitYen": 146802,
+        "grossLossYen": -115485,
+        "riskRewardRatio": 1.3867397182632928,
+        "averageWinYen": 13346,
+        "averageLossYen": -9624,
+        "maxConsecutiveWins": 2,
+        "maxConsecutiveLosses": 4
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-demarker-usdjpy-h1-v1",
+        "name": "USDJPY h1 DeMarker逆張り 観察候補",
+        "version": 1,
+        "pair": "USDJPY",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 19,
+        "optimization": {
+          "netProfitYen": 84999,
+          "profitFactor": 1.0552470351492274,
+          "tradeCount": 311
+        },
+        "validation": {
+          "netProfitYen": 51418,
+          "profitFactor": 1.125559508779984
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.9,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.9,
+        "winRate": 52.72727272727272,
+        "profitFactor": 0.9801442352720802,
+        "maxDrawdownPips": 412.6,
+        "maxDrawdownYen": 61811,
+        "maxDrawdownPct": 6.106358175926646,
+        "tradeCount": 55,
+        "netPips": -14.3,
+        "netProfitYen": -3180,
+        "grossProfitPips": 1053.4,
+        "grossLossPips": -1067.7,
+        "grossProfitYen": 156975,
+        "grossLossYen": -160155,
+        "riskRewardRatio": 0.8787500040370374,
+        "averageWinYen": 5413,
+        "averageLossYen": -6160,
+        "maxConsecutiveWins": 3,
+        "maxConsecutiveLosses": 3
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-demarker-usdjpy-h4-v1",
+        "name": "USDJPY h4 DeMarker逆張り 観察候補",
+        "version": 1,
+        "pair": "USDJPY",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 6,
+        "optimization": {
+          "netProfitYen": 140749,
+          "profitFactor": 1.1817577226596347,
+          "tradeCount": 117
+        },
+        "validation": {
+          "netProfitYen": 67199,
+          "profitFactor": 1.2636578360902728
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.9,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.9,
+        "winRate": 42.857142857142854,
+        "profitFactor": 1.4949136070477465,
+        "maxDrawdownPips": 696.8,
+        "maxDrawdownYen": 166126,
+        "maxDrawdownPct": 12.821381575139176,
+        "tradeCount": 98,
+        "netPips": 1461.1,
+        "netProfitYen": 313700,
+        "grossProfitPips": 4230.9,
+        "grossLossPips": -2769.8,
+        "grossProfitYen": 947548,
+        "grossLossYen": -633848,
+        "riskRewardRatio": 1.9932181427303286,
+        "averageWinYen": 22561,
+        "averageLossYen": -11319,
+        "maxConsecutiveWins": 5,
+        "maxConsecutiveLosses": 9
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1747886400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-envelope-audjpy-h4-v1",
+        "name": "AUDJPY h4 エンベロープブレイク順張り 観察候補",
+        "version": 1,
+        "pair": "AUDJPY",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 220,
+        "inSampleRank": 3,
+        "optimization": {
+          "netProfitYen": 312940,
+          "profitFactor": 1.136833323422311,
+          "tradeCount": 279
+        },
+        "validation": {
+          "netProfitYen": 289879,
+          "profitFactor": 1.313464372879853
+        },
+        "quarterlyStability": {
+          "positive": 4,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.2,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.2,
+        "winRate": 27.75330396475771,
+        "profitFactor": 1.3308745299624176,
+        "maxDrawdownPips": 411.4,
+        "maxDrawdownYen": 200960,
+        "maxDrawdownPct": 17.937814477485034,
+        "tradeCount": 227,
+        "netPips": 1151.5,
+        "netProfitYen": 642514,
+        "grossProfitPips": 4602.2,
+        "grossLossPips": -3450.7,
+        "grossProfitYen": 2584380,
+        "grossLossYen": -1941866,
+        "riskRewardRatio": 3.464498776410103,
+        "averageWinYen": 41022,
+        "averageLossYen": -11841,
+        "maxConsecutiveWins": 7,
+        "maxConsecutiveLosses": 16
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1747886400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-envelope-gbpusd-h1-v1",
+        "name": "GBPUSD h1 エンベロープブレイク順張り 観察候補",
+        "version": 1,
+        "pair": "GBPUSD",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 220,
+        "inSampleRank": 11,
+        "optimization": {
+          "netProfitYen": 119925,
+          "profitFactor": 1.1537387652440783,
+          "tradeCount": 325
+        },
+        "validation": {
+          "netProfitYen": 47841,
+          "profitFactor": 1.1504547513019852
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1,
+        "winRate": 40.67796610169492,
+        "profitFactor": 1.3168916917086384,
+        "maxDrawdownPips": 305.8,
+        "maxDrawdownYen": 39083,
+        "maxDrawdownPct": 3.79219772062501,
+        "tradeCount": 59,
+        "netPips": 293.6,
+        "netProfitYen": 37436,
+        "grossProfitPips": 1215.6,
+        "grossLossPips": -922,
+        "grossProfitYen": 155571,
+        "grossLossYen": -118135,
+        "riskRewardRatio": 1.9204670504084311,
+        "averageWinYen": 6482,
+        "averageLossYen": -3375,
+        "maxConsecutiveWins": 3,
+        "maxConsecutiveLosses": 5
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-envelope-usdjpy-h1-v1",
+        "name": "USDJPY h1 エンベロープブレイク順張り 観察候補",
+        "version": 1,
+        "pair": "USDJPY",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 220,
+        "inSampleRank": 167,
+        "optimization": {
+          "netProfitYen": 21276,
+          "profitFactor": 1.0301656302370885,
+          "tradeCount": 559
+        },
+        "validation": {
+          "netProfitYen": 13656,
+          "profitFactor": 1.066770322997037
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.9,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.9,
+        "winRate": 41.269841269841265,
+        "profitFactor": 0.6183541522817149,
+        "maxDrawdownPips": 672.6,
+        "maxDrawdownYen": 40356,
+        "maxDrawdownPct": 4.030618155959223,
+        "tradeCount": 63,
+        "netPips": -608,
+        "netProfitYen": -36480,
+        "grossProfitPips": 985.1,
+        "grossLossPips": -1593.1,
+        "grossProfitYen": 59106,
+        "grossLossYen": -95586,
+        "riskRewardRatio": 0.879965524400902,
+        "averageWinYen": 2273,
+        "averageLossYen": -2583,
+        "maxConsecutiveWins": 4,
+        "maxConsecutiveLosses": 5
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-macross-audjpy-h1-v1",
+        "name": "AUDJPY h1 MAクロス順張り 観察候補",
+        "version": 1,
+        "pair": "AUDJPY",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 72,
+        "inSampleRank": 4,
+        "optimization": {
+          "netProfitYen": 531762,
+          "profitFactor": 1.5335279776058754,
+          "tradeCount": 145
+        },
+        "validation": {
+          "netProfitYen": 193158,
+          "profitFactor": 1.5248801643460397
+        },
+        "quarterlyStability": {
+          "positive": 4,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.2,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.2,
+        "winRate": 41.37931034482759,
+        "profitFactor": 1.8537152719155083,
+        "maxDrawdownPips": 207.8,
+        "maxDrawdownYen": 67985,
+        "maxDrawdownPct": 6.032879347737329,
+        "tradeCount": 29,
+        "netPips": 437.3,
+        "netProfitYen": 136527,
+        "grossProfitPips": 921.6,
+        "grossLossPips": -484.3,
+        "grossProfitYen": 296448,
+        "grossLossYen": -159921,
+        "riskRewardRatio": 2.626096635213637,
+        "averageWinYen": 24704,
+        "averageLossYen": -9407,
+        "maxConsecutiveWins": 2,
+        "maxConsecutiveLosses": 6
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-momentum-audjpy-h4-v1",
+        "name": "AUDJPY h4 モメンタム100クロス順張り 観察候補",
+        "version": 1,
+        "pair": "AUDJPY",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 3,
+        "optimization": {
+          "netProfitYen": 32180,
+          "profitFactor": 1.1100464397343566,
+          "tradeCount": 170
+        },
+        "validation": {
+          "netProfitYen": 22544,
+          "profitFactor": 1.1861340687104205
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.2,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.2,
+        "winRate": 52.89855072463768,
+        "profitFactor": 1.1749755578989614,
+        "maxDrawdownPips": 346.9,
+        "maxDrawdownYen": 38159,
+        "maxDrawdownPct": 3.573160888219684,
+        "tradeCount": 138,
+        "netPips": 393.7,
+        "netProfitYen": 40984,
+        "grossProfitPips": 2551.5,
+        "grossLossPips": -2157.8,
+        "grossProfitYen": 275211,
+        "grossLossYen": -234227,
+        "riskRewardRatio": 1.0462111131977052,
+        "averageWinYen": 3770,
+        "averageLossYen": -3603,
+        "maxConsecutiveWins": 8,
+        "maxConsecutiveLosses": 8
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1747886400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-momentum-eurjpy-h4-v1",
+        "name": "EURJPY h4 モメンタム100クロス順張り 観察候補",
+        "version": 1,
+        "pair": "EURJPY",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 1,
+        "optimization": {
+          "netProfitYen": 357501,
+          "profitFactor": 1.2106761536476043,
+          "tradeCount": 220
+        },
+        "validation": {
+          "netProfitYen": 148362,
+          "profitFactor": 1.3908006616864577
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.1,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.1,
+        "winRate": 33.75796178343949,
+        "profitFactor": 1.125945280422514,
+        "maxDrawdownPips": 671.4,
+        "maxDrawdownYen": 181106,
+        "maxDrawdownPct": 17.305347567011818,
+        "tradeCount": 157,
+        "netPips": 449.1,
+        "netProfitYen": 113034,
+        "grossProfitPips": 3697.4,
+        "grossLossPips": -3248.3,
+        "grossProfitYen": 1010519,
+        "grossLossYen": -897485,
+        "riskRewardRatio": 2.209402059697009,
+        "averageWinYen": 19066,
+        "averageLossYen": -8630,
+        "maxConsecutiveWins": 8,
+        "maxConsecutiveLosses": 14
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1745294400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-momentum-eurusd-h4-v1",
+        "name": "EURUSD h4 モメンタム100クロス順張り 観察候補",
+        "version": 1,
+        "pair": "EURUSD",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 19,
+        "optimization": {
+          "netProfitYen": 96295,
+          "profitFactor": 1.3796881900195572,
+          "tradeCount": 118
+        },
+        "validation": {
+          "netProfitYen": 41552,
+          "profitFactor": 1.4349764987909177
+        },
+        "quarterlyStability": {
+          "positive": 4,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.7,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.7,
+        "winRate": 33.64485981308411,
+        "profitFactor": 1.2257974906245659,
+        "maxDrawdownPips": 259.8,
+        "maxDrawdownYen": 33488,
+        "maxDrawdownPct": 3.2695372961326212,
+        "tradeCount": 107,
+        "netPips": 367.9,
+        "netProfitYen": 43893,
+        "grossProfitPips": 1914.9,
+        "grossLossPips": -1547,
+        "grossProfitYen": 238284,
+        "grossLossYen": -194391,
+        "riskRewardRatio": 2.417545050954005,
+        "averageWinYen": 6619,
+        "averageLossYen": -2738,
+        "maxConsecutiveWins": 4,
+        "maxConsecutiveLosses": 7
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1747886400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-momentum-usdjpy-h1-v1",
+        "name": "USDJPY h1 モメンタム100クロス順張り 観察候補",
+        "version": 1,
+        "pair": "USDJPY",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 73,
+        "optimization": {
+          "netProfitYen": 214330,
+          "profitFactor": 1.1080727026293842,
+          "tradeCount": 577
+        },
+        "validation": {
+          "netProfitYen": 76069,
+          "profitFactor": 1.1249180968583679
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.9,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.9,
+        "winRate": 27.77777777777778,
+        "profitFactor": 0.9434954244969833,
+        "maxDrawdownPips": 478.4,
+        "maxDrawdownYen": 93558,
+        "maxDrawdownPct": 9.247557341319828,
+        "tradeCount": 144,
+        "netPips": -51.5,
+        "netProfitYen": -15659,
+        "grossProfitPips": 1406.6,
+        "grossLossPips": -1458.1,
+        "grossProfitYen": 261469,
+        "grossLossYen": -277128,
+        "riskRewardRatio": 2.453088103692157,
+        "averageWinYen": 6537,
+        "averageLossYen": -2665,
+        "maxConsecutiveWins": 4,
+        "maxConsecutiveLosses": 18
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-parabolicsar-audjpy-h4-v1",
+        "name": "AUDJPY h4 パラボリックSARフリップ順張り 観察候補",
+        "version": 1,
+        "pair": "AUDJPY",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 1,
+        "optimization": {
+          "netProfitYen": 71834,
+          "profitFactor": 1.085012964849931,
+          "tradeCount": 144
+        },
+        "validation": {
+          "netProfitYen": 123569,
+          "profitFactor": 1.3704306587285884
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.2,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.2,
+        "winRate": 39.81481481481482,
+        "profitFactor": 1.4485721387837152,
+        "maxDrawdownPips": 497.8,
+        "maxDrawdownYen": 118523,
+        "maxDrawdownPct": 9.317157379879177,
+        "tradeCount": 108,
+        "netPips": 1189.1,
+        "netProfitYen": 249032,
+        "grossProfitPips": 3740,
+        "grossLossPips": -2550.9,
+        "grossProfitYen": 804198,
+        "grossLossYen": -555166,
+        "riskRewardRatio": 2.1897020702544534,
+        "averageWinYen": 18702,
+        "averageLossYen": -8541,
+        "maxConsecutiveWins": 5,
+        "maxConsecutiveLosses": 7
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1747886400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-parabolicsar-gbpusd-h1-v1",
+        "name": "GBPUSD h1 パラボリックSARフリップ順張り 観察候補",
+        "version": 1,
+        "pair": "GBPUSD",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 1,
+        "optimization": {
+          "netProfitYen": 163241,
+          "profitFactor": 1.0429336518182122,
+          "tradeCount": 540
+        },
+        "validation": {
+          "netProfitYen": 92100,
+          "profitFactor": 1.0710099136315905
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1,
+        "winRate": 35.23809523809524,
+        "profitFactor": 1.1494277247447793,
+        "maxDrawdownPips": 148.7,
+        "maxDrawdownYen": 77379,
+        "maxDrawdownPct": 6.909916282732162,
+        "tradeCount": 105,
+        "netPips": 192.8,
+        "netProfitYen": 83856,
+        "grossProfitPips": 1308.5,
+        "grossLossPips": -1115.7,
+        "grossProfitYen": 645037,
+        "grossLossYen": -561181,
+        "riskRewardRatio": 2.112461764395811,
+        "averageWinYen": 17433,
+        "averageLossYen": -8253,
+        "maxConsecutiveWins": 4,
+        "maxConsecutiveLosses": 7
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-parabolicsar-gbpusd-h4-v1",
+        "name": "GBPUSD h4 パラボリックSARフリップ順張り 観察候補",
+        "version": 1,
+        "pair": "GBPUSD",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 2,
+        "optimization": {
+          "netProfitYen": 29181,
+          "profitFactor": 1.1014924231094292,
+          "tradeCount": 101
+        },
+        "validation": {
+          "netProfitYen": 25151,
+          "profitFactor": 1.225818616051788
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1,
+        "winRate": 37.34939759036144,
+        "profitFactor": 1.2089467066896165,
+        "maxDrawdownPips": 453.3,
+        "maxDrawdownYen": 41489,
+        "maxDrawdownPct": 3.9231666669818464,
+        "tradeCount": 83,
+        "netPips": 493.4,
+        "netProfitYen": 45037,
+        "grossProfitPips": 2827,
+        "grossLossPips": -2333.6,
+        "grossProfitYen": 260580,
+        "grossLossYen": -215543,
+        "riskRewardRatio": 2.027910604769679,
+        "averageWinYen": 8406,
+        "averageLossYen": -4145,
+        "maxConsecutiveWins": 3,
+        "maxConsecutiveLosses": 6
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1745251200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-parabolicsar-usdjpy-h4-v1",
+        "name": "USDJPY h4 パラボリックSARフリップ順張り 観察候補",
+        "version": 1,
+        "pair": "USDJPY",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 2,
+        "optimization": {
+          "netProfitYen": 334830,
+          "profitFactor": 1.3318888014416244,
+          "tradeCount": 145
+        },
+        "validation": {
+          "netProfitYen": 121698,
+          "profitFactor": 1.4344479706983768
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 0.9,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 0.9,
+        "winRate": 42.71844660194174,
+        "profitFactor": 1.454178392471449,
+        "maxDrawdownPips": 505.3,
+        "maxDrawdownYen": 108584,
+        "maxDrawdownPct": 9.570353767723534,
+        "tradeCount": 103,
+        "netPips": 1305.4,
+        "netProfitYen": 272101,
+        "grossProfitPips": 3862.2,
+        "grossLossPips": -2556.8,
+        "grossProfitYen": 871207,
+        "grossLossYen": -599106,
+        "riskRewardRatio": 1.949921026268534,
+        "averageWinYen": 19800,
+        "averageLossYen": -10154,
+        "maxConsecutiveWins": 4,
+        "maxConsecutiveLosses": 9
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1747886400,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-rvi-gbpjpy-h4-v1",
+        "name": "GBPJPY h4 RVIシグナルラインクロス順張り 観察候補",
+        "version": 1,
+        "pair": "GBPJPY",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 1,
+        "optimization": {
+          "netProfitYen": 188447,
+          "profitFactor": 1.125513935965227,
+          "tradeCount": 320
+        },
+        "validation": {
+          "netProfitYen": 166920,
+          "profitFactor": 1.4273097304354505
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.6,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.6,
+        "winRate": 47.96747967479675,
+        "profitFactor": 1.2174320923526092,
+        "maxDrawdownPips": 519.6,
+        "maxDrawdownYen": 80531,
+        "maxDrawdownPct": 8.024692588237615,
+        "tradeCount": 246,
+        "netPips": 1265.5,
+        "netProfitYen": 194226,
+        "grossProfitPips": 6964.6,
+        "grossLossPips": -5699.1,
+        "grossProfitYen": 1087498,
+        "grossLossYen": -893272,
+        "riskRewardRatio": 1.320604303568932,
+        "averageWinYen": 9216,
+        "averageLossYen": -6979,
+        "maxConsecutiveWins": 5,
+        "maxConsecutiveLosses": 5
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1745467200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-rvi-gbpusd-h4-v1",
+        "name": "GBPUSD h4 RVIシグナルラインクロス順張り 観察候補",
+        "version": 1,
+        "pair": "GBPUSD",
+        "timeframe": "h4",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 4,
+        "optimization": {
+          "netProfitYen": 145112,
+          "profitFactor": 1.127554168681053,
+          "tradeCount": 239
+        },
+        "validation": {
+          "netProfitYen": 84504,
+          "profitFactor": 1.163080669969296
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1,
+        "winRate": 39.800995024875625,
+        "profitFactor": 1.2050849127093965,
+        "maxDrawdownPips": 407.2,
+        "maxDrawdownYen": 126830,
+        "maxDrawdownPct": 11.340630515509671,
+        "tradeCount": 201,
+        "netPips": 738.6,
+        "netProfitYen": 206129,
+        "grossProfitPips": 4213.5,
+        "grossLossPips": -3474.9,
+        "grossProfitYen": 1211220,
+        "grossLossYen": -1005091,
+        "riskRewardRatio": 1.8226909304729622,
+        "averageWinYen": 15140,
+        "averageLossYen": -8307,
+        "maxConsecutiveWins": 6,
+        "maxConsecutiveLosses": 7
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1745251200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    },
+    {
+      "meta": {
+        "id": "obs-stochcross-eurjpy-h1-v1",
+        "name": "EURJPY h1 ストキャス%K/%Dクロス順張り 観察候補",
+        "version": 1,
+        "pair": "EURJPY",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "selectionEvidence": {
+        "adoptedAt": "2026-08-19",
+        "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+        "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+        "candidatePool": 140,
+        "inSampleRank": 4,
+        "optimization": {
+          "netProfitYen": 63011,
+          "profitFactor": 1.031660366683633,
+          "tradeCount": 1148
+        },
+        "validation": {
+          "netProfitYen": 26162,
+          "profitFactor": 1.0515183559496593
+        },
+        "quarterlyStability": {
+          "positive": 3,
+          "total": 4
+        },
+        "reservations": [
+          "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+        ]
+      },
+      "operationStatus": {
+        "status": "active",
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=0.00、取引数=0件、確定日数=0日"
+      },
+      "forward": {
+        "source": "confirmed-history",
+        "firstConfirmedDate": null,
+        "confirmedThrough": null,
+        "confirmedDayCount": 0,
+        "metrics": {
+          "spreadPips": 1.1,
+          "winRate": 0,
+          "profitFactor": 0,
+          "maxDrawdownPips": 0,
+          "maxDrawdownYen": 0,
+          "maxDrawdownPct": 0,
+          "tradeCount": 0,
+          "netPips": 0,
+          "netProfitYen": 0,
+          "grossProfitPips": 0,
+          "grossLossPips": 0,
+          "grossProfitYen": 0,
+          "grossLossYen": 0,
+          "riskRewardRatio": 0,
+          "averageWinYen": 0,
+          "averageLossYen": 0,
+          "maxConsecutiveWins": 0,
+          "maxConsecutiveLosses": 0
+        },
+        "trades": [],
+        "equityCurve": []
+      },
+      "backtestReference": {
+        "spreadPips": 1.1,
+        "winRate": 34.166666666666664,
+        "profitFactor": 0.944631843539069,
+        "maxDrawdownPips": 634.7,
+        "maxDrawdownYen": 80773,
+        "maxDrawdownPct": 7.597752646228015,
+        "tradeCount": 240,
+        "netPips": -115.7,
+        "netProfitYen": -16168,
+        "grossProfitPips": 2180,
+        "grossLossPips": -2295.7,
+        "grossProfitYen": 275841,
+        "grossLossYen": -292009,
+        "riskRewardRatio": 1.8086243833613882,
+        "averageWinYen": 3364,
+        "averageLossYen": -1860,
+        "maxConsecutiveWins": 5,
+        "maxConsecutiveLosses": 15
+      },
+      "backtestReferenceCoverage": {
+        "source": "current-window",
+        "firstBarAt": 1776949200,
+        "lastBarAt": 1787083200,
+        "barsEvaluated": 2000
+      },
+      "barsEvaluated": 0
+    }
+  ]
+}

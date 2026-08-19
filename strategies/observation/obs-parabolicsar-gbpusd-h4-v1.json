@@ -1,0 +1,73 @@
+{
+  "meta": {
+    "id": "obs-parabolicsar-gbpusd-h4-v1",
+    "name": "GBPUSD h4 パラボリックSARフリップ順張り 観察候補",
+    "version": 1,
+    "pair": "GBPUSD",
+    "timeframe": "h4",
+    "registeredAt": 1787098354
+  },
+  "id": "obs-parabolicsar-gbpusd-h4-v1",
+  "name": "GBPUSD h4 パラボリックSARフリップ順張り 観察候補",
+  "description": "観察候補(未採用): GBPUSD h4 パラボリックSARフリップ順張り。出典は ea-selection-log.md エントリ(20) と正典レポート tune-virtual-strategies-2026-08-18T22-32-23-991Z。新しい市場データでの選択行再現確認まで採用しない。",
+  "selectionEvidence": {
+    "adoptedAt": "2026-08-19",
+    "reportId": "tune-virtual-strategies-2026-08-18T22-32-23-991Z",
+    "reportLabel": "改善ウェーブ23・216候補 deep-history/walk-forward フルラン",
+    "candidatePool": 140,
+    "inSampleRank": 2,
+    "optimization": {
+      "netProfitYen": 29181,
+      "profitFactor": 1.1014924231094292,
+      "tradeCount": 101
+    },
+    "validation": {
+      "netProfitYen": 25151,
+      "profitFactor": 1.225818616051788
+    },
+    "quarterlyStability": {
+      "positive": 3,
+      "total": 4
+    },
+    "reservations": [
+      "観察候補(未採用): 同一窓の選定根拠を新しい市場データで再確認する"
+    ]
+  },
+  "direction": "long",
+  "entryDirections": [
+    "long",
+    "short"
+  ],
+  "entryConditions": [
+    {
+      "type": "parabolicSar",
+      "step": 0.02,
+      "maximum": 0.2
+    }
+  ],
+  "exit": {
+    "stopLossPips": 110,
+    "takeProfitPips": 220,
+    "closeOnOppositeSignal": true,
+    "trailingStopPips": null
+  },
+  "sessionFilter": {
+    "enabled": false,
+    "start": "00:00",
+    "end": "23:59",
+    "serverUtcOffsetMinutes": 0
+  },
+  "newsFilter": {
+    "enabled": false,
+    "blockMinutes": 30
+  },
+  "lotSize": 0.1,
+  "moneyManagement": {
+    "initialBalanceYen": 1000000,
+    "lotSizingMode": "fixedRisk",
+    "fixedLot": 0.1,
+    "riskPercent": 1,
+    "maxLot": 100
+  },
+  "magicNumber": 1783200401
+}

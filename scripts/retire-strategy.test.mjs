@@ -78,7 +78,32 @@ describe('retire strategy CLI', () => {
       reason: 'manual review',
       help: false,
     });
+    expect(parseCliArgs([
+      strategyId,
+      '--scope',
+      'observation',
+      '--reason',
+      'observation review',
+    ])).toEqual({
+      strategyId,
+      reason: 'observation review',
+      scope: 'observation',
+      help: false,
+    });
+    expect(parseCliArgs([
+      strategyId,
+      '--scope=observation',
+      'manual',
+      'review',
+    ])).toEqual({
+      strategyId,
+      reason: 'manual review',
+      scope: 'observation',
+      help: false,
+    });
     expect(() => parseCliArgs([strategyId])).toThrow(/reason/i);
+    expect(() => parseCliArgs([strategyId, '--scope', 'unknown', '--reason', 'x']))
+      .toThrow(/scope must be one of virtual, observation/);
   });
 });
 
@@ -224,6 +249,94 @@ describe('retireStrategy', () => {
         path.join(root, 'strategies/retired', `${nextLedgerKey}.json`),
         'utf8',
       ))).toEqual(nextStrategy);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('retires and re-registers observation generations in the observation scope', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'fx-retire-observation-test-'));
+    const observationId = 'obs-retire-test-v1';
+    const observationDirectory = path.join(root, 'strategies/observation');
+    const observationLedgerPath = path.join(
+      root,
+      'public/data/forward/observation-retired.json',
+    );
+    const observationHistoryPath = path.join(
+      root,
+      'public/data/forward/observation-history.json',
+    );
+    const makeObservation = (nextRegisteredAt) => JSON.parse(JSON.stringify({
+      ...strategy,
+      meta: {
+        ...strategy.meta,
+        id: observationId,
+        name: 'Observation retirement test',
+        registeredAt: nextRegisteredAt,
+      },
+      id: observationId,
+      name: 'Observation retirement test',
+    }));
+    const firstObservation = makeObservation(registeredAt);
+    const firstHistory = {
+      schemaVersion: 1,
+      strategies: {
+        [observationId]: {
+          ...JSON.parse(JSON.stringify(history.strategies[strategyId])),
+          meta: firstObservation.meta,
+          strategyFingerprint: fingerprintStrategyDefinition(firstObservation),
+        },
+      },
+    };
+    const secondObservation = makeObservation(registeredAt + 86_400);
+    const secondHistory = JSON.parse(JSON.stringify(firstHistory));
+    secondHistory.strategies[observationId] = {
+      ...secondHistory.strategies[observationId],
+      meta: secondObservation.meta,
+      strategyFingerprint: fingerprintStrategyDefinition(secondObservation),
+    };
+
+    try {
+      await writeJson(
+        path.join(observationDirectory, `${observationId}.json`),
+        firstObservation,
+      );
+      await writeJson(observationHistoryPath, firstHistory);
+      await writeJson(observationLedgerPath, { schemaVersion: 1, strategies: {} });
+
+      const first = await retireStrategy({
+        projectRoot: root,
+        strategyId: observationId,
+        scope: 'observation',
+        reason: 'observation generation one retired',
+        retiredAt: '2026-08-18T00:00:00.000Z',
+      });
+      expect(first.moved).toBe(true);
+      expect(first.ledgerPath).toBe(observationLedgerPath);
+      expect(JSON.parse(await readFile(observationLedgerPath, 'utf8')).strategies)
+        .toHaveProperty(`${observationId}@${registeredAt}`);
+
+      await writeJson(
+        path.join(observationDirectory, `${observationId}.json`),
+        secondObservation,
+      );
+      await writeJson(observationHistoryPath, secondHistory);
+      await expect(retireStrategy({
+        projectRoot: root,
+        strategyId: observationId,
+        scope: 'observation',
+        reason: 'observation generation two retired',
+        retiredAt: '2026-08-19T00:00:00.000Z',
+      })).resolves.toMatchObject({ moved: true, alreadyRetired: false });
+
+      const observationLedger = JSON.parse(await readFile(observationLedgerPath, 'utf8'));
+      expect(Object.keys(observationLedger.strategies)).toEqual([
+        `${observationId}@${registeredAt}`,
+        `${observationId}@${registeredAt + 86_400}`,
+      ]);
+      await expect(
+        access(path.join(root, 'public/data/forward/retired.json')),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
