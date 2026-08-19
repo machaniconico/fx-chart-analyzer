@@ -274,6 +274,23 @@ describe('forward test runner', () => {
     expect(existingResults.strategies).toHaveLength(7);
     expect(existingResults.strategies.some((item) => item.meta.id.startsWith('obs-'))).toBe(false);
     expect(observationResults.strategies.every((item) => item.meta.id.startsWith('obs-'))).toBe(true);
+
+    const observationDefinitions = await loadObservationStrategies();
+    const definitionsById = new Map(
+      observationDefinitions.map((item) => [item.meta.id, item]),
+    );
+    expect(observationResults.strategies.every((item) => {
+      const definition = definitionsById.get(item.meta.id);
+      return definition !== undefined
+        && item.stopLossPips === definition.exit.stopLossPips
+        && item.takeProfitPips === definition.exit.takeProfitPips
+        && item.trailingStopPips === (definition.exit.trailingStopPips ?? null);
+    })).toBe(true);
+    expect(existingResults.strategies.every((item) => (
+      !Object.hasOwn(item, 'stopLossPips')
+      && !Object.hasOwn(item, 'takeProfitPips')
+      && !Object.hasOwn(item, 'trailingStopPips')
+    ))).toBe(true);
   });
 
   it('validates observation ids and adopted-EA collisions before evaluation', async () => {
@@ -429,6 +446,11 @@ describe('forward test runner', () => {
       const firstDays = first.history.strategies[observationStrategy.meta.id].days;
       expect(Object.keys(firstDays)).toEqual(['2023-11-14', '2023-11-15']);
       expect(first.results.strategies).toHaveLength(1);
+      expect(first.results.strategies[0]).toMatchObject({
+        stopLossPips: observationStrategy.exit.stopLossPips,
+        takeProfitPips: observationStrategy.exit.takeProfitPips,
+        trailingStopPips: observationStrategy.exit.trailingStopPips,
+      });
 
       const second = await build(first.history, 3);
       const secondDays = second.history.strategies[observationStrategy.meta.id].days;
@@ -1477,6 +1499,9 @@ describe('forward test runner', () => {
         status: 'active',
         reason: expect.stringContaining('サンプル不足'),
       });
+      expect(Object.hasOwn(item, 'stopLossPips')).toBe(false);
+      expect(Object.hasOwn(item, 'takeProfitPips')).toBe(false);
+      expect(Object.hasOwn(item, 'trailingStopPips')).toBe(false);
       expect(item.operationStatus.reason).toContain('PF=0.00');
       expect(item.operationStatus.reason).toContain('取引数=0件');
       expect(item.operationStatus.reason).toContain('確定日数=');

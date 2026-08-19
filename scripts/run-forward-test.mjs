@@ -1352,6 +1352,7 @@ export const buildStrategyReport = ({
   runBacktest,
   computedAt = new Date().toISOString(),
   existingStrategyHistory,
+  includeExitPips = false,
 }) => {
   assertVirtualStrategy(strategy, strategy?.meta?.id ?? 'strategy');
   const meta = normalizeMeta(strategy.meta);
@@ -1377,6 +1378,13 @@ export const buildStrategyReport = ({
     meta,
     ...(Object.hasOwn(strategy, 'selectionEvidence')
       ? { selectionEvidence: strategy.selectionEvidence }
+      : {}),
+    ...(includeExitPips
+      ? {
+        stopLossPips: strategy.exit.stopLossPips,
+        takeProfitPips: strategy.exit.takeProfitPips,
+        trailingStopPips: strategy.exit.trailingStopPips ?? null,
+      }
       : {}),
     forward: {
       metrics: summarizeMetrics(forwardResult),
@@ -1486,6 +1494,7 @@ export const buildForwardArtifacts = async ({
   strategyScope = 'strategies/virtual',
   retiredLedgerDisplayPath = 'public/data/forward/retired.json',
   loadStrategies = loadVirtualStrategies,
+  includeExitPips = false,
 }) => {
   assertForwardHistoryIntegrity(existingHistory, 'existing forward history');
   const [strategies, effectiveRetiredLedger] = await Promise.all([
@@ -1534,6 +1543,7 @@ export const buildForwardArtifacts = async ({
         persistedHistory?.meta.registeredAt === strategy.meta.registeredAt
           ? persistedHistory
           : undefined,
+      includeExitPips,
     }));
   }
 
@@ -1567,6 +1577,13 @@ export const buildForwardArtifacts = async ({
         ...(report.selectionEvidence === undefined
           ? {}
           : { selectionEvidence: report.selectionEvidence }),
+        ...(includeExitPips
+          ? {
+            stopLossPips: report.stopLossPips,
+            takeProfitPips: report.takeProfitPips,
+            trailingStopPips: report.trailingStopPips,
+          }
+          : {}),
         operationStatus: evaluateForwardRetirement({
           profitFactor: forward.metrics.profitFactor,
           tradeCount: forward.metrics.tradeCount,
@@ -1605,6 +1622,7 @@ export const buildObservationForwardArtifacts = async (options = {}) => {
     strategyScope: options.strategyScope ?? 'strategies/observation',
     retiredLedgerDisplayPath:
       options.retiredLedgerDisplayPath ?? 'public/data/forward/observation-retired.json',
+    includeExitPips: true,
     loadStrategies: options.loadStrategies
       ?? ((directory) => loadObservationStrategies(directory, { adoptedStrategiesDirectory })),
   });
