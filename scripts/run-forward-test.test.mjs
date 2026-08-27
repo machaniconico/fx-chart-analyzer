@@ -32,6 +32,13 @@ import {
 import { retiredStrategyLedgerKey, retireStrategy } from './retire-strategy.mjs';
 import { SAR_MIN_STEP as INDICATOR_SAR_MIN_STEP } from '../src/lib/indicators';
 
+// 採用EA数と観察候補数は「登録の正典」から導出する。生成物(results.json /
+// observation-results.json)側でこれを決め打ちすると、淘汰・新規登録のたびに
+// update-data.yml のインライン npm test が落ち、日次データ更新が止まる。
+const countAdoptedStrategyFiles = async () => (await readdir(
+  new URL('../strategies/virtual/', import.meta.url),
+)).filter((filename) => filename.endsWith('.json')).length;
+
 const registeredAt = 1782996300;
 const UTC_DAY_SECONDS = 24 * 60 * 60;
 
@@ -205,9 +212,10 @@ describe('forward test runner', () => {
       }
     }
 
-    expect(observations).toHaveLength(33);
-    expect(virtual).toHaveLength(7);
-    expect(new Set(observations.map((item) => item.meta.id)).size).toBe(33);
+    expect(observations).toHaveLength(observationExpectations.length);
+    expect(virtual).toHaveLength(await countAdoptedStrategyFiles());
+    expect(new Set(observations.map((item) => item.meta.id)).size)
+      .toBe(observationExpectations.length);
 
     for (const [entryType, pair, timeframe, stopLossPips, takeProfitPips, trailingStopPips, sourceEntry] of observationExpectations) {
       const id = `obs-${entryType.toLowerCase()}-${pair.toLowerCase()}-${timeframe}-v1`;
@@ -258,13 +266,13 @@ describe('forward test runner', () => {
     }
   });
 
-  it('uses candidateMagicNumber values uniquely across seven EAs and 33 observations', async () => {
+  it('uses candidateMagicNumber values uniquely across every adopted EA and observation candidate', async () => {
     const virtual = await loadVirtualStrategies(new URL('../strategies/virtual/', import.meta.url).pathname);
     const observations = await loadObservationStrategies();
     const allStrategies = [...virtual, ...observations];
     const magicNumbers = allStrategies.map((item) => item.magicNumber);
 
-    expect(new Set(magicNumbers).size).toBe(40);
+    expect(new Set(magicNumbers).size).toBe(allStrategies.length);
     for (const observation of observations) {
       const entryType = observation.entryConditions[0].type;
       expect(observation.magicNumber).toBe(
@@ -285,16 +293,18 @@ describe('forward test runner', () => {
       'utf8',
     ));
 
+    const observationDefinitions = await loadObservationStrategies();
+
     expect(observationResults.schemaVersion).toBe(FORWARD_RESULTS_SCHEMA_VERSION);
-    expect(observationResults.strategies).toHaveLength(33);
+    expect(observationResults.strategies).toHaveLength(observationDefinitions.length);
     expect(observationHistory.schemaVersion).toBe(FORWARD_HISTORY_SCHEMA_VERSION);
-    expect(Object.keys(observationHistory.strategies)).toHaveLength(33);
+    expect(Object.keys(observationHistory.strategies))
+      .toHaveLength(observationDefinitions.length);
     expect(existingResults.schemaVersion).toBe(FORWARD_RESULTS_SCHEMA_VERSION);
-    expect(existingResults.strategies).toHaveLength(7);
+    expect(existingResults.strategies).toHaveLength(await countAdoptedStrategyFiles());
     expect(existingResults.strategies.some((item) => item.meta.id.startsWith('obs-'))).toBe(false);
     expect(observationResults.strategies.every((item) => item.meta.id.startsWith('obs-'))).toBe(true);
 
-    const observationDefinitions = await loadObservationStrategies();
     const definitionsById = new Map(
       observationDefinitions.map((item) => [item.meta.id, item]),
     );
@@ -405,7 +415,7 @@ describe('forward test runner', () => {
       error,
     });
 
-    expect(virtualIds).toHaveLength(7);
+    expect(virtualIds).toHaveLength(await countAdoptedStrategyFiles());
     expect(virtualIds.every((id) => !id.startsWith('obs-'))).toBe(true);
     expect(events.indexOf('write-virtual-results')).toBeGreaterThanOrEqual(0);
     expect(events.indexOf('write-virtual-results')).toBeLessThan(
