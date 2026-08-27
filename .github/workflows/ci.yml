@@ -57,3 +57,10 @@ jobs:
             echo "file in the repo root to explicitly opt out (NOT a real safety gate)."
             exit 1
           fi
+
+      # vitest は esbuild で型を落として実行するだけなので、型エラーは 815/815 pass のまま
+      # 通過する(実測: TS2322 を注入しても vitest は緑、tsc -b だけが検出)。必須チェック
+      # "test" が型を見ないと、型エラーが main に入り update-data.yml:115 の
+      # `npm run build`(continue-on-error なし)で日次データ更新が止まる。
+      - name: Typecheck and build
+        run: npm run build

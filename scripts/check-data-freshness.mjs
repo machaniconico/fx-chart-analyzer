@@ -31,6 +31,21 @@ const SOURCE_HEALTH_TIMEFRAMES = ['m15', 'm30', 'h1', 'h4', 'd1'];
 // not a healthy same-run PR. Healthy runs create a fresh PR daily (< ~24h old).
 const OPEN_PR_MAX_AGE_HOURS = 26;
 
+// run-forward-test.mjs と build-scanner-stats.mjs は continue-on-error: true で走るため、
+// これらが落ちても run は緑のままになる。PAIR_PATTERN はローソク足ディレクトリしか見ず
+// forward/ と stats/ を明示的に飛ばすので、フォワード集計が凍結しても誰も気づかない。
+// 派生成果物は毎runのステップが数分前に書くものなので、health.json と同じ「このrunが
+// 書いたか」の問い方をする。しきい値も同じ理由で 6h。
+const DERIVED_STALE_LIMIT_HOURS = 6;
+export const DERIVED_ARTIFACTS = [
+  { name: 'forward/results.json', timestampKey: 'computedAt' },
+  { name: 'forward/observation-results.json', timestampKey: 'computedAt' },
+  { name: 'stats/scanner.json', timestampKey: 'generatedAt' },
+  // fetch-calendar.mjs は全ソース失敗でも既存ファイルを残して exit 0 で終わるため、
+  // updatedAt の鮮度だけがカレンダー配信断を検知できる唯一の手がかりになる。
+  { name: 'calendar.json', timestampKey: 'updatedAt' },
+];
+
 const readJson = async (filePath) => JSON.parse(await readFile(filePath, 'utf8'));
 const formatError = (error) => (error instanceof Error ? error.message : String(error));
 
@@ -144,6 +159,69 @@ export const evaluateDatasetFreshness = ({
   }
 
   return { failures, warnings, summary };
+};
+
+export const collectDerivedArtifacts = async (artifacts = DERIVED_ARTIFACTS) => {
+  const collected = [];
+  for (const artifact of artifacts) {
+    const filePath = path.join(dataRoot, artifact.name);
+    try {
+      const payload = await readJson(filePath);
+      const raw = payload?.[artifact.timestampKey];
+      collected.push({
+        ...artifact,
+        generatedMs: raw == null ? NaN : Date.parse(raw),
+        raw: raw ?? null,
+        readError: null,
+      });
+    } catch (error) {
+      collected.push({
+        ...artifact,
+        generatedMs: NaN,
+        raw: null,
+        readError: error?.code === 'ENOENT' ? 'file is missing' : formatError(error),
+      });
+    }
+  }
+  return collected;
+};
+
+export const evaluateDerivedFreshness = ({
+  artifacts,
+  nowMs = Date.now(),
+  limitHours = DERIVED_STALE_LIMIT_HOURS,
+}) => {
+  const failures = [];
+  const described = [];
+
+  for (const artifact of artifacts) {
+    if (artifact.readError) {
+      failures.push(`Derived artifact ${artifact.name} could not be read: ${artifact.readError}.`);
+      continue;
+    }
+    if (!Number.isFinite(artifact.generatedMs)) {
+      failures.push(
+        `Derived artifact ${artifact.name} has no parseable ${artifact.timestampKey} ` +
+          `(got ${JSON.stringify(artifact.raw)}).`,
+      );
+      continue;
+    }
+    const ageHours = (nowMs - artifact.generatedMs) / HOUR_MS;
+    described.push(`${artifact.name} ${ageHours.toFixed(1)}h ago`);
+    if (ageHours > limitHours) {
+      failures.push(
+        `Derived artifact ${artifact.name} was not regenerated this run: ` +
+          `${artifact.timestampKey} ${new Date(artifact.generatedMs).toISOString()} is ` +
+          `${formatAgeHours(ageHours, limitHours)}h old, exceeding the ${limitHours}h limit. ` +
+          'Its generator step likely failed under continue-on-error.',
+      );
+    }
+  }
+
+  const summary = described.length > 0
+    ? `Derived artifact freshness: ${described.join('; ')}.`
+    : 'Derived artifact freshness: no artifact carried a usable timestamp.';
+  return { failures, summary };
 };
 
 export const evaluateSourceHealth = ({
@@ -414,6 +492,11 @@ const main = async () => {
     console.log(`::warning::${warning}`);
   }
   failures.push(...datasetFreshness.failures);
+
+  const derivedArtifacts = await collectDerivedArtifacts();
+  const derivedFreshness = evaluateDerivedFreshness({ artifacts: derivedArtifacts, nowMs: now });
+  console.log(derivedFreshness.summary);
+  failures.push(...derivedFreshness.failures);
 
   const dataChanged = isTruthy(process.env.DATA_CHANGED) || process.argv.includes('--data-changed');
   if (dataChanged) {

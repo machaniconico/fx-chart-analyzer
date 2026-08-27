@@ -113,6 +113,11 @@ jobs:
           gh pr merge "$DATA_BRANCH" --auto --squash
 
       # GITHUB_TOKEN による push は deploy.yml を発火しないため、ここでデプロイまで行う
+      # デプロイは永続化ゲートより前に走る。公開物がどのコミット由来か、未コミットの
+      # データを含むかを成果物自身に記録しておく(write-build-info.mjs の冒頭コメント参照)。
+      - name: Write build info
+        run: node scripts/write-build-info.mjs
+
       - run: npm run build
 
       - name: Deploy to Cloudflare Pages
