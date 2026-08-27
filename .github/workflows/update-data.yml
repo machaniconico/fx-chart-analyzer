@@ -18,6 +18,7 @@ permissions:
   pull-requests: write
   actions: write
   statuses: write
+  issues: write
 
 jobs:
   update-data:
@@ -132,3 +133,52 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/check-data-freshness.mjs
+
+      # 2026-08-20〜08-27 の8日間、この run は毎日 red だったが誰も気づかなかった。
+      # red にするだけでは通知にならないため、失敗を1本のIssueに集約して可視化する。
+      # 毎日新規Issueを立てると通知が埋もれるので、open な既存Issueにはコメントを足すだけにする。
+      - name: Open or update the failure issue
+        if: ${{ failure() || steps.commit-data.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_OUTCOME: ${{ steps.commit-data.outcome }}
+          DATA_CHANGED: ${{ env.DATA_CHANGED }}
+        run: |
+          set -euo pipefail
+          LABEL=data-pipeline-failure
+          gh label create "$LABEL" --color b60205 \
+            --description "毎日のFXデータ更新ワークフローの失敗" 2>/dev/null || true
+
+          BODY=$(printf '%s\n' \
+            "日次データ更新 (\`update-data.yml\`) が失敗しました。" \
+            "" \
+            "- 失敗した run: $RUN_URL" \
+            "- データ取得・コミット手順の結果: \`${COMMIT_OUTCOME:-unknown}\`" \
+            "- このrunでデータに差分があったか: \`${DATA_CHANGED:-unknown}\`" \
+            "" \
+            "このIssueは復旧した次のrunで自動クローズされます。" \
+            "開いたままの間、\`main\` のデータは更新されていない可能性があります。")
+
+          EXISTING=$(gh issue list --state open --label "$LABEL" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+            echo "Commented on existing failure issue #$EXISTING"
+          else
+            gh issue create --label "$LABEL" \
+              --title "日次データ更新の失敗" --body "$BODY"
+          fi
+
+      - name: Close the failure issue on recovery
+        if: ${{ success() && steps.commit-data.outcome != 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          for NUMBER in $(gh issue list --state open --label data-pipeline-failure \
+            --json number --jq '.[].number'); do
+            gh issue close "$NUMBER" --comment "復旧しました: $RUN_URL"
+            echo "Closed failure issue #$NUMBER"
+          done
