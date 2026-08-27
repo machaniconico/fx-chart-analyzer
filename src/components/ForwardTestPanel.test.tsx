@@ -275,6 +275,10 @@ describe('MonthlySummarySection', () => {
   });
 });
 
+const canonicalHistoryStrategies = (observationHistory as unknown as {
+  strategies: Record<string, { days?: Record<string, unknown> }>;
+}).strategies;
+
 describe('ObservationCandidateSection', () => {
   it('normalizes the canonical 33-result and 33-history files', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => new Response(
@@ -291,7 +295,11 @@ describe('ObservationCandidateSection', () => {
       expect(state.status).toBe('ready');
       expect(state.historyAvailable).toBe(true);
       expect(state.candidates).toHaveLength(33);
-      expect(state.candidates.every((candidate) => candidate.historyDayCount === 0)).toBe(true);
+      expect(state.candidates.every((candidate) => {
+        const entry = canonicalHistoryStrategies[candidate.meta.id];
+        return entry !== undefined
+          && candidate.historyDayCount === Object.keys(entry.days ?? {}).length;
+      })).toBe(true);
       expect(state.candidates.every((candidate) => (
         candidate.stopLossPips !== null && candidate.takeProfitPips !== null
       ))).toBe(true);
