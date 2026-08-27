@@ -1,9 +1,12 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
+// ff_calendar_nextweek.json は 2026-08 時点で恒久的に 404(週境界の一時的な404ではない)。
+// lastweek / thismonth / nextmonth も同様に 404 で、この配信元に残っているのは thisweek だけ。
+// 死んだURLを残すと毎run「skipped source」が出続け、本当に thisweek が落ちた日の警告が
+// ノイズに埋もれる。カレンダーの見通しが約1週間しかないのはこの配信元側の制約。
 const sources = [
   'https://nfs.faireconomy.media/ff_calendar_thisweek.json',
-  'https://nfs.faireconomy.media/ff_calendar_nextweek.json',
 ];
 
 const outputPath = resolve('public/data/calendar.json');
@@ -54,11 +57,13 @@ const loadSource = async (url) => {
 };
 
 try {
-  // nextweek は週境界などで404を返すことがあるため、ソース単位で失敗を許容し成功分だけマージする
+  // ソース単位で失敗を許容し成功分だけマージする。設定済みソースの失敗は
+  // ::warning:: で run のアノテーションに出す(console.warn だけだとログに埋もれる)。
   const settled = await Promise.allSettled(sources.map(loadSource));
   for (const result of settled) {
     if (result.status === 'rejected') {
-      console.warn(`skipped source: ${result.reason instanceof Error ? result.reason.message : result.reason}`);
+      const reason = result.reason instanceof Error ? result.reason.message : result.reason;
+      console.warn(`::warning::calendar source failed: ${reason}`);
     }
   }
   const fulfilled = settled.filter((r) => r.status === 'fulfilled');

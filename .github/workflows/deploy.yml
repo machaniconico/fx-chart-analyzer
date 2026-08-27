@@ -30,6 +30,9 @@ jobs:
 
       - run: npm test
 
+      - name: Write build info
+        run: node scripts/write-build-info.mjs
+
       - run: npm run build
 
       - name: Deploy to Cloudflare Pages

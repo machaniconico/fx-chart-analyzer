@@ -16,3 +16,6 @@ reports/
 public/data/*.tmp
 public/data/forward/*.json.tmp-*
 strategies/.retire-strategy.lock
+
+# ビルドごとに変わる公開物。データPRに混ぜない(write-build-info.mjs 参照)。
+public/data/build-info.json

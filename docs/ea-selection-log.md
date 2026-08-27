@@ -1405,3 +1405,29 @@ SL/TPの単位はpips。`TRなし`は`trailingStopPips=null`、`TR25p`は`traili
 ### 検証(docs-only)
 
 正典JSONの全216候補から、エントリ(20)の32対象とエントリ(19)のalligator 12候補を突合し、`candidate.status=passed`のselectedCandidateだけを抽出した。表の件数は28+5=**33**、トレーリングはなし31件/25p 2件、出典はエントリ(20)28件/エントリ(19)5件、順位分母は正典の候補別評価組合せ数と一致することを読み取り専用で確認した。変更対象はこのエントリ(21)だけで、既存エントリ(1)〜(20)は改変していない。
+
+## 2026-08-28: 正典レポートの判定入力をリポジトリに固定(運用記録・判定基準の変更なし)
+
+エントリ(21)の「事前登録の判定プロトコル(2026-08-19固定)」は、2027-02-15 以降の再現判定を
+正典レポート `tune-virtual-strategies-2026-08-18T22-32-23-991Z.json` の値で行うと定め、
+他のランでの補完を明示的に禁じている。しかし `reports/` は `.gitignore` 対象であり、
+この正典(実測 72,255,895 バイト)は1台のローカルディスクにしか存在しなかった。
+失われた時点で判定が実行不能になるため、判定に必要な部分のみを抽出して固定する。
+
+- 固定先: `evidence/tune-virtual-strategies-2026-08-18T22-32-23-991Z.selected.json`
+- 生成: `npm run evidence:extract`(`scripts/extract-canonical-report.mjs`)
+- 収録: 全216候補の `dataWindow` / `warnings` / `provenance` / `rejectionReasons` /
+  `selectedCandidate`(`validationMetrics`・`parameters`・`rank` を含む)と、順位の分母である
+  `combinationCount`。巨大な `combinations` 本体のみ落とす
+- 出所の固定: 抽出物の `source` に元ファイルの `generatedAt`・バイト数・sha256
+  (`849789aa24977daa38e3001f11c0dff08083f19160dfef4f55bb9eef325aa681`)を記録する。
+  抽出スクリプトは `generatedAt` が正典と一致しない入力を拒否する
+
+**判定基準は一切変更していない。** 基準1〜6、最低標本数40件、連続2チェックポイント、
+最初の判定時期 2027-02-15、`T0=2026-08-19T00:12:34Z` はエントリ(21)のまま。本エントリは
+「同じ数値をどこから読むか」の可用性を担保するだけで、何を合格とするかには触れない。
+
+`scripts/extract-canonical-report.test.mjs` が、観察候補33件すべてについて抽出物側に
+`status=passed` の対応候補が存在し、判定基準3〜5が読む値(`profitFactor` /
+`netProfitYen` / `maxDrawdownYen` / `maxDrawdownPct` / `validationSpanDays`)と順位・分母を
+保持していること、SL/TPが登録済み戦略定義と一致することを検査する。
