@@ -37,6 +37,10 @@ const OPEN_PR_MAX_AGE_HOURS = 26;
 // 派生成果物は毎runのステップが数分前に書くものなので、health.json と同じ「このrunが
 // 書いたか」の問い方をする。しきい値も同じ理由で 6h。
 const DERIVED_STALE_LIMIT_HOURS = 6;
+const DEFAULT_STAGE = 'post-deploy';
+const PRE_COMMIT_STAGE = 'pre-commit';
+const PRE_COMMIT_TIMEFRAMES = ['h1', 'h4', 'd1'];
+const VALID_STAGES = new Set([PRE_COMMIT_STAGE, DEFAULT_STAGE]);
 export const DERIVED_ARTIFACTS = [
   { name: 'forward/results.json', timestampKey: 'computedAt' },
   { name: 'forward/observation-results.json', timestampKey: 'computedAt' },
@@ -57,7 +61,8 @@ const formatAgeHours = (ageHours, limitHours) =>
     ? ageHours.toFixed(1)
     : ageHours.toFixed(7).replace(/0+$/, '').replace(/\.$/, '.0');
 
-export const collectDatasetLatest = async () => {
+export const collectDatasetLatest = async ({ timeframes } = {}) => {
+  const allowedTimeframes = timeframes ? new Set(timeframes) : null;
   const entries = await readdir(dataRoot, { withFileTypes: true });
   const pairs = entries
     .filter((entry) => entry.isDirectory() && PAIR_PATTERN.test(entry.name))
@@ -69,6 +74,11 @@ export const collectDatasetLatest = async () => {
     const pairDir = path.join(dataRoot, pair);
     const files = (await readdir(pairDir, { withFileTypes: true }))
       .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .filter(
+        (entry) =>
+          allowedTimeframes === null ||
+          allowedTimeframes.has(path.basename(entry.name, path.extname(entry.name))),
+      )
       .map((entry) => entry.name)
       .sort();
     for (const file of files) {
@@ -441,10 +451,19 @@ const checkDataPr = () => {
 
 const isTruthy = (value) => /^(1|true|yes)$/i.test((value ?? '').trim());
 
-const main = async () => {
-  const now = Date.now();
-  const failures = [];
+const parseStage = (args) => {
+  const stageArg = args.find((arg) => arg.startsWith('--stage='));
+  const stage = stageArg ? stageArg.slice('--stage='.length) : DEFAULT_STAGE;
+  if (!VALID_STAGES.has(stage)) {
+    throw new Error(
+      `Unsupported freshness gate stage ${JSON.stringify(stage)}. ` +
+        `Expected one of: ${[...VALID_STAGES].join(', ')}.`,
+    );
+  }
+  return stage;
+};
 
+const readSourceHealth = async () => {
   let health = null;
   let healthFileExists = true;
   let healthReadError = null;
@@ -457,62 +476,98 @@ const main = async () => {
       healthReadError = formatError(error);
     }
   }
+  return { health, healthFileExists, healthReadError };
+};
+
+export const runFreshnessGate = async ({
+  args = [],
+  env = process.env,
+  nowMs = Date.now(),
+  readSourceHealthFn = readSourceHealth,
+  collectDatasetLatestFn = collectDatasetLatest,
+  evaluateSourceHealthFn = evaluateSourceHealth,
+  evaluateDatasetFreshnessFn = evaluateDatasetFreshness,
+  collectDerivedArtifactsFn = collectDerivedArtifacts,
+  evaluateDerivedFreshnessFn = evaluateDerivedFreshness,
+  checkDataPrFn = checkDataPr,
+  log = console.log,
+  error = console.error,
+} = {}) => {
+  const stage = parseStage(args);
+  const failures = [];
+
+  const { health, healthFileExists, healthReadError } = await readSourceHealthFn();
   const dukascopyCount = Number(health?.sources?.dukascopy) || 0;
   const yahooFallbackCount = Number(health?.sources?.['yahoo-fallback']) || 0;
   const lastPrimarySuccessMs = health?.lastPrimarySuccessAt == null
     ? NaN
     : Date.parse(health.lastPrimarySuccessAt);
   const lastPrimarySummary = Number.isFinite(lastPrimarySuccessMs)
-    ? `${health.lastPrimarySuccessAt}, ${((now - lastPrimarySuccessMs) / HOUR_MS).toFixed(1)}h ago`
+    ? `${health.lastPrimarySuccessAt}, ${((nowMs - lastPrimarySuccessMs) / HOUR_MS).toFixed(1)}h ago`
     : 'unknown';
-  console.log(
+  log(
     `Source breakdown: dukascopy=${dukascopyCount}, yahoo-fallback=${yahooFallbackCount} ` +
       `(last primary success ${lastPrimarySummary}).`,
   );
 
-  const sourceHealth = evaluateSourceHealth({
+  const sourceHealth = evaluateSourceHealthFn({
     health,
     healthFileExists,
     healthReadError,
-    nowMs: now,
+    nowMs,
   });
   if (sourceHealth.level === 'warn') {
-    console.log(`::warning::${sourceHealth.message}`);
+    log(`::warning::${sourceHealth.message}`);
   } else {
-    console.log(sourceHealth.message);
+    log(sourceHealth.message);
   }
   if (sourceHealth.level === 'fail') {
     failures.push(sourceHealth.message);
   }
 
-  const { datasets, pairCount } = await collectDatasetLatest();
-  const datasetFreshness = evaluateDatasetFreshness({ datasets, nowMs: now });
-  console.log(`${datasetFreshness.summary} Scanned ${pairCount} pair directories.`);
+  const { datasets, pairCount } = stage === PRE_COMMIT_STAGE
+    ? await collectDatasetLatestFn({ timeframes: PRE_COMMIT_TIMEFRAMES })
+    : await collectDatasetLatestFn();
+  const datasetFreshness = evaluateDatasetFreshnessFn({ datasets, nowMs });
+  log(`${datasetFreshness.summary} Scanned ${pairCount} pair directories.`);
   for (const warning of datasetFreshness.warnings) {
-    console.log(`::warning::${warning}`);
+    log(`::warning::${warning}`);
   }
   failures.push(...datasetFreshness.failures);
 
-  const derivedArtifacts = await collectDerivedArtifacts();
-  const derivedFreshness = evaluateDerivedFreshness({ artifacts: derivedArtifacts, nowMs: now });
-  console.log(derivedFreshness.summary);
-  failures.push(...derivedFreshness.failures);
-
-  const dataChanged = isTruthy(process.env.DATA_CHANGED) || process.argv.includes('--data-changed');
-  if (dataChanged) {
-    const prCheck = checkDataPr();
-    console.log(prCheck.message);
-    if (!prCheck.ok) failures.push(prCheck.message);
+  if (stage === PRE_COMMIT_STAGE) {
+    log('Pre-commit stage: skipping derived artifact and PR persistence checks.');
   } else {
-    console.log('DATA_CHANGED not set: skipping PR persistence check (no data change this run).');
+    const derivedArtifacts = await collectDerivedArtifactsFn();
+    const derivedFreshness = evaluateDerivedFreshnessFn({
+      artifacts: derivedArtifacts,
+      nowMs,
+    });
+    log(derivedFreshness.summary);
+    failures.push(...derivedFreshness.failures);
+
+    const dataChanged = isTruthy(env.DATA_CHANGED) || args.includes('--data-changed');
+    if (dataChanged) {
+      const prCheck = checkDataPrFn();
+      log(prCheck.message);
+      if (!prCheck.ok) failures.push(prCheck.message);
+    } else {
+      log('DATA_CHANGED not set: skipping PR persistence check (no data change this run).');
+    }
   }
 
   if (failures.length > 0) {
-    console.error('\nData freshness gate FAILED:');
-    for (const failure of failures) console.error(`  - ${failure}`);
-    process.exit(1);
+    error('\nData freshness gate FAILED:');
+    for (const failure of failures) error(`  - ${failure}`);
+    return 1;
   }
-  console.log('\nData freshness gate passed.');
+  log('\nData freshness gate passed.');
+  return 0;
+};
+
+const main = async () => {
+  const exitCode = await runFreshnessGate({ args: process.argv.slice(2) });
+  if (exitCode !== 0) process.exit(exitCode);
 };
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';

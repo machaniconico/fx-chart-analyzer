@@ -1,9 +1,11 @@
+import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   diagnosticWindow,
   lastWeekdayWindow,
   latestRowFreshness,
   main,
+  parseArgs,
 } from './diagnose-dukascopy.mjs';
 
 let previousExitCode;
@@ -16,6 +18,48 @@ afterEach(() => {
   process.exitCode = previousExitCode;
   vi.restoreAllMocks();
   vi.useRealTimers();
+});
+
+describe('parseArgs', () => {
+  it('keeps the existing USDJPY and m15/h1/d1 defaults', () => {
+    expect(parseArgs([])).toEqual({
+      pair: 'usdjpy',
+      timeframes: ['m15', 'h1', 'd1'],
+      help: false,
+    });
+  });
+
+  it('parses --pair and comma-separated --tf values case-insensitively', () => {
+    expect(parseArgs(['--pair=AUDJPY', '--tf=D1,H1'])).toEqual({
+      pair: 'audjpy',
+      timeframes: ['d1', 'h1'],
+      help: false,
+    });
+  });
+
+  it('recognizes --help without changing the defaults', () => {
+    expect(parseArgs(['--help'])).toEqual({
+      pair: 'usdjpy',
+      timeframes: ['m15', 'h1', 'd1'],
+      help: true,
+    });
+  });
+});
+
+describe('CLI', () => {
+  it('prints USDJPY defaults with --help without contacting the network', () => {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/diagnose-dukascopy.mjs', '--help'],
+      { cwd: process.cwd(), encoding: 'utf8' },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('--pair=USDJPY');
+    expect(result.stdout).toContain('--tf=m15,h1,d1');
+    expect(result.stdout).toContain('Defaults: pair=USDJPY, tf=m15,h1,d1');
+    expect(result.stderr).toBe('');
+  });
 });
 
 describe('lastWeekdayWindow', () => {
@@ -96,6 +140,32 @@ describe('latestRowFreshness', () => {
 });
 
 describe('main', () => {
+  it('probes the requested pair/timeframes and reports count, latest bar, and elapsed time', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const fetchRates = vi.fn(async (options) => [
+      { timestamp: options.dates.to.getTime() - 15 * 60 * 1000 },
+    ]);
+
+    await main({
+      fetchRates,
+      now: new Date('2026-07-27T09:00:00Z'),
+      pair: 'audjpy',
+      timeframes: ['d1', 'h1'],
+    });
+
+    expect(fetchRates).toHaveBeenCalledTimes(2);
+    expect(fetchRates.mock.calls.map(([options]) => options.instrument)).toEqual([
+      'audjpy',
+      'audjpy',
+    ]);
+    expect(fetchRates.mock.calls.map(([options]) => options.timeframe)).toEqual(['d1', 'h1']);
+    const output = log.mock.calls.flat().join(' ');
+    expect(output).toContain(
+      'pair=AUDJPY timeframe=d1 rows=1 latestBar=2026-07-24T17:45:00.000Z',
+    );
+    expect(output).toContain('elapsedFromNowMs=');
+  });
+
   it('times out a hung timeframe after 90 seconds and continues probing', async () => {
     vi.useFakeTimers();
     vi.spyOn(console, 'log').mockImplementation(() => {});
