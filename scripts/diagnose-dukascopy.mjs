@@ -33,6 +33,29 @@ const MAX_LAG_MS_BY_TIMEFRAME = {
   h1: 2 * 60 * 60 * 1000,
   d1: 36 * 60 * 60 * 1000,
 };
+const HELP_TEXT = `Usage: node scripts/diagnose-dukascopy.mjs [--pair=USDJPY] [--tf=m15,h1,d1]
+Defaults: pair=USDJPY, tf=m15,h1,d1`;
+
+export const parseArgs = (args = []) => {
+  let pair = 'usdjpy';
+  let timeframes = [...TIMEFRAMES];
+  let help = false;
+
+  for (const arg of args) {
+    if (arg === '--help') {
+      help = true;
+    } else if (arg.startsWith('--pair=')) {
+      pair = arg.slice('--pair='.length).trim().toLowerCase();
+    } else if (arg.startsWith('--tf=')) {
+      timeframes = arg
+        .slice('--tf='.length)
+        .split(',')
+        .map((timeframe) => timeframe.trim().toLowerCase());
+    }
+  }
+
+  return { pair, timeframes, help };
+};
 
 const previousWeekday = (date) => {
   const result = new Date(date);
@@ -109,8 +132,8 @@ export const latestRowFreshness = (rows, timeframe, windowEnd) => {
   };
 };
 
-const requestOptions = (timeframe, now) => ({
-  instrument: 'usdjpy',
+const requestOptions = (pair, timeframe, now) => ({
+  instrument: pair,
   dates: diagnosticWindow(timeframe, now),
   timeframe,
   priceType: 'bid',
@@ -126,20 +149,45 @@ const requestOptions = (timeframe, now) => ({
   pauseBetweenRetriesMs: 1500,
 });
 
-export const main = async ({ fetchRates = getHistoricalRates, now = Date.now() } = {}) => {
+export const main = async ({
+  fetchRates = getHistoricalRates,
+  now = Date.now(),
+  pair = 'usdjpy',
+  timeframes = TIMEFRAMES,
+} = {}) => {
+  const normalizedPair = pair.toLowerCase();
+  const pairLabel = normalizedPair.toUpperCase();
+  const selectedTimeframes = timeframes.map((timeframe) => timeframe.toLowerCase());
+
   console.log(`Dukascopy diagnostic using dukascopy-node ${dukascopyVersion}`);
+  console.log(
+    `Dukascopy diagnostic target: pair=${pairLabel} timeframes=${selectedTimeframes.join(',')}`,
+  );
   let failed = false;
 
-  for (const timeframe of TIMEFRAMES) {
-    const options = requestOptions(timeframe, now);
+  for (const timeframe of selectedTimeframes) {
+    const options = requestOptions(normalizedPair, timeframe, now);
     console.log(`Dukascopy diagnostic request [${timeframe}]:`, inspect(options, { depth: null }));
 
     try {
       const rows = await withTimeout(
         fetchRates(options),
         DUKASCOPY_TIMEOUT_MS,
-        `USDJPY ${timeframe}: Dukascopy timed out after ${DUKASCOPY_TIMEOUT_MS / 1000}s`,
+        `${pairLabel} ${timeframe}: Dukascopy timed out after ${DUKASCOPY_TIMEOUT_MS / 1000}s`,
       );
+      const freshness = latestRowFreshness(rows, timeframe, options.dates.to);
+      const latestTimestampMs = timestampMs(freshness.latest);
+      const latestBar = Number.isFinite(latestTimestampMs)
+        ? new Date(latestTimestampMs).toISOString()
+        : 'n/a';
+      const elapsedFromNowMs = Number.isFinite(latestTimestampMs)
+        ? Number(now) - latestTimestampMs
+        : 'n/a';
+      console.log(
+        `Dukascopy diagnostic result: pair=${pairLabel} timeframe=${timeframe} ` +
+          `rows=${rows.length} latestBar=${latestBar} elapsedFromNowMs=${elapsedFromNowMs}`,
+      );
+
       if (rows.length === 0) {
         // Holiday calendars change and vary by instrument. Keeping a partial calendar
         // here would age badly, so an empty result explicitly asks the operator to
@@ -154,7 +202,6 @@ export const main = async ({ fetchRates = getHistoricalRates, now = Date.now() }
         continue;
       }
 
-      const freshness = latestRowFreshness(rows, timeframe, options.dates.to);
       if (!freshness.ok) {
         console.error(
           `Dukascopy diagnostic STALE [${timeframe}]: latest row is ${freshness.lagMs}ms behind ` +
@@ -185,8 +232,13 @@ export const main = async ({ fetchRates = getHistoricalRates, now = Date.now() }
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';
 if (import.meta.url === invokedPath) {
-  main().catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  });
+  const { pair, timeframes, help } = parseArgs(process.argv.slice(2));
+  if (help) {
+    console.log(HELP_TEXT);
+  } else {
+    main({ pair, timeframes }).catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+  }
 }
