@@ -65,6 +65,12 @@ jobs:
         continue-on-error: true
         run: node scripts/run-forward-test.mjs
 
+      # Hard gate before any commit, build, or deploy. A failed step makes the
+      # following normal steps skip via their default success() condition.
+      - name: Verify data freshness before commit
+        id: pre-commit-gate
+        run: node scripts/check-data-freshness.mjs --stage=pre-commit
+
       # GITHUB_TOKEN cannot push to protected main (branch protection rejects it
       # with GH006), and its pushes do not trigger usable PR workflows here: bot PR
       # runs land "action_required". workflow_dispatch check runs are ignored by the
@@ -73,6 +79,7 @@ jobs:
       # soft so deploy still runs; the final freshness/persistence gate makes any
       # failure here visible.
       - name: Commit updated data and open auto-merge PR
+        if: ${{ success() && steps.pre-commit-gate.outcome == 'success' }}
         id: commit-data
         continue-on-error: true
         env:
@@ -116,11 +123,14 @@ jobs:
       # デプロイは永続化ゲートより前に走る。公開物がどのコミット由来か、未コミットの
       # データを含むかを成果物自身に記録しておく(write-build-info.mjs の冒頭コメント参照)。
       - name: Write build info
+        if: ${{ success() && steps.pre-commit-gate.outcome == 'success' }}
         run: node scripts/write-build-info.mjs
 
-      - run: npm run build
+      - if: ${{ success() && steps.pre-commit-gate.outcome == 'success' }}
+        run: npm run build
 
       - name: Deploy to Cloudflare Pages
+        if: ${{ success() && steps.pre-commit-gate.outcome == 'success' }}
         uses: cloudflare/wrangler-action@v4
         with:
           # See deploy.yml: v4's only breaking change is defaulting Wrangler to v4, so pin the

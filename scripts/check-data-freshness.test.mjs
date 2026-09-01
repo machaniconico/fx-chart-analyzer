@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   evaluateDatasetFreshness,
   evaluateDerivedFreshness,
   evaluateSourceHealth,
+  runFreshnessGate,
   verifyDataPr,
 } from './check-data-freshness.mjs';
 
@@ -594,5 +595,75 @@ describe('evaluateDerivedFreshness continue-on-error gate', () => {
 
     expect(atLimit.failures).toEqual([]);
     expect(pastLimit.failures).toHaveLength(1);
+  });
+});
+
+describe('freshness gate stages', () => {
+  const makeChecks = () => ({
+    readSourceHealthFn: vi.fn().mockResolvedValue({
+      health: baseHealth(),
+      healthFileExists: true,
+      healthReadError: null,
+    }),
+    collectDatasetLatestFn: vi.fn().mockResolvedValue({
+      datasets: [baseDataset({ name: 'EURUSD/h1.json', tf: 'h1' })],
+      pairCount: 1,
+    }),
+    evaluateSourceHealthFn: vi.fn().mockReturnValue({ level: 'ok', message: 'health ok' }),
+    evaluateDatasetFreshnessFn: vi.fn().mockReturnValue({
+      failures: [],
+      warnings: [],
+      summary: 'datasets ok',
+    }),
+    collectDerivedArtifactsFn: vi.fn().mockResolvedValue([]),
+    evaluateDerivedFreshnessFn: vi.fn().mockReturnValue({
+      failures: [],
+      summary: 'derived artifacts ok',
+    }),
+    checkDataPrFn: vi.fn().mockReturnValue({ ok: true, message: 'PR ok' }),
+    log: vi.fn(),
+    error: vi.fn(),
+  });
+
+  it('--stage=pre-commit runs only dataset and primary-source health checks', async () => {
+    const checks = makeChecks();
+
+    const exitCode = await runFreshnessGate({
+      args: ['--stage=pre-commit'],
+      env: { DATA_CHANGED: 'true' },
+      nowMs: NOW,
+      ...checks,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(checks.readSourceHealthFn).toHaveBeenCalledOnce();
+    expect(checks.evaluateSourceHealthFn).toHaveBeenCalledOnce();
+    expect(checks.collectDatasetLatestFn).toHaveBeenCalledWith({
+      timeframes: ['h1', 'h4', 'd1'],
+    });
+    expect(checks.evaluateDatasetFreshnessFn).toHaveBeenCalledOnce();
+    expect(checks.collectDerivedArtifactsFn).not.toHaveBeenCalled();
+    expect(checks.evaluateDerivedFreshnessFn).not.toHaveBeenCalled();
+    expect(checks.checkDataPrFn).not.toHaveBeenCalled();
+  });
+
+  it('runs every legacy check when --stage is omitted', async () => {
+    const checks = makeChecks();
+
+    const exitCode = await runFreshnessGate({
+      args: ['--data-changed'],
+      env: {},
+      nowMs: NOW,
+      ...checks,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(checks.readSourceHealthFn).toHaveBeenCalledOnce();
+    expect(checks.evaluateSourceHealthFn).toHaveBeenCalledOnce();
+    expect(checks.collectDatasetLatestFn).toHaveBeenCalledWith();
+    expect(checks.evaluateDatasetFreshnessFn).toHaveBeenCalledOnce();
+    expect(checks.collectDerivedArtifactsFn).toHaveBeenCalledOnce();
+    expect(checks.evaluateDerivedFreshnessFn).toHaveBeenCalledOnce();
+    expect(checks.checkDataPrFn).toHaveBeenCalledOnce();
   });
 });
