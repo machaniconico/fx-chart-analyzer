@@ -50,6 +50,11 @@ const YAHOO_STANDALONE_MIN_EXPECTED_BARS_BY_TIMEFRAME = {
   m15: 2500,
   m30: 1800,
 };
+export const PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME = Object.freeze({
+  h1: 120,
+  h4: 120,
+  d1: 120,
+});
 
 const toUnixSeconds = (timestamp) => {
   const value = Number(timestamp);
@@ -394,8 +399,41 @@ const yahooMinExpectedBars = (tf, hasExistingBars) =>
 const barsEqual = (a, b) =>
   a.o === b.o && a.h === b.h && a.l === b.l && a.c === b.c && a.v === b.v;
 
-const buildYahooFallbackBars = async (pair, tf, incomingBars) => {
-  const existingBars = await readExistingBars(pair, tf);
+const assertPrimaryResponseUsable = (
+  pair,
+  tf,
+  bars,
+  existingBars,
+  { nowMs = Date.now() } = {},
+) => {
+  const latestBar = bars[bars.length - 1];
+  const staleLimitHours = PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME[tf];
+  const ageHours = (nowMs / 1000 - latestBar.t) / (60 * 60);
+  if (ageHours > staleLimitHours) {
+    throw new Error(
+      `stale primary response: ${pair} ${tf} latest=${new Date(latestBar.t * 1000).toISOString()} ` +
+        `ageHours=${ageHours.toFixed(1)} limit=${staleLimitHours}`,
+    );
+  }
+
+  const existingLatest = Array.isArray(existingBars) && existingBars.length > 0
+    ? existingBars[existingBars.length - 1]
+    : null;
+  if (existingLatest && latestBar.t < existingLatest.t) {
+    throw new Error(
+      `regressed primary response: ${pair} ${tf} latest=${new Date(latestBar.t * 1000).toISOString()} ` +
+        `existingLatest=${new Date(existingLatest.t * 1000).toISOString()}`,
+    );
+  }
+};
+
+const buildYahooFallbackBars = async (
+  pair,
+  tf,
+  incomingBars,
+  { readExisting = readExistingBars } = {},
+) => {
+  const existingBars = await readExisting(pair, tf);
   const hasExistingBars = Array.isArray(existingBars);
   const existingLast = hasExistingBars && existingBars.length > 0
     ? existingBars[existingBars.length - 1]
@@ -473,19 +511,29 @@ const fetchTimeframeWithFallback = async (pair, tf, lookbackDays) => {
   }
 };
 
-const fetchDailyWithFallback = async (pair) => {
+export const fetchDailyWithFallback = async (
+  pair,
+  {
+    fetchPrimary = fetchTimeframe,
+    fetchYahoo = fetchYahooTimeframe,
+    readExisting = readExistingBars,
+    nowMs = Date.now(),
+  } = {},
+) => {
   try {
-    const bars = latest(await fetchTimeframe(pair, 'd1', D1_LOOKBACK_DAYS), 'd1');
+    const bars = latest(await fetchPrimary(pair, 'd1', D1_LOOKBACK_DAYS), 'd1');
     validateBars(pair, 'd1', bars);
+    const existingBars = await readExisting(pair, 'd1');
+    assertPrimaryResponseUsable(pair, 'd1', bars, existingBars, { nowMs });
     return { bars, source: 'dukascopy', validateOptions: {}, shouldWrite: true };
   } catch (dukascopyError) {
     console.warn(`  Dukascopy failed for ${pair} d1: ${formatError(dukascopyError)}; trying Yahoo h1->d1 fallback`);
     try {
-      const existingBars = await readExistingBars(pair, 'd1');
+      const existingBars = await readExisting(pair, 'd1');
       const dailyBars = Array.isArray(existingBars)
-        ? aggregateDailyFromH1(await fetchYahooTimeframe(pair, 'h1'))
-        : repairDailyClosesFromNextOpen(await fetchYahooTimeframe(pair, 'd1'));
-      return await buildYahooFallbackBars(pair, 'd1', dailyBars);
+        ? aggregateDailyFromH1(await fetchYahoo(pair, 'h1'))
+        : repairDailyClosesFromNextOpen(await fetchYahoo(pair, 'd1'));
+      return await buildYahooFallbackBars(pair, 'd1', dailyBars, { readExisting });
     } catch (yahooError) {
       throw new Error(
         `Dukascopy failed: ${formatError(dukascopyError)}; Yahoo fallback failed: ${formatError(yahooError)}`,
@@ -494,13 +542,27 @@ const fetchDailyWithFallback = async (pair) => {
   }
 };
 
-const fetchH1AndH4WithFallback = async (pair) => {
+export const fetchH1AndH4WithFallback = async (
+  pair,
+  {
+    fetchPrimary = fetchTimeframe,
+    fetchYahoo = fetchYahooTimeframe,
+    readExisting = readExistingBars,
+    nowMs = Date.now(),
+  } = {},
+) => {
   try {
-    const h1Raw = await fetchTimeframe(pair, 'h1', H1_LOOKBACK_DAYS);
+    const h1Raw = await fetchPrimary(pair, 'h1', H1_LOOKBACK_DAYS);
     const h1 = latest(h1Raw, 'h1');
     const h4 = latest(aggregateH4(h1Raw), 'h4');
     validateBars(pair, 'h1', h1);
     validateBars(pair, 'h4', h4);
+    const [existingH1, existingH4] = await Promise.all([
+      readExisting(pair, 'h1'),
+      readExisting(pair, 'h4'),
+    ]);
+    assertPrimaryResponseUsable(pair, 'h1', h1, existingH1, { nowMs });
+    assertPrimaryResponseUsable(pair, 'h4', h4, existingH4, { nowMs });
     return {
       h1: { bars: h1, source: 'dukascopy', validateOptions: {}, shouldWrite: true },
       h4: { bars: h4, source: 'dukascopy', validateOptions: {}, shouldWrite: true },
@@ -508,9 +570,14 @@ const fetchH1AndH4WithFallback = async (pair) => {
   } catch (dukascopyError) {
     console.warn(`  Dukascopy failed for ${pair} h1/h4: ${formatError(dukascopyError)}; trying Yahoo fallback`);
     try {
-      const yahooH1 = await fetchYahooTimeframe(pair, 'h1');
-      const h1 = await buildYahooFallbackBars(pair, 'h1', yahooH1);
-      const h4 = await buildYahooFallbackBars(pair, 'h4', aggregateH4(yahooH1, { dropIncompleteTail: true }));
+      const yahooH1 = await fetchYahoo(pair, 'h1');
+      const h1 = await buildYahooFallbackBars(pair, 'h1', yahooH1, { readExisting });
+      const h4 = await buildYahooFallbackBars(
+        pair,
+        'h4',
+        aggregateH4(yahooH1, { dropIncompleteTail: true }),
+        { readExisting },
+      );
       return { h1, h4 };
     } catch (yahooError) {
       throw new Error(

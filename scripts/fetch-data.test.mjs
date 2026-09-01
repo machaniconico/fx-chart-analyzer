@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME,
   aggregateDailyFromH1,
   aggregateH4,
   buildSourceHealth,
+  fetchDailyWithFallback,
+  fetchH1AndH4WithFallback,
   fetchTimeframe,
   mergeAppendOnlyBars,
   normalizeYahooChartResponse,
@@ -11,6 +14,13 @@ import {
 } from './fetch-data.mjs';
 
 const NOW = Date.UTC(2026, 6, 27, 21, 52, 0);
+
+const makeBars = ({ count, endTime, stepSeconds, price = 100 }) =>
+  Array.from({ length: count }, (_, index) => {
+    const t = endTime - (count - index - 1) * stepSeconds;
+    const value = price + index / 10_000;
+    return { t, o: value, h: value + 1, l: value - 1, c: value + 0.5, v: 10 };
+  });
 
 describe('source health aggregation', () => {
   it('counts successful timeframe sources and records Dukascopy success by timeframe', () => {
@@ -219,6 +229,191 @@ describe('append-only Yahoo fallback merge', () => {
       incomingBars[0],
       incomingBars[1],
     ]);
+  });
+});
+
+describe('Dukascopy primary response gates', () => {
+  const hour = 60 * 60;
+  const day = 24 * hour;
+  const nowMs = Date.UTC(2026, 8, 1, 12);
+  const nowSeconds = nowMs / 1000;
+
+  it('falls back to Yahoo when a d1 response is stale without throwing at the source', async () => {
+    const stalePrimary = makeBars({
+      count: 2000,
+      endTime: nowSeconds - 121 * hour,
+      stepSeconds: day,
+    });
+    const yahooDaily = makeBars({
+      count: 1502,
+      endTime: nowSeconds,
+      stepSeconds: day,
+      price: 200,
+    });
+    const fetchPrimary = vi.fn(async () => stalePrimary);
+    const fetchYahoo = vi.fn(async () => yahooDaily);
+    const readExisting = vi.fn(async () => null);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await fetchDailyWithFallback('AUDJPY', {
+      fetchPrimary,
+      fetchYahoo,
+      readExisting,
+      nowMs,
+    });
+
+    expect(fetchYahoo).toHaveBeenCalledOnce();
+    expect(fetchYahoo).toHaveBeenCalledWith('AUDJPY', 'd1');
+    expect(result.source).toBe('yahoo-fallback');
+    expect(result.bars.at(-1).t).toBe(yahooDaily.at(-2).t);
+    expect(result.bars.at(-1).o).toBe(yahooDaily.at(-2).o);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'stale primary response: AUDJPY d1 latest=',
+      ),
+    );
+    expect(warn.mock.calls[0][0]).toContain(
+      `ageHours=121.0 limit=${PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME.d1}`,
+    );
+  });
+
+  it('falls back to Yahoo for both h1 and h4 when the primary response is stale', async () => {
+    const stalePrimaryH1 = makeBars({
+      count: 8000,
+      endTime: nowSeconds - 121 * hour,
+      stepSeconds: hour,
+    });
+    const yahooH1 = makeBars({
+      count: 8000,
+      endTime: nowSeconds - hour,
+      stepSeconds: hour,
+      price: 200,
+    });
+    const fetchPrimary = vi.fn(async () => stalePrimaryH1);
+    const fetchYahoo = vi.fn(async () => yahooH1);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await fetchH1AndH4WithFallback('GBPUSD', {
+      fetchPrimary,
+      fetchYahoo,
+      readExisting: async () => null,
+      nowMs,
+    });
+
+    expect(fetchYahoo).toHaveBeenCalledOnce();
+    expect(fetchYahoo).toHaveBeenCalledWith('GBPUSD', 'h1');
+    expect(result.h1.source).toBe('yahoo-fallback');
+    expect(result.h4.source).toBe('yahoo-fallback');
+    expect(result.h1.bars.at(-1).t).toBe(yahooH1.at(-1).t);
+    expect(result.h4.bars.at(-1).t).toBe(aggregateH4(yahooH1).at(-1).t);
+    expect(warn.mock.calls[0][0]).toContain('stale primary response: GBPUSD h1 latest=');
+  });
+
+  it('applies the h4 freshness gate when h1 is exactly at its limit', async () => {
+    const boundaryNowMs = Date.UTC(2026, 8, 1, 15);
+    const boundaryNowSeconds = boundaryNowMs / 1000;
+    const primaryH1 = makeBars({
+      count: 8000,
+      endTime: boundaryNowSeconds - PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME.h1 * hour,
+      stepSeconds: hour,
+    });
+    const yahooH1 = makeBars({
+      count: 8000,
+      endTime: boundaryNowSeconds - hour,
+      stepSeconds: hour,
+      price: 200,
+    });
+    const fetchYahoo = vi.fn(async () => yahooH1);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await fetchH1AndH4WithFallback('GBPJPY', {
+      fetchPrimary: async () => primaryH1,
+      fetchYahoo,
+      readExisting: async () => null,
+      nowMs: boundaryNowMs,
+    });
+
+    expect(fetchYahoo).toHaveBeenCalledOnce();
+    expect(result.h1.source).toBe('yahoo-fallback');
+    expect(result.h4.source).toBe('yahoo-fallback');
+    expect(warn.mock.calls[0][0]).toContain(
+      `stale primary response: GBPJPY h4 latest=`,
+    );
+    expect(warn.mock.calls[0][0]).toContain(
+      `ageHours=123.0 limit=${PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME.h4}`,
+    );
+  });
+
+  it('rejects a fresh primary response that regresses behind the existing file', async () => {
+    const existingEnd = Date.UTC(2026, 7, 31) / 1000;
+    const existingBars = makeBars({ count: 2000, endTime: existingEnd, stepSeconds: day });
+    const regressedPrimary = makeBars({
+      count: 2000,
+      endTime: existingEnd - day,
+      stepSeconds: day,
+      price: 150,
+    });
+    const yahooH1 = makeBars({
+      count: 24,
+      endTime: existingEnd + 23 * hour,
+      stepSeconds: hour,
+      price: 200,
+    });
+    const fetchYahoo = vi.fn(async () => yahooH1);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await fetchDailyWithFallback('EURUSD', {
+      fetchPrimary: async () => regressedPrimary,
+      fetchYahoo,
+      readExisting: async () => existingBars,
+      nowMs,
+    });
+
+    expect(fetchYahoo).toHaveBeenCalledWith('EURUSD', 'h1');
+    expect(result.source).toBe('yahoo-fallback');
+    expect(result.bars.at(-1).t).toBe(existingEnd);
+    expect(result.bars.at(-1).o).toBe(yahooH1[0].o);
+    expect(result.bars).not.toEqual(regressedPrimary);
+  });
+
+  it('keeps a fresh non-regressing response as Dukascopy data', async () => {
+    const primaryEnd = Date.UTC(2026, 7, 31) / 1000;
+    const primaryBars = makeBars({ count: 2000, endTime: primaryEnd, stepSeconds: day });
+    const existingBars = makeBars({
+      count: 2000,
+      endTime: primaryEnd - day,
+      stepSeconds: day,
+    });
+    const fetchYahoo = vi.fn();
+
+    const result = await fetchDailyWithFallback('USDJPY', {
+      fetchPrimary: async () => primaryBars,
+      fetchYahoo,
+      readExisting: async () => existingBars,
+      nowMs,
+    });
+
+    expect(fetchYahoo).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ source: 'dukascopy', bars: primaryBars });
+  });
+
+  it('accepts a normal Monday-morning d1 response across a weekend longer than 72 hours', async () => {
+    const mondayMorning = Date.UTC(2026, 8, 7, 8);
+    const fridayStart = Date.UTC(2026, 8, 4) / 1000;
+    const primaryBars = makeBars({ count: 2000, endTime: fridayStart, stepSeconds: day });
+    const fetchYahoo = vi.fn();
+
+    const result = await fetchDailyWithFallback('EURJPY', {
+      fetchPrimary: async () => primaryBars,
+      fetchYahoo,
+      readExisting: async () => null,
+      nowMs: mondayMorning,
+    });
+
+    expect((mondayMorning / 1000 - fridayStart) / hour).toBe(80);
+    expect(PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME.d1).toBeGreaterThan(80);
+    expect(fetchYahoo).not.toHaveBeenCalled();
+    expect(result.source).toBe('dukascopy');
   });
 });
 
