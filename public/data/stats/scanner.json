@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-02T22:59:44.389Z",
+  "generatedAt": "2026-09-03T23:06:34.006Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-06-06T04:00:00.000Z",
-    "dataEnd": "2026-09-02T22:30:00.000Z",
+    "dataStart": "2025-06-09T00:00:00.000Z",
+    "dataEnd": "2026-09-03T23:00:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
     "adaptiveStatsMode": "rolling-from-cutoff",
@@ -26,10 +26,10 @@
     "initialBalanceYen": 1000000,
     "riskPercent": 1,
     "simulationWindowMonths": 12,
-    "evaluatedDecisionPoints": 2939,
+    "evaluatedDecisionPoints": 2930,
     "recommendationsFound": 30,
-    "judgedRecommendations": 30,
-    "skippedNoFutureBars": 0,
+    "judgedRecommendations": 29,
+    "skippedNoFutureBars": 1,
     "skippedIncompleteOutcome": 0,
     "skippedUnfilledPullbacks": 0
   },
@@ -186,17 +186,17 @@
     },
     "GBPUSD": {
       "daytrade": {
-        "recommendations": 1,
-        "wins": 1,
+        "recommendations": 0,
+        "wins": 0,
         "losses": 0,
         "draws": 0,
-        "winRate": 1,
-        "averageRealizedR": 1.1122,
+        "winRate": null,
+        "averageRealizedR": null,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 1,
-          "winRate": 1,
-          "averageRealizedR": 1.1122
+          "decayedSampleCount": 0,
+          "winRate": null,
+          "averageRealizedR": null
         }
       },
       "swing": {
@@ -246,17 +246,17 @@
         }
       },
       "low": {
-        "recommendations": 4,
-        "wins": 4,
+        "recommendations": 3,
+        "wins": 3,
         "losses": 0,
         "draws": 0,
         "winRate": 1,
-        "averageRealizedR": 1.0785,
+        "averageRealizedR": 1.0673,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 3.87,
+          "decayedSampleCount": 2.93,
           "winRate": 1,
-          "averageRealizedR": 1.0746
+          "averageRealizedR": 1.0637
         }
       }
     },
