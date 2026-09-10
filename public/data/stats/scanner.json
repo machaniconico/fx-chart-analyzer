@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-09T22:56:15.910Z",
+  "generatedAt": "2026-09-10T22:57:31.272Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-05-14T04:00:00.000Z",
-    "dataEnd": "2026-09-09T20:00:00.000Z",
+    "dataStart": "2025-05-15T00:00:00.000Z",
+    "dataEnd": "2026-09-10T22:30:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
     "adaptiveStatsMode": "rolling-from-cutoff",
@@ -26,9 +26,9 @@
     "initialBalanceYen": 1000000,
     "riskPercent": 1,
     "simulationWindowMonths": 12,
-    "evaluatedDecisionPoints": 2940,
-    "recommendationsFound": 31,
-    "judgedRecommendations": 31,
+    "evaluatedDecisionPoints": 2934,
+    "recommendationsFound": 32,
+    "judgedRecommendations": 32,
     "skippedNoFutureBars": 0,
     "skippedIncompleteOutcome": 0,
     "skippedUnfilledPullbacks": 0
@@ -110,17 +110,17 @@
         }
       },
       "swing": {
-        "recommendations": 4,
+        "recommendations": 5,
         "wins": 2,
-        "losses": 2,
+        "losses": 3,
         "draws": 0,
-        "winRate": 0.5,
-        "averageRealizedR": 0.1338,
+        "winRate": 0.4,
+        "averageRealizedR": -0.0929,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 3.87,
-          "winRate": 0.5001,
-          "averageRealizedR": 0.1333
+          "decayedSampleCount": 4.78,
+          "winRate": 0.4047,
+          "averageRealizedR": -0.083
         }
       }
     },
@@ -262,17 +262,17 @@
     },
     "swing": {
       "high": {
-        "recommendations": 0,
+        "recommendations": 1,
         "wins": 0,
-        "losses": 0,
+        "losses": 1,
         "draws": 0,
-        "winRate": null,
-        "averageRealizedR": null,
+        "winRate": 0,
+        "averageRealizedR": -1,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 0,
-          "winRate": null,
-          "averageRealizedR": null
+          "decayedSampleCount": 1,
+          "winRate": 0,
+          "averageRealizedR": -1
         }
       },
       "medium": {
