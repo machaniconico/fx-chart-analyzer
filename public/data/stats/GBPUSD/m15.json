@@ -1,9 +1,9 @@
 {
   "pair": "GBPUSD",
   "tf": "m15",
-  "sourceUpdatedAt": "2026-09-11T22:58:47.873Z",
+  "sourceUpdatedAt": "2026-09-12T22:51:02.142Z",
   "version": 1,
-  "generatedAt": "2026-09-11T22:59:00.056Z",
+  "generatedAt": "2026-09-12T22:51:15.178Z",
   "sampleCount": 3919,
   "horizons": [
     1,
@@ -17,28 +17,28 @@
         "horizon": 1,
         "models": {
           "signal": {
-            "hits": 1825,
+            "hits": 1811,
             "total": 3919,
-            "accuracy": 0.46568002041337075,
-            "decayedHits": 65.18315684219897,
+            "accuracy": 0.46210768053074763,
+            "decayedHits": 55.40512071342062,
             "decayedTotal": 144.770081710854,
-            "ewmaAccuracy": 0.4502529533166101
+            "ewmaAccuracy": 0.3827111241401384
           },
           "drift": {
-            "hits": 1846,
+            "hits": 1832,
             "total": 3919,
-            "accuracy": 0.4710385302373054,
-            "decayedHits": 65.85492378599518,
+            "accuracy": 0.46746619035468234,
+            "decayedHits": 60.67743498547979,
             "decayedTotal": 144.770081710854,
-            "ewmaAccuracy": 0.45489318654613825
+            "ewmaAccuracy": 0.4191296590318258
           },
           "regime": {
-            "hits": 1956,
+            "hits": 1955,
             "total": 3919,
-            "accuracy": 0.49910691502934423,
-            "decayedHits": 77.87689858735283,
+            "accuracy": 0.49885174789487113,
+            "decayedHits": 73.94134494991519,
             "decayedTotal": 144.770081710854,
-            "ewmaAccuracy": 0.5379350323424877
+            "ewmaAccuracy": 0.5107501776340541
           }
         }
       },
@@ -46,28 +46,28 @@
         "horizon": 5,
         "models": {
           "signal": {
-            "hits": 1852,
+            "hits": 1851,
             "total": 3915,
-            "accuracy": 0.47305236270753515,
-            "decayedHits": 69.49817205281394,
+            "accuracy": 0.4727969348659004,
+            "decayedHits": 69.50421157650682,
             "decayedTotal": 144.7700817108475,
-            "ewmaAccuracy": 0.48005894057326143
+            "ewmaAccuracy": 0.48010065861072815
           },
           "drift": {
-            "hits": 1807,
+            "hits": 1804,
             "total": 3915,
-            "accuracy": 0.4615581098339719,
-            "decayedHits": 67.70100816044518,
+            "accuracy": 0.4607918263090677,
+            "decayedHits": 71.58864192946183,
             "decayedTotal": 144.7700817108475,
-            "ewmaAccuracy": 0.4676450227863096
+            "ewmaAccuracy": 0.4944988707849693
           },
           "regime": {
-            "hits": 1961,
+            "hits": 1958,
             "total": 3915,
-            "accuracy": 0.5008939974457216,
-            "decayedHits": 70.9054138834109,
+            "accuracy": 0.5001277139208173,
+            "decayedHits": 70.00463080873244,
             "decayedTotal": 144.7700817108475,
-            "ewmaAccuracy": 0.48977946993931976
+            "ewmaAccuracy": 0.4835573067407273
           }
         }
       },
@@ -78,25 +78,25 @@
             "hits": 1861,
             "total": 3900,
             "accuracy": 0.47717948717948716,
-            "decayedHits": 64.24407436607152,
+            "decayedHits": 72.23627275140176,
             "decayedTotal": 144.7700817108215,
-            "ewmaAccuracy": 0.4437662368278493
+            "ewmaAccuracy": 0.4989723836427325
           },
           "drift": {
-            "hits": 1817,
+            "hits": 1792,
             "total": 3900,
-            "accuracy": 0.4658974358974359,
-            "decayedHits": 74.15864803966986,
+            "accuracy": 0.4594871794871795,
+            "decayedHits": 73.65385563626809,
             "decayedTotal": 144.7700817108215,
-            "ewmaAccuracy": 0.5122511997181979
+            "ewmaAccuracy": 0.5087643438883442
           },
           "regime": {
-            "hits": 1965,
+            "hits": 1974,
             "total": 3900,
-            "accuracy": 0.5038461538461538,
-            "decayedHits": 72.41153160047918,
+            "accuracy": 0.5061538461538462,
+            "decayedHits": 82.18430074942788,
             "decayedTotal": 144.7700817108215,
-            "ewmaAccuracy": 0.5001829849424368
+            "ewmaAccuracy": 0.5676884324317173
           }
         }
       }
@@ -111,9 +111,9 @@
         "sampleCount": 3919,
         "fallback": false,
         "weights": {
-          "signal": 0.26333736081596304,
-          "drift": 0.24418044328909777,
-          "regime": 0.4924821958949392
+          "signal": 0.1825941035518328,
+          "drift": 0.2518833212938242,
+          "regime": 0.565522575154343
         }
       },
       {
@@ -121,9 +121,9 @@
         "sampleCount": 3915,
         "fallback": false,
         "weights": {
-          "signal": 0.4073351368735456,
-          "drift": 0.305188895304201,
-          "regime": 0.2874759678222534
+          "signal": 0.37035133721466174,
+          "drift": 0.3879584998233061,
+          "regime": 0.24169016296203213
         }
       },
       {
@@ -131,9 +131,9 @@
         "sampleCount": 3900,
         "fallback": false,
         "weights": {
-          "signal": 0.23122414570617872,
-          "drift": 0.4762382295573863,
-          "regime": 0.29253762473643496
+          "signal": 0.28865392377130467,
+          "drift": 0.28545847884041997,
+          "regime": 0.42588759738827525
         }
       }
     ]
@@ -163,11 +163,11 @@
               "lower": 0.1,
               "upper": 0.2,
               "midpoint": 0.15000000000000002,
-              "count": 0,
-              "positives": 0,
-              "averagePrediction": 0.15000000000000002,
-              "observedFrequency": 0.15000000000000002,
-              "calibratedProbability": 0.15000000000000002
+              "count": 1,
+              "positives": 1,
+              "averagePrediction": 0.18187068301360376,
+              "observedFrequency": 0.6666666666666666,
+              "calibratedProbability": 0.48913719476504597
             },
             {
               "index": 2,
@@ -176,64 +176,64 @@
               "midpoint": 0.25,
               "count": 4,
               "positives": 4,
-              "averagePrediction": 0.26566291428599687,
+              "averagePrediction": 0.26827512690374455,
               "observedFrequency": 0.8333333333333334,
-              "calibratedProbability": 0.48997024892011276
+              "calibratedProbability": 0.48913719476504597
             },
             {
               "index": 3,
               "lower": 0.3,
               "upper": 0.4,
               "midpoint": 0.35,
-              "count": 31,
-              "positives": 20,
-              "averagePrediction": 0.3677843329991556,
-              "observedFrequency": 0.6363636363636364,
-              "calibratedProbability": 0.48997024892011276
+              "count": 44,
+              "positives": 24,
+              "averagePrediction": 0.36555821683465495,
+              "observedFrequency": 0.5434782608695652,
+              "calibratedProbability": 0.48913719476504597
             },
             {
               "index": 4,
               "lower": 0.4,
               "upper": 0.5,
               "midpoint": 0.45,
-              "count": 1971,
-              "positives": 1003,
-              "averagePrediction": 0.47539259257961375,
-              "observedFrequency": 0.5088697415103902,
-              "calibratedProbability": 0.48997024892011276
+              "count": 1918,
+              "positives": 975,
+              "averagePrediction": 0.4758993072940903,
+              "observedFrequency": 0.5083333333333333,
+              "calibratedProbability": 0.48913719476504597
             },
             {
               "index": 5,
               "lower": 0.5,
               "upper": 0.6,
               "midpoint": 0.55,
-              "count": 1880,
-              "positives": 879,
-              "averagePrediction": 0.524189344328917,
-              "observedFrequency": 0.4675876726886291,
-              "calibratedProbability": 0.48997024892011276
+              "count": 1903,
+              "positives": 890,
+              "averagePrediction": 0.5243051623475073,
+              "observedFrequency": 0.46771653543307085,
+              "calibratedProbability": 0.48913719476504597
             },
             {
               "index": 6,
               "lower": 0.6,
               "upper": 0.7,
               "midpoint": 0.6499999999999999,
-              "count": 33,
-              "positives": 15,
-              "averagePrediction": 0.63267168073162,
-              "observedFrequency": 0.45714285714285713,
-              "calibratedProbability": 0.48997024892011276
+              "count": 45,
+              "positives": 23,
+              "averagePrediction": 0.6265632368282434,
+              "observedFrequency": 0.5106382978723404,
+              "calibratedProbability": 0.5097698653929656
             },
             {
               "index": 7,
               "lower": 0.7,
               "upper": 0.8,
               "midpoint": 0.75,
-              "count": 0,
-              "positives": 0,
-              "averagePrediction": 0.75,
-              "observedFrequency": 0.75,
-              "calibratedProbability": 0.75
+              "count": 4,
+              "positives": 2,
+              "averagePrediction": 0.7135040379907509,
+              "observedFrequency": 0.5,
+              "calibratedProbability": 0.5097698653929656
             },
             {
               "index": 8,
@@ -294,66 +294,66 @@
               "lower": 0.2,
               "upper": 0.3,
               "midpoint": 0.25,
-              "count": 9,
-              "positives": 6,
-              "averagePrediction": 0.2526054045653019,
-              "observedFrequency": 0.6363636363636364,
-              "calibratedProbability": 0.49102865398793943
+              "count": 13,
+              "positives": 8,
+              "averagePrediction": 0.2563359457375023,
+              "observedFrequency": 0.6,
+              "calibratedProbability": 0.48819037110169006
             },
             {
               "index": 3,
               "lower": 0.3,
               "upper": 0.4,
               "midpoint": 0.35,
-              "count": 183,
-              "positives": 89,
-              "averagePrediction": 0.3773300397070806,
-              "observedFrequency": 0.4864864864864865,
-              "calibratedProbability": 0.49102865398793943
+              "count": 255,
+              "positives": 123,
+              "averagePrediction": 0.3714405408411919,
+              "observedFrequency": 0.48249027237354086,
+              "calibratedProbability": 0.48819037110169006
             },
             {
               "index": 4,
               "lower": 0.4,
               "upper": 0.5,
               "midpoint": 0.45,
-              "count": 1833,
-              "positives": 968,
-              "averagePrediction": 0.4623444134231021,
-              "observedFrequency": 0.5280653950953679,
-              "calibratedProbability": 0.49102865398793943
+              "count": 1709,
+              "positives": 926,
+              "averagePrediction": 0.46100428216055267,
+              "observedFrequency": 0.5417884278199883,
+              "calibratedProbability": 0.4941145225606161
             },
             {
               "index": 5,
               "lower": 0.5,
               "upper": 0.6,
               "midpoint": 0.55,
-              "count": 1714,
-              "positives": 785,
-              "averagePrediction": 0.5370300577287669,
-              "observedFrequency": 0.458041958041958,
-              "calibratedProbability": 0.49102865398793943
+              "count": 1659,
+              "positives": 749,
+              "averagePrediction": 0.5395066808711926,
+              "observedFrequency": 0.4515352197471403,
+              "calibratedProbability": 0.4941145225606161
             },
             {
               "index": 6,
               "lower": 0.6,
               "upper": 0.7,
               "midpoint": 0.6499999999999999,
-              "count": 169,
-              "positives": 71,
-              "averagePrediction": 0.624795724382897,
-              "observedFrequency": 0.42105263157894735,
-              "calibratedProbability": 0.49102865398793943
+              "count": 267,
+              "positives": 121,
+              "averagePrediction": 0.6286019061014555,
+              "observedFrequency": 0.45353159851301117,
+              "calibratedProbability": 0.4941145225606161
             },
             {
               "index": 7,
               "lower": 0.7,
               "upper": 0.8,
               "midpoint": 0.75,
-              "count": 7,
-              "positives": 5,
-              "averagePrediction": 0.7255640113735151,
-              "observedFrequency": 0.6666666666666666,
-              "calibratedProbability": 0.6666666666666666
+              "count": 12,
+              "positives": 6,
+              "averagePrediction": 0.7270878631922374,
+              "observedFrequency": 0.5,
+              "calibratedProbability": 0.5
             },
             {
               "index": 8,
@@ -403,88 +403,88 @@
               "lower": 0.1,
               "upper": 0.2,
               "midpoint": 0.15000000000000002,
-              "count": 10,
-              "positives": 4,
-              "averagePrediction": 0.15397682323950468,
-              "observedFrequency": 0.4166666666666667,
-              "calibratedProbability": 0.4166666666666667
+              "count": 7,
+              "positives": 3,
+              "averagePrediction": 0.17548563911614043,
+              "observedFrequency": 0.4444444444444444,
+              "calibratedProbability": 0.4444444444444444
             },
             {
               "index": 2,
               "lower": 0.2,
               "upper": 0.3,
               "midpoint": 0.25,
-              "count": 246,
-              "positives": 112,
-              "averagePrediction": 0.27331156915411453,
-              "observedFrequency": 0.45564516129032256,
-              "calibratedProbability": 0.45564516129032256
+              "count": 26,
+              "positives": 16,
+              "averagePrediction": 0.26897594369919975,
+              "observedFrequency": 0.6071428571428571,
+              "calibratedProbability": 0.49081796953030454
             },
             {
               "index": 3,
               "lower": 0.3,
               "upper": 0.4,
               "midpoint": 0.35,
-              "count": 642,
-              "positives": 314,
-              "averagePrediction": 0.35267372712067485,
-              "observedFrequency": 0.4891304347826087,
-              "calibratedProbability": 0.4835107457493135
+              "count": 448,
+              "positives": 220,
+              "averagePrediction": 0.3704828888998965,
+              "observedFrequency": 0.4911111111111111,
+              "calibratedProbability": 0.49081796953030454
             },
             {
               "index": 4,
               "lower": 0.4,
               "upper": 0.5,
               "midpoint": 0.45,
-              "count": 1103,
-              "positives": 594,
-              "averagePrediction": 0.45089021606339824,
-              "observedFrequency": 0.5384615384615384,
-              "calibratedProbability": 0.4835107457493135
+              "count": 1498,
+              "positives": 787,
+              "averagePrediction": 0.4563312416258001,
+              "observedFrequency": 0.5253333333333333,
+              "calibratedProbability": 0.49081796953030454
             },
             {
               "index": 5,
               "lower": 0.5,
               "upper": 0.6,
               "midpoint": 0.55,
-              "count": 1050,
-              "positives": 547,
-              "averagePrediction": 0.5462857944342819,
-              "observedFrequency": 0.5209125475285171,
-              "calibratedProbability": 0.4835107457493135
+              "count": 1447,
+              "positives": 703,
+              "averagePrediction": 0.544568551300314,
+              "observedFrequency": 0.4858523119392685,
+              "calibratedProbability": 0.49081796953030454
             },
             {
               "index": 6,
               "lower": 0.6,
               "upper": 0.7,
               "midpoint": 0.6499999999999999,
-              "count": 629,
-              "positives": 222,
-              "averagePrediction": 0.6464407421140193,
-              "observedFrequency": 0.35340729001584786,
-              "calibratedProbability": 0.4835107457493135
+              "count": 440,
+              "positives": 171,
+              "averagePrediction": 0.6317444198626633,
+              "observedFrequency": 0.3891402714932127,
+              "calibratedProbability": 0.49081796953030454
             },
             {
               "index": 7,
               "lower": 0.7,
               "upper": 0.8,
               "midpoint": 0.75,
-              "count": 210,
-              "positives": 82,
-              "averagePrediction": 0.7265207265758319,
-              "observedFrequency": 0.3915094339622642,
-              "calibratedProbability": 0.4835107457493135
+              "count": 31,
+              "positives": 13,
+              "averagePrediction": 0.737092392788109,
+              "observedFrequency": 0.42424242424242425,
+              "calibratedProbability": 0.49081796953030454
             },
             {
               "index": 8,
               "lower": 0.8,
               "upper": 0.9,
               "midpoint": 0.8500000000000001,
-              "count": 10,
-              "positives": 2,
-              "averagePrediction": 0.824033018880528,
-              "observedFrequency": 0.25,
-              "calibratedProbability": 0.4835107457493135
+              "count": 3,
+              "positives": 0,
+              "averagePrediction": 0.8197988648128276,
+              "observedFrequency": 0.2,
+              "calibratedProbability": 0.49081796953030454
             },
             {
               "index": 9,
