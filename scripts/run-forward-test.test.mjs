@@ -172,6 +172,20 @@ const observationExpectations = [
   ['alligator', 'GBPUSD', 'h4', 20, 100, 25, 19],
 ];
 
+// state型(parabolicSarState / alligatorState)は正典レポートに存在しない別ランの
+// 出典なので、正典33件の表とは分けて固定する。id は型名の綴りが正典系と異なるため
+// 導出せず逐語で書く。列は [id, entryType, pair, timeframe, SL, TP, TR, cooldown, reportId]。
+const STATE_ENTRY_SAR_REPORT_ID = 'tune-virtual-strategies-2026-09-14T06-03-31-827Z';
+const STATE_ENTRY_ALLIGATOR_REPORT_ID = 'tune-virtual-strategies-2026-09-14T06-03-32-877Z';
+const stateEntryObservationExpectations = [
+  ['obs-sarstate-usdjpy-h4-v1', 'parabolicSarState', 'USDJPY', 'h4', 35, 140, null, 0, STATE_ENTRY_SAR_REPORT_ID],
+  ['obs-sarstate-eurusd-h4-v1', 'parabolicSarState', 'EURUSD', 'h4', 20, 160, null, 3, STATE_ENTRY_SAR_REPORT_ID],
+  ['obs-sarstate-gbpusd-h4-v1', 'parabolicSarState', 'GBPUSD', 'h4', 20, 220, null, 3, STATE_ENTRY_SAR_REPORT_ID],
+  ['obs-sarstate-audjpy-h4-v1', 'parabolicSarState', 'AUDJPY', 'h4', 20, 60, null, 3, STATE_ENTRY_SAR_REPORT_ID],
+  ['obs-alligatorstate-eurusd-h4-v1', 'alligatorState', 'EURUSD', 'h4', 50, 220, 25, 3, STATE_ENTRY_ALLIGATOR_REPORT_ID],
+  ['obs-alligatorstate-audjpy-h1-v1', 'alligatorState', 'AUDJPY', 'h1', 35, 60, null, 3, STATE_ENTRY_ALLIGATOR_REPORT_ID],
+];
+
 const emptyBacktestResult = (bars) => ({
   pair: 'USDJPY',
   spreadPips: 0.9,
@@ -230,11 +244,19 @@ describe('forward test runner', () => {
       }
     }
 
+    // 正典33件は不変。現物は「33 - 退役 + state型6件」になる。
     expect(observationExpectations).toHaveLength(33);
-    expect(observations).toHaveLength(activeExpectations.length);
+    expect(stateEntryObservationExpectations).toHaveLength(6);
+    const expectedObservationCount = activeExpectations.length
+      + stateEntryObservationExpectations.length;
+    expect(observations).toHaveLength(expectedObservationCount);
     expect(virtual).toHaveLength(await countAdoptedStrategyFiles());
     expect(new Set(observations.map((item) => item.meta.id)).size)
-      .toBe(activeExpectations.length);
+      .toBe(expectedObservationCount);
+    expect(new Set(observations.map((item) => item.meta.id))).toEqual(new Set([
+      ...activeExpectations.map(observationExpectationId),
+      ...stateEntryObservationExpectations.map(([id]) => id),
+    ]));
     expect(observations.some((item) => retiredObservationIds.has(item.meta.id))).toBe(false);
 
     for (const [entryType, pair, timeframe, stopLossPips, takeProfitPips, trailingStopPips, sourceEntry] of activeExpectations) {
@@ -284,6 +306,80 @@ describe('forward test runner', () => {
         });
       }
     }
+  });
+
+  it('registers the six state-entry observation candidates against the 2026-09-14 extracts', async () => {
+    const observations = await loadObservationStrategies();
+    const extracts = new Map();
+    for (const reportId of [STATE_ENTRY_SAR_REPORT_ID, STATE_ENTRY_ALLIGATOR_REPORT_ID]) {
+      extracts.set(reportId, JSON.parse(await readFile(
+        new URL(`../evidence/${reportId}.selected.json`, import.meta.url),
+        'utf8',
+      )));
+    }
+
+    const registeredAtValues = new Set();
+    for (const [
+      id, entryType, pair, timeframe, stopLossPips, takeProfitPips, trailingStopPips,
+      reentryCooldownBars, reportId,
+    ] of stateEntryObservationExpectations) {
+      const observation = observations.find((item) => item.meta.id === id);
+
+      expect(observation, `missing observation ${id}`).toBeDefined();
+      expect(observation.meta.pair).toBe(pair);
+      expect(observation.meta.timeframe).toBe(timeframe);
+      expect(observation.description).toContain('観察候補(未採用)');
+      expect(observation.description).toContain('エントリ 2026-09-14 (2)');
+      expect(observation.description).toContain(reportId);
+      expect(observation.entryConditions).toEqual([ENTRY_TYPE_PROFILES[entryType].entryCondition]);
+      expect(observation.exit).toMatchObject({
+        stopLossPips,
+        takeProfitPips,
+        trailingStopPips,
+        closeOnOppositeSignal: true,
+      });
+      // クールダウン0は省略と等価。0のときはキーを持たない。
+      expect(Object.hasOwn(observation.exit, 'reentryCooldownBars'))
+        .toBe(reentryCooldownBars > 0);
+      expect(observation.exit.reentryCooldownBars ?? 0).toBe(reentryCooldownBars);
+      expect(observation.sessionFilter.enabled).toBe(false);
+      expect(observation.selectionEvidence.reportId).toBe(reportId);
+      expect(observation.selectionEvidence.adoptedAt).toBe('2026-09-14');
+      expect(observation.selectionEvidence.candidatePool).toBe(280);
+      registeredAtValues.add(observation.meta.registeredAt);
+
+      const candidate = extracts.get(reportId).candidates.find((item) => (
+        item.entryType === entryType && item.pair === pair && item.timeframe === timeframe
+      ));
+      expect(candidate?.status).toBe('passed');
+      expect(candidate.combinationCount).toBe(280);
+      expect(observation.sessionFilter).toEqual(candidate.selectedCandidate.sessionFilter);
+      expect(candidate.selectedCandidate.parameters).toEqual({
+        stopLossPips,
+        takeProfitPips,
+        trailingStopPips,
+        reentryCooldownBars,
+      });
+      expect(observation.selectionEvidence).toMatchObject({
+        inSampleRank: candidate.selectedCandidate.rank,
+        optimization: {
+          netProfitYen: candidate.selectedCandidate.optimizationMetrics.netProfitYen,
+          profitFactor: candidate.selectedCandidate.optimizationMetrics.profitFactor,
+          tradeCount: candidate.selectedCandidate.optimizationMetrics.tradeCount,
+        },
+        validation: {
+          netProfitYen: candidate.selectedCandidate.validationMetrics.netProfitYen,
+          profitFactor: candidate.selectedCandidate.validationMetrics.profitFactor,
+        },
+        quarterlyStability: {
+          positive: candidate.selectedCandidate.quarterlyStability.positiveSegmentCount,
+          total: candidate.selectedCandidate.quarterlyStability.segmentCount,
+        },
+      });
+    }
+
+    // 6件は同一T0で登録する(判定プロトコルの起点を揃えるため)。
+    expect(registeredAtValues.size).toBe(1);
   });
 
   it('uses candidateMagicNumber values uniquely across every adopted EA and observation candidate', async () => {
@@ -526,6 +622,22 @@ describe('forward test runner', () => {
     expect(INDICATOR_SAR_MIN_STEP).toBe(0.02);
   });
 
+  it('validates state conditions and optional cooldown through the forward runner', () => {
+    for (const entryType of ['parabolicSarState', 'alligatorState']) {
+      const target = buildCandidateMatrix().find((candidate) => candidate.entryType === entryType);
+      const report = (candidate) => buildStrategyReport({ strategy: candidate, bars: [], usdJpyBars: [], runBacktest: emptyBacktestResult });
+      expect(() => report(target.strategy)).not.toThrow();
+      for (const reentryCooldownBars of [0, 3]) {
+        expect(() => report({ ...target.strategy, exit: { ...target.strategy.exit, reentryCooldownBars } })).not.toThrow();
+      }
+      for (const reentryCooldownBars of [-1, 0.5, NaN, Infinity, null]) {
+        expect(() => report({ ...target.strategy, exit: { ...target.strategy.exit, reentryCooldownBars } })).toThrow(/reentryCooldownBars must be a non-negative integer/);
+      }
+      const condition = { ...target.strategy.entryConditions[0], ...(entryType === 'parabolicSarState' ? { step: 0 } : { jawShift: -1 }) };
+      expect(() => report({ ...target.strategy, entryConditions: [condition] })).toThrow(entryType === 'parabolicSarState' ? /step/ : /jawShift/);
+    }
+  });
+
   it('exports a frozen entry condition type registry', () => {
     expect(Array.isArray(knownEntryConditionTypes)).toBe(true);
     expect(Object.isFrozen(knownEntryConditionTypes)).toBe(true);
@@ -549,6 +661,8 @@ describe('forward test runner', () => {
       'rvi',
       'envelope',
       'alligator',
+      'parabolicSarState',
+      'alligatorState',
     ]);
   });
 

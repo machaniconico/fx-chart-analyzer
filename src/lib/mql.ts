@@ -6,6 +6,7 @@ import type {
   CciBreakCondition,
   AdxTrendCondition,
   AlligatorCondition,
+  AlligatorStateCondition,
   AoCondition,
   DeMarkerCondition,
   DonchianBreakCondition,
@@ -20,6 +21,7 @@ import type {
   MovingAverageType,
   MomentumCondition,
   ParabolicSarCondition,
+  ParabolicSarStateCondition,
   RviCondition,
   RsiComparison,
   RsiCondition,
@@ -27,7 +29,7 @@ import type {
   StochasticCondition,
   StrategyDefinition,
 } from './strategy';
-import { defaultMoneyManagement } from './strategy';
+import { defaultMoneyManagement, reentryCooldownBarsForStrategy } from './strategy';
 
 const boolLiteral = (value: boolean): string => (value ? 'true' : 'false');
 
@@ -155,6 +157,7 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input int InpADX${index}Period = ${integerLiteral(condition.period)};`,
         `input double InpADX${index}Threshold = ${numberLiteral(condition.threshold)};`,
       ];
+    case 'parabolicSarState':
     case 'parabolicSar':
       return [
         `input double InpSAR${index}Step = ${numberLiteral(condition.step)};`,
@@ -182,6 +185,7 @@ const conditionInputLines = (condition: EntryCondition, index: number, mql5: boo
         `input int InpStoch${index}DPeriod = ${integerLiteral(condition.dPeriod)};`,
         `input int InpStoch${index}Smoothing = ${integerLiteral(condition.smoothing)};`,
       ];
+    case 'alligatorState':
     case 'alligator':
       return [
         `input int InpAlligator${index}JawPeriod = ${integerLiteral(condition.jawPeriod)};`,
@@ -218,6 +222,8 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mqlStochasticCondition(condition, index);
     case 'stochCross':
       return mqlStochCrossCondition(condition, index);
+    case 'alligatorState':
+      return mqlAlligatorStateCondition(condition, index);
     case 'alligator':
       return mqlAlligatorCondition(condition, index);
     case 'keltnerBreak':
@@ -226,6 +232,7 @@ const mql5ConditionFunction = (condition: EntryCondition, index: number): string
       return mql5CciCondition(condition, index);
     case 'adxTrend':
       return mql5AdxCondition(condition, index);
+    case 'parabolicSarState':
     case 'parabolicSar':
       return mql5ParabolicSarCondition(condition, index);
     case 'momentum':
@@ -261,6 +268,8 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mqlStochasticCondition(condition, index);
     case 'stochCross':
       return mqlStochCrossCondition(condition, index);
+    case 'alligatorState':
+      return mqlAlligatorStateCondition(condition, index);
     case 'alligator':
       return mqlAlligatorCondition(condition, index);
     case 'keltnerBreak':
@@ -269,6 +278,7 @@ const mql4ConditionFunction = (condition: EntryCondition, index: number): string
       return mql4CciCondition(condition, index);
     case 'adxTrend':
       return mql4AdxCondition(condition, index);
+    case 'parabolicSarState':
     case 'parabolicSar':
       return mql4ParabolicSarCondition(condition, index);
     case 'momentum':
@@ -1332,6 +1342,7 @@ type ParabolicSarIndicatorExpressions = {
 const mqlParabolicSarCondition = (
   index: number,
   expressions: ParabolicSarIndicatorExpressions,
+  stateOnly = false,
 ): string => `
 ${parabolicSarParityComment}
 bool SarDirectionIsLong${index}(double sar, double high, double low)
@@ -1365,7 +1376,7 @@ ${expressions.warmupPrelude}
   // Cache failures as well: the same chart bar must not rescan full history.
   cachedResult = false;
   int totalBars = Bars(_Symbol, _Period);
-  if(totalBars <= signalShift + 1)
+  if(totalBars <= ${stateOnly ? 'signalShift' : 'signalShift + 1'})
   {
     return false;
   }
@@ -1373,7 +1384,7 @@ ${expressions.warmupPrelude}
   int reversalCount = 0;
   bool previousIsLong = false;
   bool hasPrevious = false;
-  for(int shift = totalBars - 1; shift >= signalShift + 1; shift--)
+  for(int shift = totalBars - 1; shift >= ${stateOnly ? 'signalShift' : 'signalShift + 1'}; shift--)
   {
     if(iTime(_Symbol, _Period, shift) == 0)
     {
@@ -1424,11 +1435,12 @@ ${expressions.warmupPrelude}
   {
     return false;
   }
-  // The TS signal needs both index-1 and index, so a reversal on signalShift
-  // itself is not countable. Require the older point to be at least
+${stateOnly ? `  // The TS state signal needs only index; count reversals through signalShift.
+  // Require that signal point to be at least` : `  // The TS signal needs both index-1 and index, so a reversal on signalShift
+  // itself is not countable. Require the older point to be at least`}
   // ${SAR_CONVERGENCE_WARMUP_BARS} bars after the first reversal (interpolated
   // from indicators.ts so the TS gate and the generated EA cannot drift).
-  cachedResult = firstReversalShift - (signalShift + 1) >= ${SAR_CONVERGENCE_WARMUP_BARS};
+  cachedResult = firstReversalShift - (${stateOnly ? 'signalShift' : 'signalShift + 1'}) >= ${SAR_CONVERGENCE_WARMUP_BARS};
   return cachedResult;
 }
 
@@ -1447,7 +1459,18 @@ bool Condition${index}(bool longSide)
   {
     return false;
   }
-  double previousSar = ${expressions.value('2')};
+${stateOnly ? `  double currentSar = ${expressions.value('1')};
+  double currentHigh = iHigh(_Symbol, _Period, 1);
+  double currentLow = iLow(_Symbol, _Period, 1);
+  if(!ValueReady(currentSar) || !MathIsValidNumber(currentSar) ||
+    !ValueReady(currentHigh) || !MathIsValidNumber(currentHigh) ||
+    !ValueReady(currentLow) || !MathIsValidNumber(currentLow) ||
+    !(currentSar > 0.0 && currentHigh > 0.0 && currentLow > 0.0))
+  {
+    return false;
+  }
+  bool currentIsLong = SarDirectionIsLong${index}(currentSar, currentHigh, currentLow);
+  return longSide ? currentIsLong : !currentIsLong;` : `  double previousSar = ${expressions.value('2')};
   double currentSar = ${expressions.value('1')};
   double previousHigh = iHigh(_Symbol, _Period, 2);
   double currentHigh = iHigh(_Symbol, _Period, 1);
@@ -1473,18 +1496,23 @@ bool Condition${index}(bool longSide)
   {
     return !previousIsLong && currentIsLong;
   }
-  return previousIsLong && !currentIsLong;
+  return previousIsLong && !currentIsLong;`}
 }
 `;
 
-const mql5ParabolicSarCondition = (_condition: ParabolicSarCondition, index: number): string =>
-  mqlParabolicSarCondition(index, {
+const mqlParabolicSarStateCondition = (
+  index: number,
+  expressions: ParabolicSarIndicatorExpressions,
+): string => mqlParabolicSarCondition(index, expressions, true);
+
+const mql5ParabolicSarCondition = (condition: ParabolicSarCondition | ParabolicSarStateCondition, index: number): string =>
+  (condition.type === 'parabolicSarState' ? mqlParabolicSarStateCondition : mqlParabolicSarCondition)(index, {
     value: (shift) => `BufferValue(sar${index}Handle, 0, ${shift})`,
     warmupPrelude: '',
   });
 
-const mql4ParabolicSarCondition = (_condition: ParabolicSarCondition, index: number): string =>
-  mqlParabolicSarCondition(index, {
+const mql4ParabolicSarCondition = (condition: ParabolicSarCondition | ParabolicSarStateCondition, index: number): string =>
+  (condition.type === 'parabolicSarState' ? mqlParabolicSarStateCondition : mqlParabolicSarCondition)(index, {
     value: (shift) => `iSAR(_Symbol, _Period, step, maximum, ${shift})`,
     warmupPrelude: `  double step = InpSAR${index}Step;\n  double maximum = InpSAR${index}Maximum;`,
   });
@@ -1492,7 +1520,7 @@ const mql4ParabolicSarCondition = (_condition: ParabolicSarCondition, index: num
 const mql4EntryConditionOnInit = (conditions: readonly EntryCondition[]): string => {
   const initGuardLines = conditions.flatMap((condition, index) => {
     const conditionIndex = index + 1;
-    if (condition.type === 'parabolicSar') {
+    if ((condition.type === 'parabolicSar' || condition.type === 'parabolicSarState')) {
       // SAR_MIN_STEP is pipeline policy and remains warning-only below it;
       // the separate evaluator-domain guard must fail initialization.
       return [
@@ -1574,7 +1602,7 @@ const mql4EntryConditionOnInit = (conditions: readonly EntryCondition[]): string
         '  }',
       ];
     }
-    if (condition.type === 'alligator') {
+    if ((condition.type === 'alligator' || condition.type === 'alligatorState')) {
       return [
         // Inputs are integers in MQL; keep the evaluator's full period/shift
         // domain and strict ordering explicit in the generated EA.
@@ -1853,7 +1881,11 @@ const alligatorParityComment = `
 // 1+displayShift and 2+displayShift for the current and previous closed bars.
 `;
 
-const mqlAlligatorCondition = (_condition: AlligatorCondition, index: number): string => `
+const mqlAlligatorCondition = (
+  _condition: AlligatorCondition | AlligatorStateCondition,
+  index: number,
+  stateOnly = false,
+): string => `
 ${alligatorParityComment}
 bool AlligatorWarmupReady${index}()
 {
@@ -1872,8 +1904,8 @@ bool AlligatorWarmupReady${index}()
     return false;
   }
   int requiredShift = 1 + jawShift + jawPeriod - 1;
-  int teethRequiredShift = 2 + teethShift + teethPeriod - 1;
-  int lipsRequiredShift = 2 + lipsShift + lipsPeriod - 1;
+  int teethRequiredShift = ${stateOnly ? 1 : 2} + teethShift + teethPeriod - 1;
+  int lipsRequiredShift = ${stateOnly ? 1 : 2} + lipsShift + lipsPeriod - 1;
   if(teethRequiredShift > requiredShift)
   {
     requiredShift = teethRequiredShift;
@@ -1929,8 +1961,8 @@ bool AlligatorValues${index}(
   int jawShift = InpAlligator${index}JawShift;
   int teethShift = InpAlligator${index}TeethShift;
   int lipsShift = InpAlligator${index}LipsShift;
-  int previousLipsTarget = 2 + lipsShift;
-  int previousTeethTarget = 2 + teethShift;
+  int previousLipsTarget = ${stateOnly ? 1 : 2} + lipsShift;
+  int previousTeethTarget = ${stateOnly ? 1 : 2} + teethShift;
   int currentLipsTarget = 1 + lipsShift;
   int currentTeethTarget = 1 + teethShift;
   int currentJawTarget = 1 + jawShift;
@@ -2135,11 +2167,14 @@ bool Condition${index}(bool longSide)
   }
   if(longSide)
   {
-    return previousLips <= previousTeeth && currentLips > currentTeeth && currentTeeth > currentJaw;
+    return ${stateOnly ? '' : 'previousLips <= previousTeeth && '}currentLips > currentTeeth && currentTeeth > currentJaw;
   }
-  return previousLips >= previousTeeth && currentLips < currentTeeth && currentTeeth < currentJaw;
+  return ${stateOnly ? '' : 'previousLips >= previousTeeth && '}currentLips < currentTeeth && currentTeeth < currentJaw;
 }
 `;
+
+const mqlAlligatorStateCondition = (condition: AlligatorStateCondition, index: number): string =>
+  mqlAlligatorCondition(condition, index, true);
 
 const mql5MacdCondition = (_condition: MacdCrossCondition, index: number): string => `
 bool Condition${index}(bool longSide)
@@ -2298,6 +2333,90 @@ ${ichimokuParityComment}${ichimokuDisplacementWarning(condition)}bool Condition$
 }
 `;
 
+const reentryCooldownFunction = (strategy: StrategyDefinition, mql5: boolean): string => {
+  const bars = reentryCooldownBarsForStrategy(strategy);
+  if (bars === 0) {
+    return '';
+  }
+  return `${mql5 ? `
+// A small growing hash set keeps the history scan amortized O(n).
+bool CooldownPositionKnown(ulong &ids[], int &count, ulong id, bool latch)
+{
+  if(id == 0) return false;
+  int capacity = ArraySize(ids);
+  if(latch && count * 2 >= capacity)
+  {
+    int nextCapacity = capacity == 0 ? 16 : capacity * 2;
+    ulong previous[];
+    if(capacity > 0 && ArrayCopy(previous, ids) != capacity) return false;
+    if(ArrayResize(ids, nextCapacity) != nextCapacity) return false;
+    ArrayInitialize(ids, 0);
+    for(int i = 0; i < capacity; i++)
+    {
+      if(previous[i] == 0) continue;
+      int slot = (int)(previous[i] % (ulong)nextCapacity);
+      while(ids[slot] != 0) slot = (slot + 1) % nextCapacity;
+      ids[slot] = previous[i];
+    }
+    capacity = nextCapacity;
+  }
+  if(capacity == 0) return false;
+  int slot = (int)(id % (ulong)capacity);
+  while(ids[slot] != 0 && ids[slot] != id) slot = (slot + 1) % capacity;
+  if(ids[slot] == id) return true;
+  if(!latch) return false;
+  ids[slot] = id;
+  count++;
+  return true;
+}
+` : ''}
+bool ReentryCooldownAllows()
+{
+  datetime lastClose = 0;
+${mql5 ? `  if(!HistorySelect(0, TimeCurrent()))
+  {
+    return false;
+  }
+  ulong positionIds[];
+  int positionCount = 0;
+  int dealCount = HistoryDealsTotal();
+  for(int i = 0; i < dealCount; i++)
+  {
+    ulong ticket = HistoryDealGetTicket(i);
+    if(ticket == 0) continue;
+    if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol) continue;
+    long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
+    bool magicMatches = HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagicNumber;
+    ulong positionId = (ulong)HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
+    if(entry == DEAL_ENTRY_IN && magicMatches &&
+      !CooldownPositionKnown(positionIds, positionCount, positionId, true)) return false;
+    // Server SL/TP deals may omit Magic; match either Magic or a latched entry position ID.
+    if((entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY) &&
+      (magicMatches || CooldownPositionKnown(positionIds, positionCount, positionId, false)))
+    {
+      datetime closeTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
+      if(closeTime > lastClose) lastClose = closeTime;
+    }
+  }` : `  // Truncated terminal account history can fail open; select "All History" in the terminal.
+  for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+  {
+    if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+    if(OrderMagicNumber() == InpMagicNumber && OrderSymbol() == Symbol() &&
+      (OrderType() == OP_BUY || OrderType() == OP_SELL))
+    {
+      datetime closeTime = OrderCloseTime();
+      if(closeTime > lastClose) lastClose = closeTime;
+    }
+  }`}
+  if(lastClose == 0) return true;
+  int elapsedBars = iBarShift(_Symbol, _Period, lastClose);
+  // TS blocks entry search while index < closeIndex + N. MQL evaluates shift 1,
+  // so index - closeIndex == elapsedBars - 1; allow entry when elapsedBars - 1 >= N.
+  return elapsedBars >= 0 && elapsedBars - 1 >= ${bars};
+}
+`;
+};
+
 const entrySignalFunction = (strategy: StrategyDefinition): string => {
   if (strategy.entryConditions.length === 0) {
     return `
@@ -2386,6 +2505,7 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
         return [`int cci${conditionIndex}Handle = INVALID_HANDLE;`];
       case 'adxTrend':
         return [`int adx${conditionIndex}Handle = INVALID_HANDLE;`];
+      case 'parabolicSarState':
       case 'parabolicSar':
         return [`int sar${conditionIndex}Handle = INVALID_HANDLE;`];
       case 'momentum':
@@ -2409,6 +2529,7 @@ const mql5HandleDeclarations = (conditions: readonly EntryCondition[]): string[]
         return [];
       case 'stochCross':
         return [];
+      case 'alligatorState':
       case 'alligator':
         // Alligator is calculated directly from OHLC for operation-order parity.
         return [];
@@ -2495,6 +2616,7 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '    return INIT_FAILED;',
           '  }',
         ];
+      case 'parabolicSarState':
       case 'parabolicSar':
         return [
           // SAR_MIN_STEP is pipeline policy and remains warning-only below it;
@@ -2574,6 +2696,7 @@ const mql5HandleInitLines = (conditions: readonly EntryCondition[]): string[] =>
           '    return INIT_FAILED;',
           '  }',
         ];
+      case 'alligatorState':
       case 'alligator':
         return [
           `  if(InpAlligator${conditionIndex}JawPeriod < 2 || InpAlligator${conditionIndex}JawPeriod > 1000 || InpAlligator${conditionIndex}TeethPeriod < 2 || InpAlligator${conditionIndex}TeethPeriod > 1000 || InpAlligator${conditionIndex}LipsPeriod < 2 || InpAlligator${conditionIndex}LipsPeriod > 1000 || InpAlligator${conditionIndex}JawPeriod <= InpAlligator${conditionIndex}TeethPeriod || InpAlligator${conditionIndex}TeethPeriod <= InpAlligator${conditionIndex}LipsPeriod || InpAlligator${conditionIndex}JawShift < 0 || InpAlligator${conditionIndex}JawShift > 500 || InpAlligator${conditionIndex}TeethShift < 0 || InpAlligator${conditionIndex}TeethShift > 500 || InpAlligator${conditionIndex}LipsShift < 0 || InpAlligator${conditionIndex}LipsShift > 500 || InpAlligator${conditionIndex}JawShift <= InpAlligator${conditionIndex}TeethShift || InpAlligator${conditionIndex}TeethShift <= InpAlligator${conditionIndex}LipsShift)`,
@@ -2611,6 +2734,7 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
         return [`  ReleaseIndicator(cci${conditionIndex}Handle);`];
       case 'adxTrend':
         return [`  ReleaseIndicator(adx${conditionIndex}Handle);`];
+      case 'parabolicSarState':
       case 'parabolicSar':
         return [`  ReleaseIndicator(sar${conditionIndex}Handle);`];
       case 'momentum':
@@ -2629,6 +2753,7 @@ const mql5HandleReleaseLines = (conditions: readonly EntryCondition[]): string[]
         return [];
       case 'stochCross':
         return [];
+      case 'alligatorState':
       case 'alligator':
         return [];
     }
@@ -2903,7 +3028,7 @@ ${handleReleaseLines}
 }
 
 ${conditionFunctions}
-${entrySignalFunction(strategy)}
+${reentryCooldownFunction(strategy, true)}${entrySignalFunction(strategy)}
 
 bool IsNewBar()
 {
@@ -3019,7 +3144,7 @@ void OnTick()
     }
     return;
   }
-  if(EntryFiltersAllow() && EntrySignal(InpTradeLong))
+  if(${reentryCooldownBarsForStrategy(strategy) > 0 ? 'ReentryCooldownAllows() && ' : ''}EntryFiltersAllow() && EntrySignal(InpTradeLong))
   {
     OpenPosition();
   }
@@ -3182,7 +3307,7 @@ bool EntryFiltersAllow()
 }
 
 ${conditionFunctions}
-${entrySignalFunction(strategy)}
+${reentryCooldownFunction(strategy, false)}${entrySignalFunction(strategy)}
 
 bool IsNewBar()
 {
@@ -3317,7 +3442,7 @@ void OnTick()
     }
     return;
   }
-  if(EntryFiltersAllow() && EntrySignal(InpTradeLong))
+  if(${reentryCooldownBarsForStrategy(strategy) > 0 ? 'ReentryCooldownAllows() && ' : ''}EntryFiltersAllow() && EntrySignal(InpTradeLong))
   {
     OpenPosition();
   }

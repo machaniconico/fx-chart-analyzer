@@ -1,0 +1,1365 @@
+{
+  "schemaVersion": 1,
+  "note": "正典レポートから再現判定に必要な部分のみを抽出したもの。数値は逐語コピーで丸めない。",
+  "source": {
+    "reportId": "tune-virtual-strategies-2026-09-14T06-03-31-827Z",
+    "generatedAt": "2026-09-14T06:03:31.827Z",
+    "schemaVersion": 1,
+    "sha256": "ee82a109bcb6881e1e1d3d8b335a2eae471fbf0ef64b911ad2db06fc1d250bb6",
+    "bytes": 9346254
+  },
+  "selectionPolicy": {
+    "ranking": [
+      "optimization.netProfitYen descending",
+      "optimization.maxDrawdownYen ascending"
+    ],
+    "legacyPrefilter": {
+      "field": "optimization.profitFactor",
+      "operator": ">=",
+      "threshold": 1
+    },
+    "gate": {
+      "optimizationNetProfitYen": {
+        "operator": ">",
+        "threshold": 0
+      },
+      "validationNetProfitYen": {
+        "operator": ">",
+        "threshold": 0
+      },
+      "validationTradeCount": {
+        "operator": ">=",
+        "threshold": 10
+      },
+      "overfitWarning": {
+        "operator": "===",
+        "threshold": false
+      },
+      "validationToOptimizationRatio": {
+        "operator": ">=",
+        "threshold": 0.35
+      }
+    }
+  },
+  "filters": {
+    "pairs": [],
+    "entryTypes": [
+      "parabolicSarState"
+    ],
+    "timeframes": [],
+    "deepHistory": true,
+    "walkForward": true
+  },
+  "matrix": {
+    "pairs": [
+      "USDJPY",
+      "EURUSD",
+      "GBPJPY",
+      "EURJPY",
+      "GBPUSD",
+      "AUDJPY"
+    ],
+    "entryTypeTimeframes": {
+      "maCross": [
+        "h1",
+        "h4"
+      ],
+      "rsi": [
+        "m30",
+        "h1"
+      ],
+      "bollinger": [
+        "m30",
+        "h1"
+      ],
+      "macdCross": [
+        "h1",
+        "h4"
+      ],
+      "donchianBreak": [
+        "h1",
+        "h4"
+      ],
+      "stochastic": [
+        "m30",
+        "h1"
+      ],
+      "ichimokuCross": [
+        "h1",
+        "h4"
+      ],
+      "keltnerBreak": [
+        "h1",
+        "h4"
+      ],
+      "cciBreak": [
+        "m30",
+        "h1"
+      ],
+      "adxTrend": [
+        "h1",
+        "h4"
+      ],
+      "parabolicSar": [
+        "h1",
+        "h4"
+      ],
+      "momentum": [
+        "h1",
+        "h4"
+      ],
+      "rvi": [
+        "h1",
+        "h4"
+      ],
+      "demarker": [
+        "h1",
+        "h4"
+      ],
+      "ao": [
+        "h1",
+        "h4"
+      ],
+      "envelope": [
+        "h1",
+        "h4"
+      ],
+      "stochCross": [
+        "m30",
+        "h1"
+      ],
+      "alligator": [
+        "h1",
+        "h4"
+      ],
+      "parabolicSarState": [
+        "h1",
+        "h4"
+      ],
+      "alligatorState": [
+        "h1",
+        "h4"
+      ]
+    },
+    "definedCandidateCount": 240,
+    "evaluatedCandidateCount": 12
+  },
+  "summary": {
+    "candidateCount": 12,
+    "passedCandidateCount": 6,
+    "rejectedCandidateCount": 6,
+    "referenceSpanBelowTargetCount": 0,
+    "combinationCount": 3360,
+    "passedCombinationCount": 164,
+    "rejectedCombinationCount": 3196,
+    "usedFallbackUsdJpyRateCount": 0,
+    "usdJpyFallbackUncoveredReferenceSpanRatioSum": 0,
+    "usdJpyFallbackUncoveredReferenceSpanRatioAverage": null,
+    "usdJpyFallbackUncoveredReferenceSpanRatioMax": null
+  },
+  "provenance": {
+    "deepHistory": true
+  },
+  "candidates": [
+    {
+      "id": "tune-parabolicsarstate-usdjpy-h1-v1",
+      "pair": "USDJPY",
+      "entryType": "parabolicSarState",
+      "timeframe": "h1",
+      "status": "passed",
+      "dataWindow": {
+        "referenceBars": 12572,
+        "optimizationBars": 8800,
+        "validationBars": 3772,
+        "referenceSpanDays": 736.9583333333334,
+        "validationSpanDays": 222.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "USDJPY",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [],
+      "combinationCount": 280,
+      "selectedCandidate": {
+        "rank": 1,
+        "status": "passed",
+        "selected": true,
+        "parameters": {
+          "stopLossPips": 20,
+          "takeProfitPips": 140,
+          "trailingStopPips": null,
+          "reentryCooldownBars": 3
+        },
+        "sessionLabel": "なし",
+        "sessionFilter": {
+          "enabled": false,
+          "start": "00:00",
+          "end": "23:59",
+          "serverUtcOffsetMinutes": 0
+        },
+        "optimizationMetrics": {
+          "netProfitYen": 230278,
+          "profitFactor": 1.0398636163614665,
+          "maxDrawdownYen": 462318,
+          "maxDrawdownPct": 44.00643841575383,
+          "tradeCount": 952,
+          "winRate": 26.99579831932773
+        },
+        "validationMetrics": {
+          "netProfitYen": 201937,
+          "profitFactor": 1.0920443828800557,
+          "maxDrawdownYen": 423850,
+          "maxDrawdownPct": 28.61450053401126,
+          "tradeCount": 330,
+          "winRate": 31.515151515151512
+        },
+        "selectionEvidence": {
+          "optimizationNetProfitYen": {
+            "actual": 230278,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationNetProfitYen": {
+            "actual": 201937,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationTradeCount": {
+            "actual": 330,
+            "operator": ">=",
+            "threshold": 10,
+            "passed": true
+          },
+          "overfitWarning": {
+            "actual": false,
+            "operator": "===",
+            "threshold": false,
+            "passed": true
+          },
+          "validationToOptimizationRatio": {
+            "actual": 0.8769270186470266,
+            "operator": ">=",
+            "threshold": 0.35,
+            "passed": true
+          }
+        },
+        "rejectionReasons": [],
+        "quarterlyChecked": true,
+        "quarterlyResults": [
+          {
+            "startTime": 1719320400,
+            "endTime": 1735236000,
+            "barCount": 3159,
+            "netProfitYen": 10485,
+            "profitFactor": 1.00450685893639,
+            "tradeCount": 353
+          },
+          {
+            "startTime": 1735239600,
+            "endTime": 1751054400,
+            "barCount": 3123,
+            "netProfitYen": 61011,
+            "profitFactor": 1.0322583374089593,
+            "tradeCount": 348
+          },
+          {
+            "startTime": 1751230800,
+            "endTime": 1767074400,
+            "barCount": 3139,
+            "netProfitYen": 345013,
+            "profitFactor": 1.1809809321478217,
+            "tradeCount": 283
+          },
+          {
+            "startTime": 1767078000,
+            "endTime": 1782993600,
+            "barCount": 3151,
+            "netProfitYen": 124323,
+            "profitFactor": 1.074939465779856,
+            "tradeCount": 272
+          }
+        ],
+        "quarterlyStability": {
+          "mode": "selected-parameter-quarterly-stability",
+          "segmentCount": 4,
+          "positiveSegmentCount": 4,
+          "requiredPositiveSegmentCount": 3,
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "tune-parabolicsarstate-usdjpy-h4-v1",
+      "pair": "USDJPY",
+      "entryType": "parabolicSarState",
+      "timeframe": "h4",
+      "status": "passed",
+      "dataWindow": {
+        "referenceBars": 3251,
+        "optimizationBars": 2275,
+        "validationBars": 976,
+        "referenceSpanDays": 736.8333333333334,
+        "validationSpanDays": 220.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "USDJPY",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [],
+      "combinationCount": 280,
+      "selectedCandidate": {
+        "rank": 17,
+        "status": "passed",
+        "selected": true,
+        "parameters": {
+          "stopLossPips": 35,
+          "takeProfitPips": 140,
+          "trailingStopPips": null,
+          "reentryCooldownBars": 0
+        },
+        "sessionLabel": "なし",
+        "sessionFilter": {
+          "enabled": false,
+          "start": "00:00",
+          "end": "23:59",
+          "serverUtcOffsetMinutes": 0
+        },
+        "optimizationMetrics": {
+          "netProfitYen": 259226,
+          "profitFactor": 1.0648282336653363,
+          "maxDrawdownYen": 535603,
+          "maxDrawdownPct": 43.53582744432469,
+          "tradeCount": 587,
+          "winRate": 25.2129471890971
+        },
+        "validationMetrics": {
+          "netProfitYen": 111230,
+          "profitFactor": 1.1107596039619736,
+          "maxDrawdownYen": 323248,
+          "maxDrawdownPct": 23.899436169441973,
+          "tradeCount": 143,
+          "winRate": 32.16783216783217
+        },
+        "selectionEvidence": {
+          "optimizationNetProfitYen": {
+            "actual": 259226,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationNetProfitYen": {
+            "actual": 111230,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationTradeCount": {
+            "actual": 143,
+            "operator": ">=",
+            "threshold": 10,
+            "passed": true
+          },
+          "overfitWarning": {
+            "actual": false,
+            "operator": "===",
+            "threshold": false,
+            "passed": true
+          },
+          "validationToOptimizationRatio": {
+            "actual": 0.4290850454815489,
+            "operator": ">=",
+            "threshold": 0.35,
+            "passed": true
+          }
+        },
+        "rejectionReasons": [],
+        "quarterlyChecked": true,
+        "quarterlyResults": [
+          {
+            "startTime": 1719331200,
+            "endTime": 1735243200,
+            "barCount": 817,
+            "netProfitYen": 8980,
+            "profitFactor": 1.0054774233175985,
+            "tradeCount": 213
+          },
+          {
+            "startTime": 1735257600,
+            "endTime": 1751054400,
+            "barCount": 807,
+            "netProfitYen": -43901,
+            "profitFactor": 0.971904115217383,
+            "tradeCount": 231
+          },
+          {
+            "startTime": 1751227200,
+            "endTime": 1767067200,
+            "barCount": 812,
+            "netProfitYen": 293138,
+            "profitFactor": 1.3445552980116882,
+            "tradeCount": 127
+          },
+          {
+            "startTime": 1767081600,
+            "endTime": 1782993600,
+            "barCount": 815,
+            "netProfitYen": 71973,
+            "profitFactor": 1.0861812760811127,
+            "tradeCount": 121
+          }
+        ],
+        "quarterlyStability": {
+          "mode": "selected-parameter-quarterly-stability",
+          "segmentCount": 4,
+          "positiveSegmentCount": 3,
+          "requiredPositiveSegmentCount": 3,
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "tune-parabolicsarstate-eurusd-h1-v1",
+      "pair": "EURUSD",
+      "entryType": "parabolicSarState",
+      "timeframe": "h1",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 12572,
+        "optimizationBars": 8800,
+        "validationBars": 3772,
+        "referenceSpanDays": 736.9583333333334,
+        "validationSpanDays": 222.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": "deep-history",
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "EURUSD",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        },
+        "usdJpyBars": {
+          "source": "deep-history",
+          "pair": "USDJPY",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        }
+      },
+      "rejectionReasons": [
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 280
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-parabolicsarstate-eurusd-h4-v1",
+      "pair": "EURUSD",
+      "entryType": "parabolicSarState",
+      "timeframe": "h4",
+      "status": "passed",
+      "dataWindow": {
+        "referenceBars": 3251,
+        "optimizationBars": 2275,
+        "validationBars": 976,
+        "referenceSpanDays": 736.8333333333334,
+        "validationSpanDays": 220.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": "deep-history",
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "EURUSD",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        },
+        "usdJpyBars": {
+          "source": "deep-history",
+          "pair": "USDJPY",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        }
+      },
+      "rejectionReasons": [],
+      "combinationCount": 280,
+      "selectedCandidate": {
+        "rank": 1,
+        "status": "passed",
+        "selected": true,
+        "parameters": {
+          "stopLossPips": 20,
+          "takeProfitPips": 160,
+          "trailingStopPips": null,
+          "reentryCooldownBars": 3
+        },
+        "sessionLabel": "なし",
+        "sessionFilter": {
+          "enabled": false,
+          "start": "00:00",
+          "end": "23:59",
+          "serverUtcOffsetMinutes": 0
+        },
+        "optimizationMetrics": {
+          "netProfitYen": 178400,
+          "profitFactor": 1.101899418876296,
+          "maxDrawdownYen": 290012,
+          "maxDrawdownPct": 22.89788221846653,
+          "tradeCount": 238,
+          "winRate": 25.630252100840334
+        },
+        "validationMetrics": {
+          "netProfitYen": 116172,
+          "profitFactor": 1.1801174921974205,
+          "maxDrawdownYen": 169550,
+          "maxDrawdownPct": 13.881555556747724,
+          "tradeCount": 90,
+          "winRate": 26.666666666666668
+        },
+        "selectionEvidence": {
+          "optimizationNetProfitYen": {
+            "actual": 178400,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationNetProfitYen": {
+            "actual": 116172,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationTradeCount": {
+            "actual": 90,
+            "operator": ">=",
+            "threshold": 10,
+            "passed": true
+          },
+          "overfitWarning": {
+            "actual": false,
+            "operator": "===",
+            "threshold": false,
+            "passed": true
+          },
+          "validationToOptimizationRatio": {
+            "actual": 0.6511883408071749,
+            "operator": ">=",
+            "threshold": 0.35,
+            "passed": true
+          }
+        },
+        "rejectionReasons": [],
+        "quarterlyChecked": true,
+        "quarterlyResults": [
+          {
+            "startTime": 1719331200,
+            "endTime": 1735243200,
+            "barCount": 817,
+            "netProfitYen": -123976,
+            "profitFactor": 0.7623738085243815,
+            "tradeCount": 76
+          },
+          {
+            "startTime": 1735257600,
+            "endTime": 1751054400,
+            "barCount": 807,
+            "netProfitYen": 146330,
+            "profitFactor": 1.1884802052634833,
+            "tradeCount": 90
+          },
+          {
+            "startTime": 1751227200,
+            "endTime": 1767067200,
+            "barCount": 812,
+            "netProfitYen": 119934,
+            "profitFactor": 1.2798632582342577,
+            "tradeCount": 68
+          },
+          {
+            "startTime": 1767081600,
+            "endTime": 1782993600,
+            "barCount": 815,
+            "netProfitYen": 30923,
+            "profitFactor": 1.058008070068151,
+            "tradeCount": 75
+          }
+        ],
+        "quarterlyStability": {
+          "mode": "selected-parameter-quarterly-stability",
+          "segmentCount": 4,
+          "positiveSegmentCount": 3,
+          "requiredPositiveSegmentCount": 3,
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "tune-parabolicsarstate-gbpjpy-h1-v1",
+      "pair": "GBPJPY",
+      "entryType": "parabolicSarState",
+      "timeframe": "h1",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 12572,
+        "optimizationBars": 8800,
+        "validationBars": 3772,
+        "referenceSpanDays": 736.9583333333334,
+        "validationSpanDays": 222.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "GBPJPY",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 279
+        },
+        {
+          "code": "validation_retention_below_threshold",
+          "message": "検証保持率が0.35未満",
+          "count": 6
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 280
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-parabolicsarstate-gbpjpy-h4-v1",
+      "pair": "GBPJPY",
+      "entryType": "parabolicSarState",
+      "timeframe": "h4",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 3251,
+        "optimizationBars": 2275,
+        "validationBars": 976,
+        "referenceSpanDays": 736.8333333333334,
+        "validationSpanDays": 220.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "GBPJPY",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 280
+        },
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 121
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-parabolicsarstate-eurjpy-h1-v1",
+      "pair": "EURJPY",
+      "entryType": "parabolicSarState",
+      "timeframe": "h1",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 12572,
+        "optimizationBars": 8800,
+        "validationBars": 3772,
+        "referenceSpanDays": 736.9583333333334,
+        "validationSpanDays": 222.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "EURJPY",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "validation_retention_below_threshold",
+          "message": "検証保持率が0.35未満",
+          "count": 4
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 280
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-parabolicsarstate-eurjpy-h4-v1",
+      "pair": "EURJPY",
+      "entryType": "parabolicSarState",
+      "timeframe": "h4",
+      "status": "passed",
+      "dataWindow": {
+        "referenceBars": 3251,
+        "optimizationBars": 2275,
+        "validationBars": 976,
+        "referenceSpanDays": 736.8333333333334,
+        "validationSpanDays": 220.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "EURJPY",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [],
+      "combinationCount": 280,
+      "selectedCandidate": {
+        "rank": 11,
+        "status": "passed",
+        "selected": true,
+        "parameters": {
+          "stopLossPips": 65,
+          "takeProfitPips": 160,
+          "trailingStopPips": null,
+          "reentryCooldownBars": 0
+        },
+        "sessionLabel": "なし",
+        "sessionFilter": {
+          "enabled": false,
+          "start": "00:00",
+          "end": "23:59",
+          "serverUtcOffsetMinutes": 0
+        },
+        "optimizationMetrics": {
+          "netProfitYen": 20089,
+          "profitFactor": 1.0104130490448442,
+          "maxDrawdownYen": 279428,
+          "maxDrawdownPct": 24.477196178996767,
+          "tradeCount": 352,
+          "winRate": 35.22727272727273
+        },
+        "validationMetrics": {
+          "netProfitYen": 15774,
+          "profitFactor": 1.0350813204311884,
+          "maxDrawdownYen": 109942,
+          "maxDrawdownPct": 10.067847301904468,
+          "tradeCount": 102,
+          "winRate": 34.31372549019608
+        },
+        "selectionEvidence": {
+          "optimizationNetProfitYen": {
+            "actual": 20089,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationNetProfitYen": {
+            "actual": 15774,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationTradeCount": {
+            "actual": 102,
+            "operator": ">=",
+            "threshold": 10,
+            "passed": true
+          },
+          "overfitWarning": {
+            "actual": false,
+            "operator": "===",
+            "threshold": false,
+            "passed": true
+          },
+          "validationToOptimizationRatio": {
+            "actual": 0.7852058340385285,
+            "operator": ">=",
+            "threshold": 0.35,
+            "passed": true
+          }
+        },
+        "rejectionReasons": [],
+        "quarterlyChecked": true,
+        "quarterlyResults": [
+          {
+            "startTime": 1719331200,
+            "endTime": 1735243200,
+            "barCount": 817,
+            "netProfitYen": 885,
+            "profitFactor": 1.0010982410769464,
+            "tradeCount": 134
+          },
+          {
+            "startTime": 1735257600,
+            "endTime": 1751054400,
+            "barCount": 807,
+            "netProfitYen": -104555,
+            "profitFactor": 0.8641647146556081,
+            "tradeCount": 136
+          },
+          {
+            "startTime": 1751227200,
+            "endTime": 1767067200,
+            "barCount": 812,
+            "netProfitYen": 70689,
+            "profitFactor": 1.2345425045870646,
+            "tradeCount": 72
+          },
+          {
+            "startTime": 1767081600,
+            "endTime": 1782993600,
+            "barCount": 815,
+            "netProfitYen": 14237,
+            "profitFactor": 1.039323406500225,
+            "tradeCount": 82
+          }
+        ],
+        "quarterlyStability": {
+          "mode": "selected-parameter-quarterly-stability",
+          "segmentCount": 4,
+          "positiveSegmentCount": 3,
+          "requiredPositiveSegmentCount": 3,
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "tune-parabolicsarstate-gbpusd-h1-v1",
+      "pair": "GBPUSD",
+      "entryType": "parabolicSarState",
+      "timeframe": "h1",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 12572,
+        "optimizationBars": 8800,
+        "validationBars": 3772,
+        "referenceSpanDays": 736.9583333333334,
+        "validationSpanDays": 222.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": "deep-history",
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "GBPUSD",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        },
+        "usdJpyBars": {
+          "source": "deep-history",
+          "pair": "USDJPY",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        }
+      },
+      "rejectionReasons": [
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 278
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 280
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-parabolicsarstate-gbpusd-h4-v1",
+      "pair": "GBPUSD",
+      "entryType": "parabolicSarState",
+      "timeframe": "h4",
+      "status": "passed",
+      "dataWindow": {
+        "referenceBars": 3251,
+        "optimizationBars": 2275,
+        "validationBars": 976,
+        "referenceSpanDays": 736.8333333333334,
+        "validationSpanDays": 220.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": "deep-history",
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "GBPUSD",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        },
+        "usdJpyBars": {
+          "source": "deep-history",
+          "pair": "USDJPY",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        }
+      },
+      "rejectionReasons": [],
+      "combinationCount": 280,
+      "selectedCandidate": {
+        "rank": 1,
+        "status": "passed",
+        "selected": true,
+        "parameters": {
+          "stopLossPips": 20,
+          "takeProfitPips": 220,
+          "trailingStopPips": null,
+          "reentryCooldownBars": 3
+        },
+        "sessionLabel": "なし",
+        "sessionFilter": {
+          "enabled": false,
+          "start": "00:00",
+          "end": "23:59",
+          "serverUtcOffsetMinutes": 0
+        },
+        "optimizationMetrics": {
+          "netProfitYen": 138621,
+          "profitFactor": 1.0738145140162432,
+          "maxDrawdownYen": 344904,
+          "maxDrawdownPct": 31.379422934771178,
+          "tradeCount": 256,
+          "winRate": 22.65625
+        },
+        "validationMetrics": {
+          "netProfitYen": 126743,
+          "profitFactor": 1.1833613032030323,
+          "maxDrawdownYen": 178692,
+          "maxDrawdownPct": 15.433611302371162,
+          "tradeCount": 96,
+          "winRate": 30.208333333333332
+        },
+        "selectionEvidence": {
+          "optimizationNetProfitYen": {
+            "actual": 138621,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationNetProfitYen": {
+            "actual": 126743,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationTradeCount": {
+            "actual": 96,
+            "operator": ">=",
+            "threshold": 10,
+            "passed": true
+          },
+          "overfitWarning": {
+            "actual": false,
+            "operator": "===",
+            "threshold": false,
+            "passed": true
+          },
+          "validationToOptimizationRatio": {
+            "actual": 0.9143131271596656,
+            "operator": ">=",
+            "threshold": 0.35,
+            "passed": true
+          }
+        },
+        "rejectionReasons": [],
+        "quarterlyChecked": true,
+        "quarterlyResults": [
+          {
+            "startTime": 1719331200,
+            "endTime": 1735243200,
+            "barCount": 817,
+            "netProfitYen": -63256,
+            "profitFactor": 0.8933951723126756,
+            "tradeCount": 82
+          },
+          {
+            "startTime": 1735257600,
+            "endTime": 1751054400,
+            "barCount": 807,
+            "netProfitYen": 60983,
+            "profitFactor": 1.0901026422208662,
+            "tradeCount": 89
+          },
+          {
+            "startTime": 1751227200,
+            "endTime": 1767067200,
+            "barCount": 812,
+            "netProfitYen": 88798,
+            "profitFactor": 1.1265188300734055,
+            "tradeCount": 81
+          },
+          {
+            "startTime": 1767081600,
+            "endTime": 1782993600,
+            "barCount": 815,
+            "netProfitYen": 11754,
+            "profitFactor": 1.0224759493574067,
+            "tradeCount": 79
+          }
+        ],
+        "quarterlyStability": {
+          "mode": "selected-parameter-quarterly-stability",
+          "segmentCount": 4,
+          "positiveSegmentCount": 3,
+          "requiredPositiveSegmentCount": 3,
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "tune-parabolicsarstate-audjpy-h1-v1",
+      "pair": "AUDJPY",
+      "entryType": "parabolicSarState",
+      "timeframe": "h1",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 12571,
+        "optimizationBars": 8799,
+        "validationBars": 3772,
+        "referenceSpanDays": 736.9583333333334,
+        "validationSpanDays": 222.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "AUDJPY",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12571,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "overfit_warning",
+          "message": "過学習警告あり",
+          "count": 43
+        },
+        {
+          "code": "validation_retention_below_threshold",
+          "message": "検証保持率が0.35未満",
+          "count": 121
+        },
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 237
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 237
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-parabolicsarstate-audjpy-h4-v1",
+      "pair": "AUDJPY",
+      "entryType": "parabolicSarState",
+      "timeframe": "h4",
+      "status": "passed",
+      "dataWindow": {
+        "referenceBars": 3251,
+        "optimizationBars": 2275,
+        "validationBars": 976,
+        "referenceSpanDays": 736.8333333333334,
+        "validationSpanDays": 220.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "AUDJPY",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [],
+      "combinationCount": 280,
+      "selectedCandidate": {
+        "rank": 1,
+        "status": "passed",
+        "selected": true,
+        "parameters": {
+          "stopLossPips": 20,
+          "takeProfitPips": 60,
+          "trailingStopPips": null,
+          "reentryCooldownBars": 3
+        },
+        "sessionLabel": "なし",
+        "sessionFilter": {
+          "enabled": false,
+          "start": "00:00",
+          "end": "23:59",
+          "serverUtcOffsetMinutes": 0
+        },
+        "optimizationMetrics": {
+          "netProfitYen": 275462,
+          "profitFactor": 1.0959454578448757,
+          "maxDrawdownYen": 360462,
+          "maxDrawdownPct": 28.256193501252614,
+          "tradeCount": 384,
+          "winRate": 29.6875
+        },
+        "validationMetrics": {
+          "netProfitYen": 114705,
+          "profitFactor": 1.0992465550746782,
+          "maxDrawdownYen": 173475,
+          "maxDrawdownPct": 13.466673912030927,
+          "tradeCount": 144,
+          "winRate": 31.25
+        },
+        "selectionEvidence": {
+          "optimizationNetProfitYen": {
+            "actual": 275462,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationNetProfitYen": {
+            "actual": 114705,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationTradeCount": {
+            "actual": 144,
+            "operator": ">=",
+            "threshold": 10,
+            "passed": true
+          },
+          "overfitWarning": {
+            "actual": false,
+            "operator": "===",
+            "threshold": false,
+            "passed": true
+          },
+          "validationToOptimizationRatio": {
+            "actual": 0.4164095229106011,
+            "operator": ">=",
+            "threshold": 0.35,
+            "passed": true
+          }
+        },
+        "rejectionReasons": [],
+        "quarterlyChecked": true,
+        "quarterlyResults": [
+          {
+            "startTime": 1719331200,
+            "endTime": 1735243200,
+            "barCount": 817,
+            "netProfitYen": 134252,
+            "profitFactor": 1.1238578492877702,
+            "tradeCount": 137
+          },
+          {
+            "startTime": 1735257600,
+            "endTime": 1751054400,
+            "barCount": 807,
+            "netProfitYen": -146547,
+            "profitFactor": 0.8378181866473661,
+            "tradeCount": 134
+          },
+          {
+            "startTime": 1751227200,
+            "endTime": 1767067200,
+            "barCount": 812,
+            "netProfitYen": 234887,
+            "profitFactor": 1.332972321650069,
+            "tradeCount": 103
+          },
+          {
+            "startTime": 1767081600,
+            "endTime": 1782993600,
+            "barCount": 815,
+            "netProfitYen": 38371,
+            "profitFactor": 1.0403669010558032,
+            "tradeCount": 119
+          }
+        ],
+        "quarterlyStability": {
+          "mode": "selected-parameter-quarterly-stability",
+          "segmentCount": 4,
+          "positiveSegmentCount": 3,
+          "requiredPositiveSegmentCount": 3,
+          "passed": true
+        }
+      }
+    }
+  ]
+}

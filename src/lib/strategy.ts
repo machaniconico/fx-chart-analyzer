@@ -121,6 +121,12 @@ export interface ParabolicSarCondition {
   maximum: number;
 }
 
+export interface ParabolicSarStateCondition {
+  type: 'parabolicSarState';
+  step: number;
+  maximum: number;
+}
+
 export interface MomentumCondition {
   type: 'momentum';
   period: number;
@@ -202,6 +208,16 @@ export interface AlligatorCondition {
   lipsShift: number;
 }
 
+export interface AlligatorStateCondition {
+  type: 'alligatorState';
+  jawPeriod: number;
+  teethPeriod: number;
+  lipsPeriod: number;
+  jawShift: number;
+  teethShift: number;
+  lipsShift: number;
+}
+
 export type EntryCondition =
   | MaCrossCondition
   | RsiCondition
@@ -220,13 +236,16 @@ export type EntryCondition =
   | MomentumCondition
   | AoCondition
   | RviCondition
-  | AlligatorCondition;
+  | AlligatorCondition
+  | ParabolicSarStateCondition
+  | AlligatorStateCondition;
 
 export interface ExitRules {
   stopLossPips: number;
   takeProfitPips: number;
   trailingStopPips?: number | null;
   closeOnOppositeSignal: boolean;
+  reentryCooldownBars?: number;
 }
 
 export interface SessionFilter {
@@ -352,7 +371,7 @@ const normalizePeriod = (value: number): number => Math.max(1, Math.round(value)
 const parabolicSarKey = (step: number, maximum: number): string =>
   `${step}:${maximum}`;
 
-const alligatorKey = (condition: AlligatorCondition): string =>
+const alligatorKey = (condition: AlligatorCondition | AlligatorStateCondition): string =>
   `${condition.jawPeriod}:${condition.teethPeriod}:${condition.lipsPeriod}`;
 
 const maKey = (type: MovingAverageType, period: number): string =>
@@ -389,6 +408,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `CCI${condition.period} ±${condition.level} ブレイク`;
     case 'adxTrend':
       return `ADX${condition.period}/${condition.threshold} DIクロス`;
+    case 'parabolicSarState':
+      return `SAR${condition.step}/${condition.maximum} 状態`;
     case 'parabolicSar':
       return `SAR${condition.step}/${condition.maximum} フリップ`;
     case 'momentum':
@@ -397,6 +418,8 @@ export const conditionLabel = (condition: EntryCondition): string => {
       return `AO${condition.fastPeriod}/${condition.slowPeriod} ゼロラインクロス`;
     case 'rvi':
       return `RVI${condition.period} シグナルクロス`;
+    case 'alligatorState':
+      return `Alligator ${condition.jawPeriod}/${condition.teethPeriod}/${condition.lipsPeriod} (${condition.jawShift}/${condition.teethShift}/${condition.lipsShift}) 整列`;
     case 'alligator':
       return `Alligator ${condition.jawPeriod}/${condition.teethPeriod}/${condition.lipsPeriod} (${condition.jawShift}/${condition.teethShift}/${condition.lipsShift}) クロス`;
   }
@@ -966,7 +989,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
     return values;
   };
 
-  const getAlligator = (condition: AlligatorCondition): CachedAlligatorSeries => {
+  const getAlligator = (condition: AlligatorCondition | AlligatorStateCondition): CachedAlligatorSeries => {
     const key = alligatorKey(condition);
     const cached = alligatorCache.get(key);
     if (cached) {
@@ -1161,6 +1184,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
               values.minusDi[index],
             );
       }
+      case 'parabolicSarState':
       case 'parabolicSar': {
         if (
           !Number.isFinite(condition.step) ||
@@ -1171,6 +1195,10 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
           return false;
         }
         const values = getParabolicSar(condition.step, condition.maximum);
+        if (condition.type === 'parabolicSarState') {
+          const currentIsLong = values.isLong[index];
+          return typeof currentIsLong === 'boolean' && (isShort ? !currentIsLong : currentIsLong);
+        }
         const previousSar = values.sar[index - 1];
         const currentSar = values.sar[index];
         const previousIsLong = values.isLong[index - 1];
@@ -1289,6 +1317,7 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
           ? previousK >= previousD && currentK < currentD
           : previousK <= previousD && currentK > currentD;
       }
+      case 'alligatorState':
       case 'alligator': {
         if (
           !validAlligatorPeriod(condition.jawPeriod) ||
@@ -1312,6 +1341,15 @@ export const createStrategyEvaluator = (bars: readonly Bar[]): StrategyEvaluator
         }
 
         const values = getAlligator(condition);
+        if (condition.type === 'alligatorState') {
+          const lips = shiftedAlligatorValue(values.lips, index, condition.lipsPeriod, condition.lipsShift);
+          const teeth = shiftedAlligatorValue(values.teeth, index, condition.teethPeriod, condition.teethShift);
+          const jaw = shiftedAlligatorValue(values.jaw, index, condition.jawPeriod, condition.jawShift);
+          if (!isNumber(lips) || !isNumber(teeth) || !isNumber(jaw)) {
+            return false;
+          }
+          return isShort ? lips < teeth && teeth < jaw : lips > teeth && teeth > jaw;
+        }
         // Resolve every shifted line explicitly, including the previous
         // Lips/Teeth edge and the current Teeth/Jaw filter, before evaluating
         // any relation. This is the fail-closed warm-up contract.
@@ -1488,3 +1526,11 @@ export const defaultStrategies: StrategyDefinition[] = [
     magicNumber: 20260703,
   },
 ];
+
+export const reentryCooldownBarsForStrategy = (strategy: StrategyDefinition): number => {
+  const bars = strategy.exit.reentryCooldownBars === undefined ? 0 : strategy.exit.reentryCooldownBars;
+  if (!Number.isInteger(bars) || bars < 0) {
+    throw new Error('reentryCooldownBars must be a non-negative integer');
+  }
+  return bars;
+};

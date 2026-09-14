@@ -51,6 +51,8 @@ export const knownEntryConditionTypes = Object.freeze([
   'rvi',
   'envelope',
   'alligator',
+  'parabolicSarState',
+  'alligatorState',
 ]);
 const knownEntryConditionTypeSet = new Set(knownEntryConditionTypes);
 
@@ -293,6 +295,7 @@ const assertEntryCondition = (condition, context, index) => {
       assertPositiveIntegerFieldAtLeast(conditionContext, condition, 'period', 2);
       assertThresholdField(conditionContext, condition, 'threshold', 100);
       break;
+    case 'parabolicSarState':
     case 'parabolicSar':
       // Keep the plain-Node validation literal in sync with indicators.ts via the Vitest drift guard.
       assertConditionField(
@@ -369,6 +372,7 @@ const assertEntryCondition = (condition, context, index) => {
       );
       assertPositiveFiniteNumberField(conditionContext, condition, 'deviation');
       break;
+    case 'alligatorState':
     case 'alligator':
       for (const field of ['jawPeriod', 'teethPeriod', 'lipsPeriod']) {
         assertConditionField(
@@ -546,6 +550,10 @@ const assertVirtualStrategy = (strategy, filename = 'strategy') => {
   if (!isObject(strategy.exit)) {
     throw new Error(`${context}: exit is required`);
   }
+  if (strategy.exit.reentryCooldownBars !== undefined && !nonNegativeInteger(strategy.exit.reentryCooldownBars)) {
+    throw new Error(`${context}: exit.reentryCooldownBars must be a non-negative integer`);
+  }
+
   for (const field of ['stopLossPips', 'takeProfitPips']) {
     if (!positiveFiniteNumber(strategy.exit[field])) {
       throw new Error(`${context}: exit.${field} must be a positive finite number`);

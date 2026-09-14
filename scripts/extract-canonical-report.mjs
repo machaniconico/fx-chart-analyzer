@@ -19,11 +19,14 @@ export const extractPath = path.join(
   `${CANONICAL_REPORT_ID}.selected.json`,
 );
 
-export const buildExtract = (report, { sourceSha256, sourceBytes }) => ({
+export const buildExtract = (
+  report,
+  { sourceSha256, sourceBytes, reportId = CANONICAL_REPORT_ID },
+) => ({
   schemaVersion: 1,
   note: '正典レポートから再現判定に必要な部分のみを抽出したもの。数値は逐語コピーで丸めない。',
   source: {
-    reportId: CANONICAL_REPORT_ID,
+    reportId,
     generatedAt: report.generatedAt,
     schemaVersion: report.schemaVersion,
     sha256: sourceSha256,
@@ -50,24 +53,57 @@ export const buildExtract = (report, { sourceSha256, sourceBytes }) => ({
   })),
 });
 
-const main = async () => {
-  const sourcePath = process.argv[2]
+// 引数なしなら従来どおり正典レポートを抽出する。観察レーンへ新規登録する
+// 別ランのレポートも同じ形で固定できるよう、`--report`/`--out` だけを足す。
+export const parseCliArgs = (argv) => {
+  let reportPath = null;
+  let outPath = null;
+  const positional = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--report' || arg === '--out') {
+      const value = argv[index + 1];
+      if (value === undefined) {
+        throw new Error(`Missing value for ${arg}`);
+      }
+      if (arg === '--report') {
+        reportPath = value;
+      } else {
+        outPath = value;
+      }
+      index += 1;
+      continue;
+    }
+    positional.push(arg);
+  }
+  const sourcePath = reportPath
+    ?? positional[0]
     ?? path.join(projectRoot, 'reports', `${CANONICAL_REPORT_ID}.json`);
+  const reportId = path.basename(sourcePath, '.json');
+  return {
+    sourcePath,
+    reportId,
+    outPath: outPath ?? path.join(projectRoot, 'evidence', `${reportId}.selected.json`),
+  };
+};
+
+const main = async () => {
+  const { sourcePath, reportId, outPath } = parseCliArgs(process.argv.slice(2));
   const raw = await readFile(sourcePath);
   const sourceSha256 = createHash('sha256').update(raw).digest('hex');
   const report = JSON.parse(raw.toString('utf8'));
 
-  if (report.generatedAt !== '2026-08-18T22:32:23.991Z') {
+  if (reportId === CANONICAL_REPORT_ID && report.generatedAt !== '2026-08-18T22:32:23.991Z') {
     throw new Error(
       `Refusing to extract: generatedAt ${report.generatedAt} is not the canonical report.`,
     );
   }
 
-  const extract = buildExtract(report, { sourceSha256, sourceBytes: raw.length });
-  await mkdir(path.dirname(extractPath), { recursive: true });
-  await writeFile(extractPath, `${JSON.stringify(extract, null, 2)}\n`, 'utf8');
+  const extract = buildExtract(report, { sourceSha256, sourceBytes: raw.length, reportId });
+  await mkdir(path.dirname(outPath), { recursive: true });
+  await writeFile(outPath, `${JSON.stringify(extract, null, 2)}\n`, 'utf8');
   console.log(
-    `Wrote ${extractPath} (${extract.candidates.length} candidates, ` +
+    `Wrote ${outPath} (${extract.candidates.length} candidates, ` +
       `source sha256=${sourceSha256.slice(0, 12)}…, ${(raw.length / 1024 / 1024).toFixed(0)}MB source).`,
   );
 };

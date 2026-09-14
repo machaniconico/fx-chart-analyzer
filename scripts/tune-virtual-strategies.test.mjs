@@ -430,6 +430,8 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
       'envelope',
       'stochCross',
       'alligator',
+      'parabolicSarState',
+      'alligatorState',
     ]);
     expect(ENTRY_TYPE_PROFILES.rsi.timeframes).toEqual(['m30', 'h1']);
     expect(ENTRY_TYPE_PROFILES.donchianBreak).toEqual({
@@ -736,9 +738,9 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
         `${target.strategy.meta.pair}:${target.entryType}:${target.strategy.meta.timeframe}`,
     );
 
-    expect(expectedCount).toBe(216);
-    expect(matrix).toHaveLength(216);
-    expect(matrix.filter((target) => target.entryType !== 'alligator')).toHaveLength(204);
+    expect(expectedCount).toBe(240);
+    expect(matrix).toHaveLength(240);
+    expect(matrix.filter((target) => legacyEntryTypeExpectations.some(({ entryType }) => entryType === target.entryType))).toHaveLength(204);
     expect(matrix.filter((target) => target.entryType === 'ao')).toHaveLength(12);
     expect(matrix.filter((target) => target.entryType === 'envelope')).toHaveLength(12);
     expect(matrix.filter((target) => target.entryType === 'stochCross')).toHaveLength(12);
@@ -776,7 +778,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('keeps the existing 204 candidates deeply equal after adding Alligator', () => {
     const matrix = buildCandidateMatrix();
 
-    expect(matrix.filter((target) => target.entryType !== 'alligator')).toEqual(
+    expect(matrix.filter((target) => legacyEntryTypeExpectations.some(({ entryType }) => entryType === target.entryType))).toEqual(
       expectedLegacyCandidateMatrix(),
     );
   });
@@ -1168,6 +1170,85 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     ]);
   });
 
+  it('assigns parabolicSarState candidates to entry-type index 18 with exact triples', () => {
+    const matrix = buildCandidateMatrix();
+    const stateCandidates = matrix.filter((target) => target.entryType === 'parabolicSarState');
+
+    expect(stateCandidates).toHaveLength(12);
+    expect(ENTRY_TYPE_PROFILES.parabolicSarState).toEqual({
+      ...ENTRY_TYPE_PROFILES.parabolicSar,
+      label: 'SAR状態順張り',
+      entryCondition: { ...ENTRY_TYPE_PROFILES.parabolicSar.entryCondition, type: 'parabolicSarState' },
+      reentryCooldownBars: [0, 3],
+    });
+    expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'parabolicSarState']))).toHaveLength(12);
+    expect(stateCandidates.every((target) => target.reentryCooldownBars.join(',') === '0,3')).toBe(true);
+    const profile = ENTRY_TYPE_PROFILES.parabolicSarState;
+    const count = (range) => Math.round((range.max - range.min) / range.step) + 1;
+    expect(count(profile.parameterRanges.stopLossPips) * count(profile.parameterRanges.takeProfitPips)
+      * profile.trailingStopPips.length * profile.reentryCooldownBars.length).toBe(280);
+    expect(candidateMagicNumber(0, 18, 0)).toBe(1783200080);
+    expect(
+      stateCandidates.map((target) => [
+        target.strategy.meta.pair,
+        target.strategy.meta.timeframe,
+        target.strategy.magicNumber,
+      ]),
+    ).toEqual([
+      ['USDJPY', 'h1', 1783200080],
+      ['USDJPY', 'h4', 1783200081],
+      ['EURUSD', 'h1', 1783200180],
+      ['EURUSD', 'h4', 1783200181],
+      ['GBPJPY', 'h1', 1783200280],
+      ['GBPJPY', 'h4', 1783200281],
+      ['EURJPY', 'h1', 1783200380],
+      ['EURJPY', 'h4', 1783200381],
+      ['GBPUSD', 'h1', 1783200480],
+      ['GBPUSD', 'h4', 1783200481],
+      ['AUDJPY', 'h1', 1783200580],
+      ['AUDJPY', 'h4', 1783200581],
+    ]);
+  });
+  it('assigns alligatorState candidates to entry-type index 19 with exact triples', () => {
+    const matrix = buildCandidateMatrix();
+    const stateCandidates = matrix.filter((target) => target.entryType === 'alligatorState');
+
+    expect(stateCandidates).toHaveLength(12);
+    expect(ENTRY_TYPE_PROFILES.alligatorState).toEqual({
+      ...ENTRY_TYPE_PROFILES.alligator,
+      label: 'Alligator整列状態順張り',
+      entryCondition: { ...ENTRY_TYPE_PROFILES.alligator.entryCondition, type: 'alligatorState' },
+      reentryCooldownBars: [0, 3],
+    });
+    expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'alligatorState']))).toHaveLength(12);
+    expect(stateCandidates.every((target) => target.reentryCooldownBars.join(',') === '0,3')).toBe(true);
+    const profile = ENTRY_TYPE_PROFILES.alligatorState;
+    const count = (range) => Math.round((range.max - range.min) / range.step) + 1;
+    expect(count(profile.parameterRanges.stopLossPips) * count(profile.parameterRanges.takeProfitPips)
+      * profile.trailingStopPips.length * profile.reentryCooldownBars.length).toBe(280);
+    expect(candidateMagicNumber(0, 19, 0)).toBe(1783200090);
+    expect(
+      stateCandidates.map((target) => [
+        target.strategy.meta.pair,
+        target.strategy.meta.timeframe,
+        target.strategy.magicNumber,
+      ]),
+    ).toEqual([
+      ['USDJPY', 'h1', 1783200090],
+      ['USDJPY', 'h4', 1783200091],
+      ['EURUSD', 'h1', 1783200190],
+      ['EURUSD', 'h4', 1783200191],
+      ['GBPJPY', 'h1', 1783200290],
+      ['GBPJPY', 'h4', 1783200291],
+      ['EURJPY', 'h1', 1783200390],
+      ['EURJPY', 'h4', 1783200391],
+      ['GBPUSD', 'h1', 1783200490],
+      ['GBPUSD', 'h4', 1783200491],
+      ['AUDJPY', 'h1', 1783200590],
+      ['AUDJPY', 'h4', 1783200591],
+    ]);
+  });
+
   it('parses repeated and comma-separated filters and applies them together', () => {
     const filters = parseCliArgs([
       '--pair=usdjpy,EURUSD',
@@ -1200,7 +1281,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('supports each filter independently', () => {
     const matrix = buildCandidateMatrix();
 
-    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(36);
+    expect(filterTargets(matrix, parseCliArgs(['--pair', 'AUDJPY']))).toHaveLength(40);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'rsi']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'donchianBreak']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'stochastic']))).toHaveLength(12);
@@ -1212,7 +1293,7 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'adxTrend']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--entry-type', 'parabolicSar']))).toHaveLength(12);
     expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'm30']))).toHaveLength(30);
-    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(108);
+    expect(filterTargets(matrix, parseCliArgs(['--timeframe', 'h1']))).toHaveLength(120);
     expect(() => parseCliArgs(['--timeframe', 'm15'])).toThrow(/Invalid value for --timeframe/);
   });
 
@@ -1507,6 +1588,82 @@ describe('tune-virtual-strategies deep-history cache', () => {
     validationToOptimizationRatio: () => 1,
     isOverfitSuspect: () => false,
   };
+
+  it('expands cooldown into scored strategies and retains it in selected report parameters', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-cooldown-'));
+    try {
+      for (const entryType of ['parabolicSarState', 'alligatorState']) {
+        const target = buildCandidateMatrix().find((candidate) => candidate.entryType === entryType);
+        const { pair, timeframe, registeredAt } = target.strategy.meta;
+        await writeBarCache(tempRoot, pair, timeframe, barsBeforeRegistration(registeredAt, 731));
+        const scoredExits = [];
+        const result = await evaluateTarget({
+          ...engine,
+          runBacktest: (_bars, strategy) => {
+            scoredExits.push(strategy.exit);
+            return strategy.exit.reentryCooldownBars;
+          },
+          scoreBacktestResult: (cooldown) => ({
+            netProfitYen: cooldown === 3 ? 20 : 10,
+            profitFactor: 2,
+            maxDrawdownYen: 0,
+            tradeCount: 10,
+          }),
+        }, target, { dataDirectory: tempRoot });
+        // One SL/TP pair from the stub, two trailing values, two cooldown values.
+        expect(result.evaluatedRows).toHaveLength(4);
+        expect(scoredExits).toHaveLength(8);
+        expect(scoredExits.map(({ reentryCooldownBars }) => reentryCooldownBars)).toEqual([0, 0, 3, 3, 0, 0, 3, 3]);
+        expect(createTuningReport([result]).candidates[0].selectedCandidate.parameters.reentryCooldownBars).toBe(3);
+        expect(result.evaluatedRows.every((candidate) => candidate.includeCooldown)).toBe(true);
+        const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+        try {
+          printTargetResult(result);
+          const messages = log.mock.calls.map(([message]) => message);
+          const table = messages.find((message) => message.startsWith('| '));
+          expect(table).toContain('SL 30p / TP 60p / TR なし / CD 0');
+          expect(table).toContain('SL 30p / TP 60p / TR なし / CD 3');
+          expect(messages).toContain('採用候補: SL 30p / TP 60p / TR なし / CD 3');
+        } finally {
+          log.mockRestore();
+        }
+      }
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves table and selected-candidate labels for all 18 legacy profiles', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-legacy-labels-'));
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const legacyTypes = TUNING_ENTRY_TYPES.filter((entryType) => !['parabolicSarState', 'alligatorState'].includes(entryType));
+      expect(legacyTypes).toHaveLength(18);
+      for (const entryType of legacyTypes) {
+        const target = buildCandidateMatrix().find((candidate) => candidate.entryType === entryType);
+        const { pair, timeframe, registeredAt } = target.strategy.meta;
+        await writeBarCache(tempRoot, pair, timeframe, barsBeforeRegistration(registeredAt, 731));
+        const result = await evaluateTarget(engine, target, { dataDirectory: tempRoot });
+        expect(result.evaluatedRows.every((candidate) => candidate.includeCooldown === false)).toBe(true);
+        log.mockClear();
+        printTargetResult(result);
+        const messages = log.mock.calls.map(([message]) => message);
+        const table = messages.find((message) => message.startsWith('| '));
+        const legacyLabel = (candidate) => [
+          'SL 30p', 'TP 60p',
+          ...(candidate.includeTrailing ? [`TR ${candidate.parameters.trailingStopPips == null ? 'なし' : `${candidate.parameters.trailingStopPips}p`}`] : []),
+          ...(candidate.includeSession ? [`Session ${candidate.sessionLabel}`] : []),
+        ].join(' / ');
+        expect(table.split('\n').slice(2).map((line) => line.split(' | ')[1])).toEqual(
+          result.rows.slice(0, 5).map(legacyLabel),
+        );
+        expect(messages).toContain(`採用候補: ${legacyLabel(result.eligible)}`);
+      }
+    } finally {
+      log.mockRestore();
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
 
   it('uses a present deep cache and increases referenceSpanDays only when enabled', async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-deep-history-'));
@@ -2313,7 +2470,7 @@ describe('tune-virtual-strategies JSON report', () => {
     expect(evaluatedIds).toEqual(['tune-rsi-eurusd-h1-v1']);
     expect(results).toHaveLength(1);
     expect(cleanupCalled).toBe(true);
-    expect(logs[0]).toBe('チューニング候補: 1/216件');
+    expect(logs[0]).toBe('チューニング候補: 1/240件');
     expect(writtenReport).toMatchObject({
       filters: { pairs: ['EURUSD'], entryTypes: ['rsi'], timeframes: ['h1'] },
       summary: { candidateCount: 1 },

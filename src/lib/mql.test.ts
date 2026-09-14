@@ -1138,3 +1138,59 @@ describe('mql generation', () => {
     );
   });
 });
+
+describe('state entries and reentry cooldown', () => {
+  for (const condition of [
+    { type: 'parabolicSarState', step: 0.02, maximum: 0.2 },
+    { type: 'alligatorState', jawPeriod: 13, teethPeriod: 8, lipsPeriod: 5, jawShift: 8, teethShift: 5, lipsShift: 3 },
+  ] satisfies EntryCondition[]) {
+    it(`generates current-bar ${condition.type} for both platforms`, async () => {
+      const strategy = { ...fullStrategy, entryConditions: [condition] };
+      for (const [extension, generate] of [['mq4', generateMql4], ['mq5', generateMql5]] as const) {
+        const source = generate(strategy);
+        expectBalanced(source);
+        expect(source).not.toContain('ReentryCooldownAllows');
+        if (condition.type === 'parabolicSarState') {
+          const signal = source.slice(source.indexOf('bool Condition1('), source.indexOf('bool EntrySignal('));
+          expect(signal).not.toContain('previous');
+          expect(signal).toContain('return longSide ? currentIsLong : !currentIsLong;');
+          expect(source).toContain('firstReversalShift - (signalShift) >= 100');
+          expect(source).toContain('shift >= signalShift; shift--');
+          expect(source).toContain('The TS state signal needs only index');
+          expect(source).not.toContain('The TS signal needs both index-1 and index');
+        } else {
+          expect(source).toContain('return currentLips > currentTeeth && currentTeeth > currentJaw;');
+          expect(source).toContain('return currentLips < currentTeeth && currentTeeth < currentJaw;');
+          expect(source).toContain('int previousLipsTarget = 1 + lipsShift;');
+          expect(source).toContain('int teethRequiredShift = 1 + teethShift + teethPeriod - 1;');
+        }
+        await expect(source).toMatchFileSnapshot(mqlSnapshotPath(`mql-${condition.type}.${extension}`));
+      }
+    });
+  }
+
+  it('guards only new entries with symbol/magic-filtered close history when cooldown is positive', async () => {
+    const strategy: StrategyDefinition = { ...fullStrategy, entryConditions: [{ type: 'cciBreak', period: 20, level: 100 }] };
+    for (const [extension, generate] of [['mq4', generateMql4], ['mq5', generateMql5]] as const) {
+      expect(generate({ ...strategy, exit: { ...strategy.exit, reentryCooldownBars: 0 } })).toBe(generate(strategy));
+      const source = generate({ ...strategy, exit: { ...strategy.exit, reentryCooldownBars: 3 } });
+      expectBalanced(source);
+      expect(source).toContain('if(ReentryCooldownAllows() && EntryFiltersAllow() && EntrySignal(InpTradeLong))');
+      expect(source).toContain('if(InpCloseOnOppositeSignal && EntrySignal(!InpTradeLong))');
+      expect(source).toContain('elapsedBars - 1 >= 3');
+      expect(source).toContain(extension === 'mq4' ? 'OrdersHistoryTotal()' : 'HistorySelect(0, TimeCurrent())');
+      expect(source).toContain(extension === 'mq4' ? 'OrderMagicNumber() == InpMagicNumber && OrderSymbol() == Symbol()' : 'HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagicNumber');
+      if (extension === 'mq5') {
+        expect(source).toContain('for(int i = 0; i < dealCount; i++)');
+        expect(source).toContain('DEAL_POSITION_ID');
+        expect(source).toContain('entry == DEAL_ENTRY_IN && magicMatches &&');
+        expect(source).toContain('!CooldownPositionKnown(positionIds, positionCount, positionId, true)) return false;');
+        expect(source).toContain('(magicMatches || CooldownPositionKnown(positionIds, positionCount, positionId, false))');
+        expect(source).toContain('entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY');
+        expect(source).toContain('if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol) continue;');
+      }
+      await expect(source).toMatchFileSnapshot(mqlSnapshotPath(`mql-cciBreak-cooldown.${extension}`));
+      expect(() => generate({ ...strategy, exit: { ...strategy.exit, reentryCooldownBars: -1 } })).toThrow('reentryCooldownBars');
+    }
+  });
+});

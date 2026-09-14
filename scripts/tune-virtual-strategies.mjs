@@ -399,6 +399,43 @@ export const ENTRY_TYPE_PROFILES = Object.freeze({
     }),
     trailingStopPips: Object.freeze([null, 25]),
   }),
+  parabolicSarState: Object.freeze({
+    label: 'SAR状態順張り',
+    timeframes: Object.freeze(['h1', 'h4']),
+    entryCondition: Object.freeze({
+      type: 'parabolicSarState',
+      // Keep this literal synchronized with SAR_MIN_STEP in src/lib/indicators.ts.
+      step: 0.02,
+      maximum: 0.2,
+    }),
+    exit: Object.freeze({ stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true }),
+    parameterRanges: Object.freeze({
+      stopLossPips: Object.freeze(rangeWithSteps(20, 110, 7)),
+      takeProfitPips: Object.freeze(rangeWithSteps(40, 220, 10)),
+    }),
+    trailingStopPips: Object.freeze([null, 25]),
+    reentryCooldownBars: Object.freeze([0, 3]),
+  }),
+  alligatorState: Object.freeze({
+    label: 'Alligator整列状態順張り',
+    timeframes: Object.freeze(['h1', 'h4']),
+    entryCondition: Object.freeze({
+      type: 'alligatorState',
+      jawPeriod: 13,
+      teethPeriod: 8,
+      lipsPeriod: 5,
+      jawShift: 8,
+      teethShift: 5,
+      lipsShift: 3,
+    }),
+    exit: Object.freeze({ stopLossPips: 40, takeProfitPips: 80, closeOnOppositeSignal: true }),
+    parameterRanges: Object.freeze({
+      stopLossPips: Object.freeze(rangeWithSteps(20, 110, 7)),
+      takeProfitPips: Object.freeze(rangeWithSteps(40, 220, 10)),
+    }),
+    trailingStopPips: Object.freeze([null, 25]),
+    reentryCooldownBars: Object.freeze([0, 3]),
+  }),
 });
 
 export const TUNING_ENTRY_TYPES = Object.freeze(Object.keys(ENTRY_TYPE_PROFILES));
@@ -473,6 +510,7 @@ export const buildCandidateMatrix = () => {
             takeProfitPips: { ...profile.parameterRanges.takeProfitPips },
           },
           trailingStopPips: [...profile.trailingStopPips],
+          ...(Array.isArray(profile.reentryCooldownBars) && profile.reentryCooldownBars.length > 0 ? { reentryCooldownBars: [...profile.reentryCooldownBars] } : {}),
           sessionVariants: null,
         });
       }
@@ -822,6 +860,7 @@ const strategyWithCandidate = (strategy, parameters, sessionVariant) => {
     stopLossPips: parameters.stopLossPips,
     takeProfitPips: parameters.takeProfitPips,
     trailingStopPips: parameters.trailingStopPips,
+    ...(parameters.reentryCooldownBars !== undefined ? { reentryCooldownBars: parameters.reentryCooldownBars } : {}),
   };
   if (sessionVariant) {
     candidate.sessionFilter = cloneJson(sessionVariant.filter);
@@ -846,6 +885,9 @@ const combinationLabel = (row) => {
   ];
   if (row.includeTrailing) {
     parts.push(`TR ${trailingLabel(row.parameters.trailingStopPips)}`);
+  }
+  if (row.includeCooldown) {
+    parts.push(`CD ${row.parameters.reentryCooldownBars}`);
   }
   if (row.includeSession) {
     parts.push(`Session ${row.sessionLabel}`);
@@ -1219,33 +1261,38 @@ export const evaluateTarget = async (
   const baseCombinations = engine.generateParameterCombinations(parameterRanges);
   const trailingValues = target.trailingStopPips ?? [strategy.exit.trailingStopPips ?? null];
   const sessionVariants = target.sessionVariants ?? [null];
+  const cooldownValues = target.reentryCooldownBars ?? [undefined];
   const rows = [];
 
   for (const baseParameters of baseCombinations) {
     for (const trailingStopPips of trailingValues) {
-      for (const sessionVariant of sessionVariants) {
-        const parameters = {
-          ...baseParameters,
-          trailingStopPips,
-        };
-        const candidate = strategyWithCandidate(strategy, parameters, sessionVariant);
-        const optimization = engine.scoreBacktestResult(
-          engine.runBacktest(optimizationBars, candidate, pair, optimizationOptions),
-        );
-        const validation = engine.scoreBacktestResult(
-          engine.runBacktest(validationBars, candidate, pair, validationOptions),
-        );
-        rows.push({
-          parameters,
-          optimization,
-          validation,
-          validationToOptimizationRatio: engine.validationToOptimizationRatio(optimization, validation),
-          overfitWarning: engine.isOverfitSuspect(optimization, validation),
-          sessionLabel: sessionLabel(sessionVariant, strategy),
-          sessionFilter: sessionVariant ? cloneJson(sessionVariant.filter) : cloneJson(strategy.sessionFilter),
-          includeTrailing: Array.isArray(target.trailingStopPips),
-          includeSession: Array.isArray(target.sessionVariants),
-        });
+      for (const reentryCooldownBars of cooldownValues) {
+        for (const sessionVariant of sessionVariants) {
+          const parameters = {
+            ...baseParameters,
+            trailingStopPips,
+            ...(reentryCooldownBars !== undefined ? { reentryCooldownBars } : {}),
+          };
+          const candidate = strategyWithCandidate(strategy, parameters, sessionVariant);
+          const optimization = engine.scoreBacktestResult(
+            engine.runBacktest(optimizationBars, candidate, pair, optimizationOptions),
+          );
+          const validation = engine.scoreBacktestResult(
+            engine.runBacktest(validationBars, candidate, pair, validationOptions),
+          );
+          rows.push({
+            parameters,
+            optimization,
+            validation,
+            validationToOptimizationRatio: engine.validationToOptimizationRatio(optimization, validation),
+            overfitWarning: engine.isOverfitSuspect(optimization, validation),
+            sessionLabel: sessionLabel(sessionVariant, strategy),
+            sessionFilter: sessionVariant ? cloneJson(sessionVariant.filter) : cloneJson(strategy.sessionFilter),
+            includeTrailing: Array.isArray(target.trailingStopPips),
+            includeSession: Array.isArray(target.sessionVariants),
+            includeCooldown: Array.isArray(target.reentryCooldownBars),
+          });
+        }
       }
     }
   }
