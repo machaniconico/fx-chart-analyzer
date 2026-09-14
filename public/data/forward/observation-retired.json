@@ -1,4 +1,53 @@
 {
   "schemaVersion": 1,
-  "strategies": {}
+  "strategies": {
+    "obs-momentum-usdjpy-h1-v1@1787098354": {
+      "strategyId": "obs-momentum-usdjpy-h1-v1",
+      "meta": {
+        "id": "obs-momentum-usdjpy-h1-v1",
+        "name": "USDJPY h1 モメンタム100クロス順張り 観察候補",
+        "version": 1,
+        "pair": "USDJPY",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "retiredAt": "2026-09-14T04:03:31.815Z",
+      "reason": "退役基準該当: 取引20件以上かつPF0.9未満(2026-08-19〜2026-09-12 確定25日、23取引・PF0.74・勝率26.1%・累積-19,005円)",
+      "finalSnapshot": {
+        "tradeCount": 23,
+        "profitFactor": 0.7426470588235294,
+        "cumulativeProfitYen": -19005,
+        "operationPeriod": {
+          "registeredAt": 1787098354,
+          "firstConfirmedDate": "2026-08-19",
+          "confirmedThrough": "2026-09-12",
+          "confirmedDayCount": 25
+        }
+      }
+    },
+    "obs-stochcross-eurjpy-h1-v1@1787098354": {
+      "strategyId": "obs-stochcross-eurjpy-h1-v1",
+      "meta": {
+        "id": "obs-stochcross-eurjpy-h1-v1",
+        "name": "EURJPY h1 ストキャス%K/%Dクロス順張り 観察候補",
+        "version": 1,
+        "pair": "EURJPY",
+        "timeframe": "h1",
+        "registeredAt": 1787098354
+      },
+      "retiredAt": "2026-09-14T04:03:31.980Z",
+      "reason": "退役基準該当: 取引20件以上かつPF0.9未満(2026-08-19〜2026-09-12 確定25日、55取引・PF0.59・勝率30.9%・累積-36,384円)",
+      "finalSnapshot": {
+        "tradeCount": 55,
+        "profitFactor": 0.5941097724230254,
+        "cumulativeProfitYen": -36384,
+        "operationPeriod": {
+          "registeredAt": 1787098354,
+          "firstConfirmedDate": "2026-08-19",
+          "confirmedThrough": "2026-09-12",
+          "confirmedDayCount": 25
+        }
+      }
+    }
+  }
 }

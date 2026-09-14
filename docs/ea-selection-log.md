@@ -1431,3 +1431,35 @@ SL/TPの単位はpips。`TRなし`は`trailingStopPips=null`、`TR25p`は`traili
 `status=passed` の対応候補が存在し、判定基準3〜5が読む値(`profitFactor` /
 `netProfitYen` / `maxDrawdownYen` / `maxDrawdownPct` / `validationSpanDays`)と順位・分母を
 保持していること、SL/TPが登録済み戦略定義と一致することを検査する。
+
+## 2026-09-14: 観察レーン2件退役(obs-momentum-usdjpy-h1-v1 / obs-stochcross-eurjpy-h1-v1)
+
+観察レーンは `buildObservationForwardArtifacts` の設計どおり採用EAと同じ退役基準
+(取引20件以上かつPF0.9未満、または確定45日以上・取引10件以上で累積損益マイナス)で
+`retire_candidate` を判定する。2026-09-13 の日次更新で2件が該当したため退役する。
+台帳スコープは `--scope observation`、記録先は `public/data/forward/observation-retired.json`。
+
+| 候補 | 確定期間 | 取引 | 勝率 | PF | 累積純益 | 最大DD |
+|---|---|---|---|---|---|---|
+| obs-momentum-usdjpy-h1-v1 (USDJPY h1 モメンタム100クロス) | 2026-08-19〜2026-09-12 (25日) | 23件 | 26.1% | 0.74 | -19,005円 | 3.78% |
+| obs-stochcross-eurjpy-h1-v1 (EURJPY h1 ストキャスクロス) | 2026-08-19〜2026-09-12 (25日) | 55件 | 30.9% | 0.59 | -36,384円 | 5.91% |
+
+- 実行: `npm run retire:strategy -- <id> --scope observation --reason ...`。戦略定義は
+  `strategies/retired/<id>@1787098354.json` へ移動し、最終実績スナップショットは台帳に不変記録。
+  確定日次履歴は `observation-history.json` に監査証跡として保全(削除しない)
+- `node scripts/run-forward-test.mjs` を再実行し、`observation-results.json` を31件へ更新
+  (active 29 / probation 2)。採用7EA側の出力は `computedAt` 以外不変
+
+### 留保(誠実表示)
+
+- エントリ(21)の再現判定プロトコルは最低標本数40件・初回判定 2027-02-15 と定めるが、
+  本退役はそのプロトコルの「合格判定」ではなく、登録時から動いている退役基準
+  (20件・PF0.9)による**継続打ち切り**である。判定基準1〜6には触れない
+- エクイティ(初期100万円)の推移: momentum-usdjpy は 971,753円まで下げた後 20日目に
+  999,668円まで戻し再び 986,524円へ、と -2.8%〜0% の往復で持続的な回復はない。
+  stochcross-eurjpy は 23日目に 953,176円の安値を更新し 963,616円で終了(下降継続)。
+  ただし25日は正典Val窓(≈220日)より大幅に短く、レジーム依存の可能性は残る。再挑戦する場合はパラメータ変更を伴う新規登録とし、
+  T0 をリセットする(エントリ(21)の規定どおり)
+- 残る観察レーン31件のうち probation 2件(obs-momentum-eurjpy-h4-v1 PF0.97、
+  obs-parabolicsar-gbpusd-h1-v1 PF0.63)と、25日間取引0件の4件
+  (obs-alligator-usdjpy-h4-v1、obs-parabolicsar-{audjpy,gbpusd,usdjpy}-h4-v1)は継続監視

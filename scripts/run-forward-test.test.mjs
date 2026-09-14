@@ -39,6 +39,20 @@ const countAdoptedStrategyFiles = async () => (await readdir(
   new URL('../strategies/virtual/', import.meta.url),
 )).filter((filename) => filename.endsWith('.json')).length;
 
+// 観察レーンの退役は台帳が正典。正典33件から台帳分を差し引いた集合が
+// strategies/observation/ の現物と一致するはずで、退役のたびに件数を
+// 書き換えなくても済むようにここから導出する。
+const readRetiredObservationIds = async () => {
+  const ledger = JSON.parse(await readFile(
+    new URL('../public/data/forward/observation-retired.json', import.meta.url),
+    'utf8',
+  ));
+  return new Set(Object.values(ledger.strategies).map((entry) => entry.strategyId));
+};
+
+const observationExpectationId = ([entryType, pair, timeframe]) =>
+  `obs-${entryType.toLowerCase()}-${pair.toLowerCase()}-${timeframe}-v1`;
+
 const registeredAt = 1782996300;
 const UTC_DAY_SECONDS = 24 * 60 * 60;
 
@@ -193,8 +207,12 @@ const emptyBacktestResult = (bars) => ({
 });
 
 describe('forward test runner', () => {
-  it('registers the canonical 33 observation candidates without changing the seven-EA lane', async () => {
+  it('registers the canonical 33 observation candidates minus retirees without changing the seven-EA lane', async () => {
     const observations = await loadObservationStrategies();
+    const retiredObservationIds = await readRetiredObservationIds();
+    const activeExpectations = observationExpectations.filter(
+      (expectation) => !retiredObservationIds.has(observationExpectationId(expectation)),
+    );
     const virtual = await loadVirtualStrategies(new URL('../strategies/virtual/', import.meta.url).pathname);
     // reports/ is gitignored, so the canonical tuning report only exists on
     // machines that ran the tuning locally — it is absent in CI. The verbatim
@@ -212,12 +230,14 @@ describe('forward test runner', () => {
       }
     }
 
-    expect(observations).toHaveLength(observationExpectations.length);
+    expect(observationExpectations).toHaveLength(33);
+    expect(observations).toHaveLength(activeExpectations.length);
     expect(virtual).toHaveLength(await countAdoptedStrategyFiles());
     expect(new Set(observations.map((item) => item.meta.id)).size)
-      .toBe(observationExpectations.length);
+      .toBe(activeExpectations.length);
+    expect(observations.some((item) => retiredObservationIds.has(item.meta.id))).toBe(false);
 
-    for (const [entryType, pair, timeframe, stopLossPips, takeProfitPips, trailingStopPips, sourceEntry] of observationExpectations) {
+    for (const [entryType, pair, timeframe, stopLossPips, takeProfitPips, trailingStopPips, sourceEntry] of activeExpectations) {
       const id = `obs-${entryType.toLowerCase()}-${pair.toLowerCase()}-${timeframe}-v1`;
       const observation = observations.find((item) => item.meta.id === id);
 
@@ -298,8 +318,14 @@ describe('forward test runner', () => {
     expect(observationResults.schemaVersion).toBe(FORWARD_RESULTS_SCHEMA_VERSION);
     expect(observationResults.strategies).toHaveLength(observationDefinitions.length);
     expect(observationHistory.schemaVersion).toBe(FORWARD_HISTORY_SCHEMA_VERSION);
-    expect(Object.keys(observationHistory.strategies))
-      .toHaveLength(observationDefinitions.length);
+    // 履歴は監査証跡として退役済み候補の行を残す。結果 ⊆ 履歴 であり、
+    // 履歴 = 結果 ∪ 観察レーン退役台帳 になっていることを確認する。
+    const historyIds = Object.keys(observationHistory.strategies);
+    const resultIds = observationResults.strategies.map((item) => item.meta.id);
+    const retiredObservationIds = await readRetiredObservationIds();
+    expect(resultIds.every((id) => historyIds.includes(id))).toBe(true);
+    expect(new Set(historyIds))
+      .toEqual(new Set([...resultIds, ...retiredObservationIds]));
     expect(existingResults.schemaVersion).toBe(FORWARD_RESULTS_SCHEMA_VERSION);
     expect(existingResults.strategies).toHaveLength(await countAdoptedStrategyFiles());
     expect(existingResults.strategies.some((item) => item.meta.id.startsWith('obs-'))).toBe(false);
