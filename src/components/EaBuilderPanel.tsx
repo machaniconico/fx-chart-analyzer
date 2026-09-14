@@ -376,7 +376,7 @@ export const strategyValidationMessages = (strategy: StrategyDefinition): string
       messages.push('ADXトレンドの期間は2以上の整数、閾値は0より大きく100未満にしてください。');
     }
     if (
-      condition.type === 'parabolicSar' &&
+      (condition.type === 'parabolicSar' || condition.type === 'parabolicSarState') &&
       (!Number.isFinite(condition.step) ||
         condition.step < SAR_MIN_STEP ||
         condition.step >= 1 ||
@@ -447,7 +447,7 @@ export const strategyValidationMessages = (strategy: StrategyDefinition): string
       messages.push('ストキャス%K/%DクロスのK期間とD期間は2以上1000以下の整数、平滑化は1以上の整数にしてください。');
     }
     if (
-      condition.type === 'alligator' &&
+      (condition.type === 'alligator' || condition.type === 'alligatorState') &&
       (!Number.isInteger(condition.jawPeriod) ||
         condition.jawPeriod < 2 ||
         condition.jawPeriod > 1000 ||
@@ -498,6 +498,10 @@ export const strategyValidationMessages = (strategy: StrategyDefinition): string
     (moneyManagement.riskPercent <= 0 || moneyManagement.riskPercent > 100)
   ) {
     messages.push('リスク%は0より大きく100以下にしてください。');
+  }
+  if (strategy.exit.reentryCooldownBars !== undefined &&
+    (!Number.isInteger(strategy.exit.reentryCooldownBars) || strategy.exit.reentryCooldownBars < 0)) {
+    messages.push('再エントリークールダウンは0以上の整数にしてください。');
   }
   return messages;
 };

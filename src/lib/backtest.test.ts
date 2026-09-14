@@ -101,6 +101,41 @@ const alwaysEntryStrategy = (
 });
 
 describe('backtest', () => {
+  it('preserves omitted/zero cooldown and waits N signal bars after any intrabar exit', () => {
+    for (const reason of ['take_profit', 'stop_loss', 'trailing_stop'] as const) {
+      const bars = Array.from({ length: 16 }, (_, index) => bar(index, 100, 100.2, 99.8, 100));
+      const exits = reason === 'take_profit'
+        ? { stopLossPips: 100, takeProfitPips: 10 }
+        : reason === 'stop_loss'
+          ? { stopLossPips: 10, takeProfitPips: 100 }
+          : { stopLossPips: 100, takeProfitPips: 100, trailingStopPips: 10 };
+      const baseline = runBacktest(bars, alwaysEntryStrategy(exits), 'USDJPY');
+      expect(runBacktest(bars, alwaysEntryStrategy({ ...exits, reentryCooldownBars: 0 }), 'USDJPY')).toEqual(baseline);
+      const cooled = runBacktest(bars, alwaysEntryStrategy({ ...exits, reentryCooldownBars: 3 }), 'USDJPY');
+      expect(cooled.trades[0].exitReason).toBe(reason);
+      expect(cooled.trades[0]).toEqual(baseline.trades[0]);
+      expect(cooled.trades[1].entryTime - cooled.trades[0].exitTime).toBe(4 * 3600);
+      expect(baseline.trades[1].entryTime - baseline.trades[0].exitTime).toBe(3600);
+    }
+  });
+
+  it('applies cooldown after opposite-signal closes without delaying position management', () => {
+    const bars = Array.from({ length: 14 }, (_, index) => bar(index, 100, 100.02, 99.98, 100));
+    const strategy = alwaysEntryStrategy({ stopLossPips: 100, takeProfitPips: 100, closeOnOppositeSignal: true });
+    const baseline = runBacktest(bars, strategy, 'USDJPY');
+    const cooled = runBacktest(bars, { ...strategy, exit: { ...strategy.exit, reentryCooldownBars: 3 } }, 'USDJPY');
+    expect(cooled.trades[0].exitReason).toBe('opposite_signal');
+    expect(cooled.trades[0]).toEqual(baseline.trades[0]);
+    expect(cooled.trades[1].entryTime - cooled.trades[0].exitTime).toBe(4 * 3600);
+    expect(baseline.trades[1].entryTime - baseline.trades[0].exitTime).toBe(3600);
+  });
+
+  it('rejects negative and non-integer cooldown values', () => {
+    for (const reentryCooldownBars of [-1, 1.5, NaN, Infinity]) {
+      expect(() => runBacktest([], baseStrategy({ reentryCooldownBars }), 'USDJPY')).toThrow('reentryCooldownBars must be a non-negative integer');
+    }
+  });
+
   it('enters on the next bar open and exits at take profit', () => {
     const result = runBacktest(
       crossSetupBars(bar(5, 100.2, 100.45, 100.15, 100.3)),

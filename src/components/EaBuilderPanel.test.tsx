@@ -689,6 +689,32 @@ const validationCases: Array<{
   },
 ];
 
+for (const [eventType, stateType] of [
+  ['parabolicSar', 'parabolicSarState'],
+  ['alligator', 'alligatorState'],
+] as const) {
+  const eventCase = validationCases.find(({ type }) => type === eventType)!;
+  validationCases.push({
+    ...eventCase,
+    type: stateType,
+    valid: { ...eventCase.valid, type: stateType } as EntryCondition,
+    invalid: eventCase.invalid.map(({ label, condition }) => ({
+      label,
+      condition: { ...condition, type: stateType } as EntryCondition,
+    })),
+  });
+}
+
+it('validates optional reentry cooldown as a non-negative integer', () => {
+  const strategy = baseStrategy({ type: 'cciBreak', period: 20, level: 100 });
+  for (const reentryCooldownBars of [undefined, 0, 3]) {
+    expect(strategyValidationMessages({ ...strategy, exit: { ...strategy.exit, reentryCooldownBars } })).toEqual([]);
+  }
+  for (const reentryCooldownBars of [-1, 0.5, NaN, Infinity]) {
+    expect(strategyValidationMessages({ ...strategy, exit: { ...strategy.exit, reentryCooldownBars } })).toContain('再エントリークールダウンは0以上の整数にしてください。');
+  }
+});
+
 it('covers every registered entry condition type exactly once and in registry order', () => {
   expect(validationCases.map((validationCase) => validationCase.type)).toEqual([
     ...knownEntryConditionTypes,

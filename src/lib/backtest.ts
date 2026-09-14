@@ -1,3 +1,4 @@
+import { reentryCooldownBarsForStrategy } from './strategy';
 import {
   createStrategyEvaluator,
   defaultMoneyManagement,
@@ -373,6 +374,8 @@ export const runBacktest = (
   pair: Pair,
   options: BacktestOptions = {},
 ): BacktestResult => {
+  const reentryCooldownBars = reentryCooldownBarsForStrategy(strategy);
+  let closeIndex = -Infinity;
   const spreadPips = options.spreadPips ?? spreadPipsForPair(pair);
   const moneyManagement = resolveMoneyManagement(strategy, options.moneyManagement);
   const fallbackUsdJpyRate = sanitizePositive(options.fallbackUsdJpyRate, DEFAULT_USDJPY_RATE);
@@ -457,6 +460,7 @@ export const runBacktest = (
       realizedPips += trade.netPips;
       realizedYen += trade.netProfitYen;
       position = null;
+      closeIndex = index;
       pendingOppositeClose = false;
     }
 
@@ -493,6 +497,7 @@ export const runBacktest = (
         realizedPips += trade.netPips;
         realizedYen += trade.netProfitYen;
         position = null;
+        closeIndex = index;
       } else {
         updateTrailingStop(position, bar, strategy.exit.trailingStopPips, pair);
       }
@@ -510,7 +515,7 @@ export const runBacktest = (
       continue;
     }
 
-    if (!position && index < bars.length - 1) {
+    if (!position && index < bars.length - 1 && index >= closeIndex + reentryCooldownBars) {
       pendingEntryDirection =
         entryDirections.find((direction) => evaluator.isEntrySignal(strategy, index, direction)) ?? null;
     }
@@ -535,6 +540,7 @@ export const runBacktest = (
     // close path; otherwise recordEquity would re-mark it to market and double
     // count the floating leg on top of the realized close.
     position = null;
+    closeIndex = bars.length - 1;
     recordEquity(last);
   }
 

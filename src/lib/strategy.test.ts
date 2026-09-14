@@ -1133,6 +1133,56 @@ describe('strategy evaluator', () => {
     }
   });
 
+  it('keeps SAR state signals true beyond the flip and shares the event cache', () => {
+    const bars = makeSarStrategyBars();
+    const condition = { type: 'parabolicSarState' as const, step: 0.1, maximum: 0.3 };
+    const sarSpy = vi.spyOn(indicators, 'parabolicSar');
+    try {
+      const evaluator = createStrategyEvaluator(bars);
+      for (const index of [0, 2, 3, 101]) {
+        expect(evaluator.isEntrySignal(strategyFor(condition), index)).toBe(false);
+        expect(evaluator.isEntrySignal(strategyFor(condition, 'short'), index)).toBe(false);
+      }
+      for (const index of [102, 103, 104, 105]) {
+        expect(evaluator.isEntrySignal(strategyFor(condition), index)).toBe(true);
+        expect(evaluator.isEntrySignal(strategyFor(condition, 'short'), index)).toBe(false);
+      }
+      for (const index of [106, 107, 108, 109]) {
+        expect(evaluator.isEntrySignal(strategyFor(condition, 'short'), index)).toBe(true);
+        expect(evaluator.isEntrySignal(strategyFor(condition), index)).toBe(false);
+      }
+      expect(evaluator.isEntrySignal(strategyFor({ ...condition, type: 'parabolicSar' }), 103)).toBe(false);
+      expect(sarSpy).toHaveBeenCalledTimes(1);
+      for (const invalid of [{ step: 0 }, { step: NaN }, { maximum: 0.01 }, { maximum: Infinity }]) {
+        expect(evaluator.isEntrySignal(strategyFor({ ...condition, ...invalid }), 103)).toBe(false);
+      }
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('evaluates only current shifted Alligator alignment, including the first ready bar', () => {
+    const condition = { ...alligatorBoundaryCondition, type: 'alligatorState' as const };
+    for (const direction of ['long', 'short'] as const) {
+      const medians = Array.from({ length: 20 }, (_, index) => direction === 'long' ? 10 + index : 40 - index);
+      const evaluator = createStrategyEvaluator(alligatorBarsFromMedians(medians));
+      const firstReady = Math.max(condition.jawPeriod - 1 + condition.jawShift,
+        condition.teethPeriod - 1 + condition.teethShift, condition.lipsPeriod - 1 + condition.lipsShift);
+      expect(evaluator.isEntrySignal(strategyFor(condition, direction), firstReady - 1)).toBe(false);
+      for (const index of [firstReady, firstReady + 1, 19]) {
+        expect(evaluator.isEntrySignal(strategyFor(condition, direction), index)).toBe(true);
+        expect(evaluator.isEntrySignal(strategyFor(condition, direction === 'long' ? 'short' : 'long'), index)).toBe(false);
+      }
+      expect(evaluator.isEntrySignal(strategyFor(alligatorBoundaryCondition, direction), 19)).toBe(false);
+      for (const invalid of [{ jawPeriod: 1 }, { teethPeriod: 2.5 }, { jawShift: -1 }, { teethShift: 501 }, { lipsShift: condition.teethShift }]) {
+        expect(evaluator.isEntrySignal(strategyFor({ ...condition, ...invalid }, direction), 19)).toBe(false);
+      }
+    }
+    const flat = createStrategyEvaluator(alligatorBarsFromMedians(Array(20).fill(10)));
+    expect(flat.isEntrySignal(strategyFor(condition), 19)).toBe(false);
+    expect(flat.isEntrySignal(strategyFor(condition, 'short'), 19)).toBe(false);
+  });
+
   it('evaluates exposed Parabolic SAR flips in both directions and keeps warm-up closed', () => {
     const condition = { type: 'parabolicSar' as const, step: 0.1, maximum: 0.3 };
     const bars = makeSarStrategyBars();

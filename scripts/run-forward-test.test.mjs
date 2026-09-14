@@ -526,6 +526,22 @@ describe('forward test runner', () => {
     expect(INDICATOR_SAR_MIN_STEP).toBe(0.02);
   });
 
+  it('validates state conditions and optional cooldown through the forward runner', () => {
+    for (const entryType of ['parabolicSarState', 'alligatorState']) {
+      const target = buildCandidateMatrix().find((candidate) => candidate.entryType === entryType);
+      const report = (candidate) => buildStrategyReport({ strategy: candidate, bars: [], usdJpyBars: [], runBacktest: emptyBacktestResult });
+      expect(() => report(target.strategy)).not.toThrow();
+      for (const reentryCooldownBars of [0, 3]) {
+        expect(() => report({ ...target.strategy, exit: { ...target.strategy.exit, reentryCooldownBars } })).not.toThrow();
+      }
+      for (const reentryCooldownBars of [-1, 0.5, NaN, Infinity, null]) {
+        expect(() => report({ ...target.strategy, exit: { ...target.strategy.exit, reentryCooldownBars } })).toThrow(/reentryCooldownBars must be a non-negative integer/);
+      }
+      const condition = { ...target.strategy.entryConditions[0], ...(entryType === 'parabolicSarState' ? { step: 0 } : { jawShift: -1 }) };
+      expect(() => report({ ...target.strategy, entryConditions: [condition] })).toThrow(entryType === 'parabolicSarState' ? /step/ : /jawShift/);
+    }
+  });
+
   it('exports a frozen entry condition type registry', () => {
     expect(Array.isArray(knownEntryConditionTypes)).toBe(true);
     expect(Object.isFrozen(knownEntryConditionTypes)).toBe(true);
@@ -549,6 +565,8 @@ describe('forward test runner', () => {
       'rvi',
       'envelope',
       'alligator',
+      'parabolicSarState',
+      'alligatorState',
     ]);
   });
 
