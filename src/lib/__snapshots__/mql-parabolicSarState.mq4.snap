@@ -278,8 +278,8 @@ bool SarWarmupReady1(int signalShift)
   {
     return false;
   }
-  // The TS signal needs both index-1 and index, so a reversal on signalShift
-  // itself is not countable. Require the older point to be at least
+  // The TS state signal needs only index; count reversals through signalShift.
+  // Require that signal point to be at least
   // 100 bars after the first reversal (interpolated
   // from indicators.ts so the TS gate and the generated EA cannot drift).
   cachedResult = firstReversalShift - (signalShift) >= 100;

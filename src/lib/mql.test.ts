@@ -1156,6 +1156,8 @@ describe('state entries and reentry cooldown', () => {
           expect(signal).toContain('return longSide ? currentIsLong : !currentIsLong;');
           expect(source).toContain('firstReversalShift - (signalShift) >= 100');
           expect(source).toContain('shift >= signalShift; shift--');
+          expect(source).toContain('The TS state signal needs only index');
+          expect(source).not.toContain('The TS signal needs both index-1 and index');
         } else {
           expect(source).toContain('return currentLips > currentTeeth && currentTeeth > currentJaw;');
           expect(source).toContain('return currentLips < currentTeeth && currentTeeth < currentJaw;');
@@ -1179,8 +1181,13 @@ describe('state entries and reentry cooldown', () => {
       expect(source).toContain(extension === 'mq4' ? 'OrdersHistoryTotal()' : 'HistorySelect(0, TimeCurrent())');
       expect(source).toContain(extension === 'mq4' ? 'OrderMagicNumber() == InpMagicNumber && OrderSymbol() == Symbol()' : 'HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagicNumber');
       if (extension === 'mq5') {
+        expect(source).toContain('for(int i = 0; i < dealCount; i++)');
+        expect(source).toContain('DEAL_POSITION_ID');
+        expect(source).toContain('entry == DEAL_ENTRY_IN && magicMatches &&');
+        expect(source).toContain('!CooldownPositionKnown(positionIds, positionCount, positionId, true)) return false;');
+        expect(source).toContain('(magicMatches || CooldownPositionKnown(positionIds, positionCount, positionId, false))');
         expect(source).toContain('entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY');
-        expect(source).toContain('HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbol');
+        expect(source).toContain('if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol) continue;');
       }
       await expect(source).toMatchFileSnapshot(mqlSnapshotPath(`mql-cciBreak-cooldown.${extension}`));
       expect(() => generate({ ...strategy, exit: { ...strategy.exit, reentryCooldownBars: -1 } })).toThrow('reentryCooldownBars');

@@ -510,7 +510,7 @@ export const buildCandidateMatrix = () => {
             takeProfitPips: { ...profile.parameterRanges.takeProfitPips },
           },
           trailingStopPips: [...profile.trailingStopPips],
-          ...(profile.reentryCooldownBars ? { reentryCooldownBars: [...profile.reentryCooldownBars] } : {}),
+          ...(Array.isArray(profile.reentryCooldownBars) && profile.reentryCooldownBars.length > 0 ? { reentryCooldownBars: [...profile.reentryCooldownBars] } : {}),
           sessionVariants: null,
         });
       }
@@ -885,6 +885,9 @@ const combinationLabel = (row) => {
   ];
   if (row.includeTrailing) {
     parts.push(`TR ${trailingLabel(row.parameters.trailingStopPips)}`);
+  }
+  if (row.includeCooldown) {
+    parts.push(`CD ${row.parameters.reentryCooldownBars}`);
   }
   if (row.includeSession) {
     parts.push(`Session ${row.sessionLabel}`);
@@ -1287,6 +1290,7 @@ export const evaluateTarget = async (
             sessionFilter: sessionVariant ? cloneJson(sessionVariant.filter) : cloneJson(strategy.sessionFilter),
             includeTrailing: Array.isArray(target.trailingStopPips),
             includeSession: Array.isArray(target.sessionVariants),
+            includeCooldown: Array.isArray(target.reentryCooldownBars),
           });
         }
       }

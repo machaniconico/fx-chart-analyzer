@@ -201,6 +201,7 @@ bool Condition1(bool longSide)
 bool ReentryCooldownAllows()
 {
   datetime lastClose = 0;
+  // Truncated terminal account history can fail open; select "All History" in the terminal.
   for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
   {
     if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
@@ -213,7 +214,8 @@ bool ReentryCooldownAllows()
   }
   if(lastClose == 0) return true;
   int elapsedBars = iBarShift(_Symbol, _Period, lastClose);
-  // EntrySignal evaluates shift 1, so compare the last closed signal bar.
+  // TS blocks entry search while index < closeIndex + N. MQL evaluates shift 1,
+  // so index - closeIndex == elapsedBars - 1; allow entry when elapsedBars - 1 >= N.
   return elapsedBars >= 0 && elapsedBars - 1 >= 3;
 }
 

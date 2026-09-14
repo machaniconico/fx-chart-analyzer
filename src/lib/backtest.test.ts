@@ -119,6 +119,18 @@ describe('backtest', () => {
     }
   });
 
+  it('counts the close bar itself: N=1 suppresses the same-bar re-entry search allowed by N=0', () => {
+    const bars = Array.from({ length: 8 }, (_, index) => bar(index, 100, 100.2, 99.8, 100));
+    const strategy = alwaysEntryStrategy({ stopLossPips: 100, takeProfitPips: 10 });
+    const zero = runBacktest(bars, { ...strategy, exit: { ...strategy.exit, reentryCooldownBars: 0 } }, 'USDJPY');
+    const one = runBacktest(bars, { ...strategy, exit: { ...strategy.exit, reentryCooldownBars: 1 } }, 'USDJPY');
+    expect(zero.trades[0].exitReason).toBe('take_profit');
+    expect(one.trades[0]).toEqual(zero.trades[0]);
+    // A search on the close bar queues execution at the next bar's open.
+    expect(zero.trades[1].entryTime).toBe(zero.trades[0].exitTime + 3600);
+    expect(one.trades[1].entryTime).toBe(one.trades[0].exitTime + 2 * 3600);
+  });
+
   it('applies cooldown after opposite-signal closes without delaying position management', () => {
     const bars = Array.from({ length: 14 }, (_, index) => bar(index, 100, 100.02, 99.98, 100));
     const strategy = alwaysEntryStrategy({ stopLossPips: 100, takeProfitPips: 100, closeOnOppositeSignal: true });

@@ -1615,8 +1615,52 @@ describe('tune-virtual-strategies deep-history cache', () => {
         expect(scoredExits).toHaveLength(8);
         expect(scoredExits.map(({ reentryCooldownBars }) => reentryCooldownBars)).toEqual([0, 0, 3, 3, 0, 0, 3, 3]);
         expect(createTuningReport([result]).candidates[0].selectedCandidate.parameters.reentryCooldownBars).toBe(3);
+        expect(result.evaluatedRows.every((candidate) => candidate.includeCooldown)).toBe(true);
+        const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+        try {
+          printTargetResult(result);
+          const messages = log.mock.calls.map(([message]) => message);
+          const table = messages.find((message) => message.startsWith('| '));
+          expect(table).toContain('SL 30p / TP 60p / TR なし / CD 0');
+          expect(table).toContain('SL 30p / TP 60p / TR なし / CD 3');
+          expect(messages).toContain('採用候補: SL 30p / TP 60p / TR なし / CD 3');
+        } finally {
+          log.mockRestore();
+        }
       }
     } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves table and selected-candidate labels for all 18 legacy profiles', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'fx-tuning-legacy-labels-'));
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const legacyTypes = TUNING_ENTRY_TYPES.filter((entryType) => !['parabolicSarState', 'alligatorState'].includes(entryType));
+      expect(legacyTypes).toHaveLength(18);
+      for (const entryType of legacyTypes) {
+        const target = buildCandidateMatrix().find((candidate) => candidate.entryType === entryType);
+        const { pair, timeframe, registeredAt } = target.strategy.meta;
+        await writeBarCache(tempRoot, pair, timeframe, barsBeforeRegistration(registeredAt, 731));
+        const result = await evaluateTarget(engine, target, { dataDirectory: tempRoot });
+        expect(result.evaluatedRows.every((candidate) => candidate.includeCooldown === false)).toBe(true);
+        log.mockClear();
+        printTargetResult(result);
+        const messages = log.mock.calls.map(([message]) => message);
+        const table = messages.find((message) => message.startsWith('| '));
+        const legacyLabel = (candidate) => [
+          'SL 30p', 'TP 60p',
+          ...(candidate.includeTrailing ? [`TR ${candidate.parameters.trailingStopPips == null ? 'なし' : `${candidate.parameters.trailingStopPips}p`}`] : []),
+          ...(candidate.includeSession ? [`Session ${candidate.sessionLabel}`] : []),
+        ].join(' / ');
+        expect(table.split('\n').slice(2).map((line) => line.split(' | ')[1])).toEqual(
+          result.rows.slice(0, 5).map(legacyLabel),
+        );
+        expect(messages).toContain(`採用候補: ${legacyLabel(result.eligible)}`);
+      }
+    } finally {
+      log.mockRestore();
       await rm(tempRoot, { recursive: true, force: true });
     }
   });

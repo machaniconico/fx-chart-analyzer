@@ -1,4 +1,3 @@
-import { reentryCooldownBarsForStrategy } from './strategy';
 import {
   createStrategyEvaluator,
   defaultMoneyManagement,
@@ -6,6 +5,7 @@ import {
   pipSize,
   priceToPips,
   pipsToPrice,
+  reentryCooldownBarsForStrategy,
 } from './strategy';
 import type { MoneyManagementSettings, StrategyDefinition, StrategyDirection } from './strategy';
 import { spreadPipsForPair } from './spreads.js';
@@ -540,7 +540,6 @@ export const runBacktest = (
     // close path; otherwise recordEquity would re-mark it to market and double
     // count the floating leg on top of the realized close.
     position = null;
-    closeIndex = bars.length - 1;
     recordEquity(last);
   }
 

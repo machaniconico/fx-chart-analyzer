@@ -1435,8 +1435,9 @@ ${expressions.warmupPrelude}
   {
     return false;
   }
-  // The TS signal needs both index-1 and index, so a reversal on signalShift
-  // itself is not countable. Require the older point to be at least
+${stateOnly ? `  // The TS state signal needs only index; count reversals through signalShift.
+  // Require that signal point to be at least` : `  // The TS signal needs both index-1 and index, so a reversal on signalShift
+  // itself is not countable. Require the older point to be at least`}
   // ${SAR_CONVERGENCE_WARMUP_BARS} bars after the first reversal (interpolated
   // from indicators.ts so the TS gate and the generated EA cannot drift).
   cachedResult = firstReversalShift - (${stateOnly ? 'signalShift' : 'signalShift + 1'}) >= ${SAR_CONVERGENCE_WARMUP_BARS};
@@ -2337,7 +2338,38 @@ const reentryCooldownFunction = (strategy: StrategyDefinition, mql5: boolean): s
   if (bars === 0) {
     return '';
   }
-  return `
+  return `${mql5 ? `
+// A small growing hash set keeps the history scan amortized O(n).
+bool CooldownPositionKnown(ulong &ids[], int &count, ulong id, bool latch)
+{
+  if(id == 0) return false;
+  int capacity = ArraySize(ids);
+  if(latch && count * 2 >= capacity)
+  {
+    int nextCapacity = capacity == 0 ? 16 : capacity * 2;
+    ulong previous[];
+    if(capacity > 0 && ArrayCopy(previous, ids) != capacity) return false;
+    if(ArrayResize(ids, nextCapacity) != nextCapacity) return false;
+    ArrayInitialize(ids, 0);
+    for(int i = 0; i < capacity; i++)
+    {
+      if(previous[i] == 0) continue;
+      int slot = (int)(previous[i] % (ulong)nextCapacity);
+      while(ids[slot] != 0) slot = (slot + 1) % nextCapacity;
+      ids[slot] = previous[i];
+    }
+    capacity = nextCapacity;
+  }
+  if(capacity == 0) return false;
+  int slot = (int)(id % (ulong)capacity);
+  while(ids[slot] != 0 && ids[slot] != id) slot = (slot + 1) % capacity;
+  if(ids[slot] == id) return true;
+  if(!latch) return false;
+  ids[slot] = id;
+  count++;
+  return true;
+}
+` : ''}
 bool ReentryCooldownAllows()
 {
   datetime lastClose = 0;
@@ -2345,19 +2377,28 @@ ${mql5 ? `  if(!HistorySelect(0, TimeCurrent()))
   {
     return false;
   }
-  for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+  ulong positionIds[];
+  int positionCount = 0;
+  int dealCount = HistoryDealsTotal();
+  for(int i = 0; i < dealCount; i++)
   {
     ulong ticket = HistoryDealGetTicket(i);
     if(ticket == 0) continue;
+    if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol) continue;
     long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
+    bool magicMatches = HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagicNumber;
+    ulong positionId = (ulong)HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
+    if(entry == DEAL_ENTRY_IN && magicMatches &&
+      !CooldownPositionKnown(positionIds, positionCount, positionId, true)) return false;
+    // Server SL/TP deals may omit Magic; match either Magic or a latched entry position ID.
     if((entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY) &&
-      HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagicNumber &&
-      HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbol)
+      (magicMatches || CooldownPositionKnown(positionIds, positionCount, positionId, false)))
     {
       datetime closeTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
       if(closeTime > lastClose) lastClose = closeTime;
     }
-  }` : `  for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+  }` : `  // Truncated terminal account history can fail open; select "All History" in the terminal.
+  for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
   {
     if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
     if(OrderMagicNumber() == InpMagicNumber && OrderSymbol() == Symbol() &&
@@ -2369,7 +2410,8 @@ ${mql5 ? `  if(!HistorySelect(0, TimeCurrent()))
   }`}
   if(lastClose == 0) return true;
   int elapsedBars = iBarShift(_Symbol, _Period, lastClose);
-  // EntrySignal evaluates shift 1, so compare the last closed signal bar.
+  // TS blocks entry search while index < closeIndex + N. MQL evaluates shift 1,
+  // so index - closeIndex == elapsedBars - 1; allow entry when elapsedBars - 1 >= N.
   return elapsedBars >= 0 && elapsedBars - 1 >= ${bars};
 }
 `;
