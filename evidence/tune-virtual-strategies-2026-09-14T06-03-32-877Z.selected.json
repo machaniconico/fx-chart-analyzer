@@ -1,0 +1,1247 @@
+{
+  "schemaVersion": 1,
+  "note": "正典レポートから再現判定に必要な部分のみを抽出したもの。数値は逐語コピーで丸めない。",
+  "source": {
+    "reportId": "tune-virtual-strategies-2026-09-14T06-03-32-877Z",
+    "generatedAt": "2026-09-14T06:03:32.877Z",
+    "schemaVersion": 1,
+    "sha256": "5fb15299eae566df8cf42768a42d4be9d74136c08be232aea5a1d87b0679877b",
+    "bytes": 9548701
+  },
+  "selectionPolicy": {
+    "ranking": [
+      "optimization.netProfitYen descending",
+      "optimization.maxDrawdownYen ascending"
+    ],
+    "legacyPrefilter": {
+      "field": "optimization.profitFactor",
+      "operator": ">=",
+      "threshold": 1
+    },
+    "gate": {
+      "optimizationNetProfitYen": {
+        "operator": ">",
+        "threshold": 0
+      },
+      "validationNetProfitYen": {
+        "operator": ">",
+        "threshold": 0
+      },
+      "validationTradeCount": {
+        "operator": ">=",
+        "threshold": 10
+      },
+      "overfitWarning": {
+        "operator": "===",
+        "threshold": false
+      },
+      "validationToOptimizationRatio": {
+        "operator": ">=",
+        "threshold": 0.35
+      }
+    }
+  },
+  "filters": {
+    "pairs": [],
+    "entryTypes": [
+      "alligatorState"
+    ],
+    "timeframes": [],
+    "deepHistory": true,
+    "walkForward": true
+  },
+  "matrix": {
+    "pairs": [
+      "USDJPY",
+      "EURUSD",
+      "GBPJPY",
+      "EURJPY",
+      "GBPUSD",
+      "AUDJPY"
+    ],
+    "entryTypeTimeframes": {
+      "maCross": [
+        "h1",
+        "h4"
+      ],
+      "rsi": [
+        "m30",
+        "h1"
+      ],
+      "bollinger": [
+        "m30",
+        "h1"
+      ],
+      "macdCross": [
+        "h1",
+        "h4"
+      ],
+      "donchianBreak": [
+        "h1",
+        "h4"
+      ],
+      "stochastic": [
+        "m30",
+        "h1"
+      ],
+      "ichimokuCross": [
+        "h1",
+        "h4"
+      ],
+      "keltnerBreak": [
+        "h1",
+        "h4"
+      ],
+      "cciBreak": [
+        "m30",
+        "h1"
+      ],
+      "adxTrend": [
+        "h1",
+        "h4"
+      ],
+      "parabolicSar": [
+        "h1",
+        "h4"
+      ],
+      "momentum": [
+        "h1",
+        "h4"
+      ],
+      "rvi": [
+        "h1",
+        "h4"
+      ],
+      "demarker": [
+        "h1",
+        "h4"
+      ],
+      "ao": [
+        "h1",
+        "h4"
+      ],
+      "envelope": [
+        "h1",
+        "h4"
+      ],
+      "stochCross": [
+        "m30",
+        "h1"
+      ],
+      "alligator": [
+        "h1",
+        "h4"
+      ],
+      "parabolicSarState": [
+        "h1",
+        "h4"
+      ],
+      "alligatorState": [
+        "h1",
+        "h4"
+      ]
+    },
+    "definedCandidateCount": 240,
+    "evaluatedCandidateCount": 12
+  },
+  "summary": {
+    "candidateCount": 12,
+    "passedCandidateCount": 4,
+    "rejectedCandidateCount": 8,
+    "referenceSpanBelowTargetCount": 0,
+    "combinationCount": 3360,
+    "passedCombinationCount": 72,
+    "rejectedCombinationCount": 3288,
+    "usedFallbackUsdJpyRateCount": 0,
+    "usdJpyFallbackUncoveredReferenceSpanRatioSum": 0,
+    "usdJpyFallbackUncoveredReferenceSpanRatioAverage": null,
+    "usdJpyFallbackUncoveredReferenceSpanRatioMax": null
+  },
+  "provenance": {
+    "deepHistory": true
+  },
+  "candidates": [
+    {
+      "id": "tune-alligatorstate-usdjpy-h1-v1",
+      "pair": "USDJPY",
+      "entryType": "alligatorState",
+      "timeframe": "h1",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 12572,
+        "optimizationBars": 8800,
+        "validationBars": 3772,
+        "referenceSpanDays": 736.9583333333334,
+        "validationSpanDays": 222.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "USDJPY",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 274
+        },
+        {
+          "code": "overfit_warning",
+          "message": "過学習警告あり",
+          "count": 86
+        },
+        {
+          "code": "validation_retention_below_threshold",
+          "message": "検証保持率が0.35未満",
+          "count": 138
+        },
+        {
+          "code": "quarterly_stability_below_threshold",
+          "message": "四半期安定性: 正のセグメントが2/4件で3件未満",
+          "count": 1,
+          "actual": 2,
+          "operator": ">=",
+          "threshold": 3
+        },
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 193
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 193
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-alligatorstate-usdjpy-h4-v1",
+      "pair": "USDJPY",
+      "entryType": "alligatorState",
+      "timeframe": "h4",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 3251,
+        "optimizationBars": 2275,
+        "validationBars": 976,
+        "referenceSpanDays": 736.8333333333334,
+        "validationSpanDays": 220.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "USDJPY",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 279
+        },
+        {
+          "code": "overfit_warning",
+          "message": "過学習警告あり",
+          "count": 96
+        },
+        {
+          "code": "validation_retention_below_threshold",
+          "message": "検証保持率が0.35未満",
+          "count": 197
+        },
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 184
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 184
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-alligatorstate-eurusd-h1-v1",
+      "pair": "EURUSD",
+      "entryType": "alligatorState",
+      "timeframe": "h1",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 12572,
+        "optimizationBars": 8800,
+        "validationBars": 3772,
+        "referenceSpanDays": 736.9583333333334,
+        "validationSpanDays": 222.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": "deep-history",
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "EURUSD",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        },
+        "usdJpyBars": {
+          "source": "deep-history",
+          "pair": "USDJPY",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        }
+      },
+      "rejectionReasons": [
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "overfit_warning",
+          "message": "過学習警告あり",
+          "count": 59
+        },
+        {
+          "code": "validation_retention_below_threshold",
+          "message": "検証保持率が0.35未満",
+          "count": 178
+        },
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 221
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 221
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-alligatorstate-eurusd-h4-v1",
+      "pair": "EURUSD",
+      "entryType": "alligatorState",
+      "timeframe": "h4",
+      "status": "passed",
+      "dataWindow": {
+        "referenceBars": 3251,
+        "optimizationBars": 2275,
+        "validationBars": 976,
+        "referenceSpanDays": 736.8333333333334,
+        "validationSpanDays": 220.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": "deep-history",
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "EURUSD",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        },
+        "usdJpyBars": {
+          "source": "deep-history",
+          "pair": "USDJPY",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        }
+      },
+      "rejectionReasons": [],
+      "combinationCount": 280,
+      "selectedCandidate": {
+        "rank": 2,
+        "status": "passed",
+        "selected": true,
+        "parameters": {
+          "stopLossPips": 50,
+          "takeProfitPips": 220,
+          "trailingStopPips": 25,
+          "reentryCooldownBars": 3
+        },
+        "sessionLabel": "なし",
+        "sessionFilter": {
+          "enabled": false,
+          "start": "00:00",
+          "end": "23:59",
+          "serverUtcOffsetMinutes": 0
+        },
+        "optimizationMetrics": {
+          "netProfitYen": 70008,
+          "profitFactor": 1.1001781536414175,
+          "maxDrawdownYen": 69503,
+          "maxDrawdownPct": 6.67606642749081,
+          "tradeCount": 318,
+          "winRate": 38.36477987421384
+        },
+        "validationMetrics": {
+          "netProfitYen": 25066,
+          "profitFactor": 1.102314380178783,
+          "maxDrawdownYen": 53435,
+          "maxDrawdownPct": 5.053619669383794,
+          "tradeCount": 124,
+          "winRate": 41.12903225806452
+        },
+        "selectionEvidence": {
+          "optimizationNetProfitYen": {
+            "actual": 70008,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationNetProfitYen": {
+            "actual": 25066,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationTradeCount": {
+            "actual": 124,
+            "operator": ">=",
+            "threshold": 10,
+            "passed": true
+          },
+          "overfitWarning": {
+            "actual": false,
+            "operator": "===",
+            "threshold": false,
+            "passed": true
+          },
+          "validationToOptimizationRatio": {
+            "actual": 0.35804479488058505,
+            "operator": ">=",
+            "threshold": 0.35,
+            "passed": true
+          }
+        },
+        "rejectionReasons": [],
+        "quarterlyChecked": true,
+        "quarterlyResults": [
+          {
+            "startTime": 1719331200,
+            "endTime": 1735243200,
+            "barCount": 817,
+            "netProfitYen": 29953,
+            "profitFactor": 1.1390614408943611,
+            "tradeCount": 105
+          },
+          {
+            "startTime": 1735257600,
+            "endTime": 1751054400,
+            "barCount": 807,
+            "netProfitYen": 54715,
+            "profitFactor": 1.182892383801581,
+            "tradeCount": 122
+          },
+          {
+            "startTime": 1751227200,
+            "endTime": 1767067200,
+            "barCount": 812,
+            "netProfitYen": -21719,
+            "profitFactor": 0.8986343949520218,
+            "tradeCount": 108
+          },
+          {
+            "startTime": 1767081600,
+            "endTime": 1782993600,
+            "barCount": 815,
+            "netProfitYen": 24635,
+            "profitFactor": 1.1113446327683616,
+            "tradeCount": 105
+          }
+        ],
+        "quarterlyStability": {
+          "mode": "selected-parameter-quarterly-stability",
+          "segmentCount": 4,
+          "positiveSegmentCount": 3,
+          "requiredPositiveSegmentCount": 3,
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "tune-alligatorstate-gbpjpy-h1-v1",
+      "pair": "GBPJPY",
+      "entryType": "alligatorState",
+      "timeframe": "h1",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 12572,
+        "optimizationBars": 8800,
+        "validationBars": 3772,
+        "referenceSpanDays": 736.9583333333334,
+        "validationSpanDays": 222.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "GBPJPY",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 280
+        },
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 271
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-alligatorstate-gbpjpy-h4-v1",
+      "pair": "GBPJPY",
+      "entryType": "alligatorState",
+      "timeframe": "h4",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 3251,
+        "optimizationBars": 2275,
+        "validationBars": 976,
+        "referenceSpanDays": 736.8333333333334,
+        "validationSpanDays": 220.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "GBPJPY",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "overfit_warning",
+          "message": "過学習警告あり",
+          "count": 22
+        },
+        {
+          "code": "validation_retention_below_threshold",
+          "message": "検証保持率が0.35未満",
+          "count": 107
+        },
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 258
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 258
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-alligatorstate-eurjpy-h1-v1",
+      "pair": "EURJPY",
+      "entryType": "alligatorState",
+      "timeframe": "h1",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 12572,
+        "optimizationBars": 8800,
+        "validationBars": 3772,
+        "referenceSpanDays": 736.9583333333334,
+        "validationSpanDays": 222.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "EURJPY",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 239
+        },
+        {
+          "code": "overfit_warning",
+          "message": "過学習警告あり",
+          "count": 3
+        },
+        {
+          "code": "validation_retention_below_threshold",
+          "message": "検証保持率が0.35未満",
+          "count": 9
+        },
+        {
+          "code": "quarterly_stability_below_threshold",
+          "message": "四半期安定性: 正のセグメントが2/4件で3件未満",
+          "count": 1,
+          "actual": 2,
+          "operator": ">=",
+          "threshold": 3
+        },
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 275
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 275
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-alligatorstate-eurjpy-h4-v1",
+      "pair": "EURJPY",
+      "entryType": "alligatorState",
+      "timeframe": "h4",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 3251,
+        "optimizationBars": 2275,
+        "validationBars": 976,
+        "referenceSpanDays": 736.8333333333334,
+        "validationSpanDays": 220.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "EURJPY",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "overfit_warning",
+          "message": "過学習警告あり",
+          "count": 68
+        },
+        {
+          "code": "validation_retention_below_threshold",
+          "message": "検証保持率が0.35未満",
+          "count": 203
+        },
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 212
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 212
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-alligatorstate-gbpusd-h1-v1",
+      "pair": "GBPUSD",
+      "entryType": "alligatorState",
+      "timeframe": "h1",
+      "status": "rejected",
+      "dataWindow": {
+        "referenceBars": 12572,
+        "optimizationBars": 8800,
+        "validationBars": 3772,
+        "referenceSpanDays": 736.9583333333334,
+        "validationSpanDays": 222.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": "deep-history",
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "GBPUSD",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        },
+        "usdJpyBars": {
+          "source": "deep-history",
+          "pair": "USDJPY",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12572,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        }
+      },
+      "rejectionReasons": [
+        {
+          "code": "validation_not_profitable",
+          "message": "アウトオブサンプル損益が0円以下",
+          "count": 280
+        },
+        {
+          "code": "overfit_warning",
+          "message": "過学習警告あり",
+          "count": 46
+        },
+        {
+          "code": "validation_retention_below_threshold",
+          "message": "検証保持率が0.35未満",
+          "count": 105
+        },
+        {
+          "code": "optimization_not_profitable",
+          "message": "インサンプル損益が0円以下",
+          "count": 234
+        },
+        {
+          "code": "legacy_optimization_profit_factor_prefilter",
+          "message": "既存のインサンプルPF事前フィルターが1未満",
+          "count": 234
+        }
+      ],
+      "combinationCount": 280,
+      "selectedCandidate": null
+    },
+    {
+      "id": "tune-alligatorstate-gbpusd-h4-v1",
+      "pair": "GBPUSD",
+      "entryType": "alligatorState",
+      "timeframe": "h4",
+      "status": "passed",
+      "dataWindow": {
+        "referenceBars": 3251,
+        "optimizationBars": 2275,
+        "validationBars": 976,
+        "referenceSpanDays": 736.8333333333334,
+        "validationSpanDays": 220.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": "deep-history",
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "GBPUSD",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        },
+        "usdJpyBars": {
+          "source": "deep-history",
+          "pair": "USDJPY",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        }
+      },
+      "rejectionReasons": [],
+      "combinationCount": 280,
+      "selectedCandidate": {
+        "rank": 30,
+        "status": "passed",
+        "selected": true,
+        "parameters": {
+          "stopLossPips": 65,
+          "takeProfitPips": 200,
+          "trailingStopPips": null,
+          "reentryCooldownBars": 3
+        },
+        "sessionLabel": "なし",
+        "sessionFilter": {
+          "enabled": false,
+          "start": "00:00",
+          "end": "23:59",
+          "serverUtcOffsetMinutes": 0
+        },
+        "optimizationMetrics": {
+          "netProfitYen": 101922,
+          "profitFactor": 1.1611636699435337,
+          "maxDrawdownYen": 154112,
+          "maxDrawdownPct": 12.739489545472555,
+          "tradeCount": 101,
+          "winRate": 33.663366336633665
+        },
+        "validationMetrics": {
+          "netProfitYen": 73203,
+          "profitFactor": 1.370147699060005,
+          "maxDrawdownYen": 61658,
+          "maxDrawdownPct": 5.570215400108891,
+          "tradeCount": 43,
+          "winRate": 34.883720930232556
+        },
+        "selectionEvidence": {
+          "optimizationNetProfitYen": {
+            "actual": 101922,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationNetProfitYen": {
+            "actual": 73203,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationTradeCount": {
+            "actual": 43,
+            "operator": ">=",
+            "threshold": 10,
+            "passed": true
+          },
+          "overfitWarning": {
+            "actual": false,
+            "operator": "===",
+            "threshold": false,
+            "passed": true
+          },
+          "validationToOptimizationRatio": {
+            "actual": 0.7182257020074174,
+            "operator": ">=",
+            "threshold": 0.35,
+            "passed": true
+          }
+        },
+        "rejectionReasons": [],
+        "quarterlyChecked": true,
+        "quarterlyResults": [
+          {
+            "startTime": 1719331200,
+            "endTime": 1735243200,
+            "barCount": 817,
+            "netProfitYen": 172654,
+            "profitFactor": 2.2288540925266904,
+            "tradeCount": 31
+          },
+          {
+            "startTime": 1735257600,
+            "endTime": 1751054400,
+            "barCount": 807,
+            "netProfitYen": -58719,
+            "profitFactor": 0.7930075402658657,
+            "tradeCount": 41
+          },
+          {
+            "startTime": 1751227200,
+            "endTime": 1767067200,
+            "barCount": 812,
+            "netProfitYen": 73509,
+            "profitFactor": 1.4725777729204301,
+            "tradeCount": 32
+          },
+          {
+            "startTime": 1767081600,
+            "endTime": 1782993600,
+            "barCount": 815,
+            "netProfitYen": 41028,
+            "profitFactor": 1.225293642818312,
+            "tradeCount": 39
+          }
+        ],
+        "quarterlyStability": {
+          "mode": "selected-parameter-quarterly-stability",
+          "segmentCount": 4,
+          "positiveSegmentCount": 3,
+          "requiredPositiveSegmentCount": 3,
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "tune-alligatorstate-audjpy-h1-v1",
+      "pair": "AUDJPY",
+      "entryType": "alligatorState",
+      "timeframe": "h1",
+      "status": "passed",
+      "dataWindow": {
+        "referenceBars": 12571,
+        "optimizationBars": 8799,
+        "validationBars": 3772,
+        "referenceSpanDays": 736.9583333333334,
+        "validationSpanDays": 222.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "AUDJPY",
+          "timeframe": "h1",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 12571,
+          "coverageBeforeRegistrationDays": 736.9583333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [],
+      "combinationCount": 280,
+      "selectedCandidate": {
+        "rank": 1,
+        "status": "passed",
+        "selected": true,
+        "parameters": {
+          "stopLossPips": 35,
+          "takeProfitPips": 60,
+          "trailingStopPips": null,
+          "reentryCooldownBars": 3
+        },
+        "sessionLabel": "なし",
+        "sessionFilter": {
+          "enabled": false,
+          "start": "00:00",
+          "end": "23:59",
+          "serverUtcOffsetMinutes": 0
+        },
+        "optimizationMetrics": {
+          "netProfitYen": 199556,
+          "profitFactor": 1.0624603472446754,
+          "maxDrawdownYen": 307059,
+          "maxDrawdownPct": 25.853855273173064,
+          "tradeCount": 583,
+          "winRate": 41.509433962264154
+        },
+        "validationMetrics": {
+          "netProfitYen": 101251,
+          "profitFactor": 1.081334335844431,
+          "maxDrawdownYen": 135173,
+          "maxDrawdownPct": 11.58233238679694,
+          "tradeCount": 236,
+          "winRate": 42.3728813559322
+        },
+        "selectionEvidence": {
+          "optimizationNetProfitYen": {
+            "actual": 199556,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationNetProfitYen": {
+            "actual": 101251,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationTradeCount": {
+            "actual": 236,
+            "operator": ">=",
+            "threshold": 10,
+            "passed": true
+          },
+          "overfitWarning": {
+            "actual": false,
+            "operator": "===",
+            "threshold": false,
+            "passed": true
+          },
+          "validationToOptimizationRatio": {
+            "actual": 0.5073813866784261,
+            "operator": ">=",
+            "threshold": 0.35,
+            "passed": true
+          }
+        },
+        "rejectionReasons": [],
+        "quarterlyChecked": true,
+        "quarterlyResults": [
+          {
+            "startTime": 1719320400,
+            "endTime": 1735236000,
+            "barCount": 3158,
+            "netProfitYen": -82812,
+            "profitFactor": 0.9361289083559511,
+            "tradeCount": 232
+          },
+          {
+            "startTime": 1735239600,
+            "endTime": 1751054400,
+            "barCount": 3123,
+            "netProfitYen": 171676,
+            "profitFactor": 1.1194668403596892,
+            "tradeCount": 233
+          },
+          {
+            "startTime": 1751230800,
+            "endTime": 1767074400,
+            "barCount": 3139,
+            "netProfitYen": 113177,
+            "profitFactor": 1.1583466481611546,
+            "tradeCount": 146
+          },
+          {
+            "startTime": 1767078000,
+            "endTime": 1782993600,
+            "barCount": 3151,
+            "netProfitYen": 99137,
+            "profitFactor": 1.089871271870184,
+            "tradeCount": 206
+          }
+        ],
+        "quarterlyStability": {
+          "mode": "selected-parameter-quarterly-stability",
+          "segmentCount": 4,
+          "positiveSegmentCount": 3,
+          "requiredPositiveSegmentCount": 3,
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "tune-alligatorstate-audjpy-h4-v1",
+      "pair": "AUDJPY",
+      "entryType": "alligatorState",
+      "timeframe": "h4",
+      "status": "passed",
+      "dataWindow": {
+        "referenceBars": 3251,
+        "optimizationBars": 2275,
+        "validationBars": 976,
+        "referenceSpanDays": 736.8333333333334,
+        "validationSpanDays": 220.66666666666666,
+        "referenceSpanTargetDays": 730,
+        "meetsReferenceSpanTarget": true
+      },
+      "warnings": [],
+      "provenance": {
+        "dataSource": "deep-history",
+        "usdJpyDataSource": null,
+        "usedFallbackUsdJpyRate": false,
+        "priceBars": {
+          "source": "deep-history",
+          "pair": "AUDJPY",
+          "timeframe": "h4",
+          "payloadSource": "dukascopy",
+          "barsBeforeRegistration": 3251,
+          "coverageBeforeRegistrationDays": 736.8333333333334
+        },
+        "usdJpyBars": null
+      },
+      "rejectionReasons": [],
+      "combinationCount": 280,
+      "selectedCandidate": {
+        "rank": 9,
+        "status": "passed",
+        "selected": true,
+        "parameters": {
+          "stopLossPips": 110,
+          "takeProfitPips": 220,
+          "trailingStopPips": null,
+          "reentryCooldownBars": 0
+        },
+        "sessionLabel": "なし",
+        "sessionFilter": {
+          "enabled": false,
+          "start": "00:00",
+          "end": "23:59",
+          "serverUtcOffsetMinutes": 0
+        },
+        "optimizationMetrics": {
+          "netProfitYen": 139391,
+          "profitFactor": 1.2739710680451275,
+          "maxDrawdownYen": 80613,
+          "maxDrawdownPct": 6.790641881732159,
+          "tradeCount": 124,
+          "winRate": 45.96774193548387
+        },
+        "validationMetrics": {
+          "netProfitYen": 55577,
+          "profitFactor": 1.346241784256923,
+          "maxDrawdownYen": 38862,
+          "maxDrawdownPct": 3.70748442097149,
+          "tradeCount": 44,
+          "winRate": 52.27272727272727
+        },
+        "selectionEvidence": {
+          "optimizationNetProfitYen": {
+            "actual": 139391,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationNetProfitYen": {
+            "actual": 55577,
+            "operator": ">",
+            "threshold": 0,
+            "passed": true
+          },
+          "validationTradeCount": {
+            "actual": 44,
+            "operator": ">=",
+            "threshold": 10,
+            "passed": true
+          },
+          "overfitWarning": {
+            "actual": false,
+            "operator": "===",
+            "threshold": false,
+            "passed": true
+          },
+          "validationToOptimizationRatio": {
+            "actual": 0.39871297286051466,
+            "operator": ">=",
+            "threshold": 0.35,
+            "passed": true
+          }
+        },
+        "rejectionReasons": [],
+        "quarterlyChecked": true,
+        "quarterlyResults": [
+          {
+            "startTime": 1719331200,
+            "endTime": 1735243200,
+            "barCount": 817,
+            "netProfitYen": 153236,
+            "profitFactor": 1.912417755812915,
+            "tradeCount": 44
+          },
+          {
+            "startTime": 1735257600,
+            "endTime": 1751054400,
+            "barCount": 807,
+            "netProfitYen": 2835,
+            "profitFactor": 1.0142772968318,
+            "tradeCount": 48
+          },
+          {
+            "startTime": 1751227200,
+            "endTime": 1767067200,
+            "barCount": 812,
+            "netProfitYen": -774,
+            "profitFactor": 0.9938763884933067,
+            "tradeCount": 38
+          },
+          {
+            "startTime": 1767081600,
+            "endTime": 1782993600,
+            "barCount": 815,
+            "netProfitYen": 57080,
+            "profitFactor": 1.4130933512813275,
+            "tradeCount": 40
+          }
+        ],
+        "quarterlyStability": {
+          "mode": "selected-parameter-quarterly-stability",
+          "segmentCount": 4,
+          "positiveSegmentCount": 3,
+          "requiredPositiveSegmentCount": 3,
+          "passed": true
+        }
+      }
+    }
+  ]
+}

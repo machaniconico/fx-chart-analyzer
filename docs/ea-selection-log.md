@@ -1463,3 +1463,137 @@ SL/TPの単位はpips。`TRなし`は`trailingStopPips=null`、`TR25p`は`traili
 - 残る観察レーン31件のうち probation 2件(obs-momentum-eurjpy-h4-v1 PF0.97、
   obs-parabolicsar-gbpusd-h1-v1 PF0.63)と、25日間取引0件の4件
   (obs-alligator-usdjpy-h4-v1、obs-parabolicsar-{audjpy,gbpusd,usdjpy}-h4-v1)は継続監視
+
+## 2026-09-14 (2): state 型エントリー 6 候補を観察レーンへ新規登録(parabolicSarState / alligatorState)
+
+### 動機と位置づけ
+
+2026-09-14 の退役エントリ末尾に記録したとおり、観察レーンには25日間取引0件の4候補
+(`obs-alligator-usdjpy-h4-v1`、`obs-parabolicsar-{audjpy,gbpusd,usdjpy}-h4-v1`)がある。
+いずれもh4のイベント型エントリーで、SARフリップの足・Alligator整列クロスの足**その1本だけ**が
+シグナルになる。h4で発生する反転・整列は暦上まれで、さらに反対シグナル決済や既存ポジション保有と
+重なると発火機会が消える。観察を続けても標本が貯まらず、エントリ(21)の判定プロトコル
+(累積40取引)へ到達する見込みが立たない。
+
+そこで、同じ指標を**状態(state)型**として読み替えるエントリー型を追加した。イベント型が
+「反転した足」でのみ入るのに対し、state型は**状態が成立している限り毎足入りうる**。
+連打を抑えるため、決済後の再エントリーを一定本数禁じる `exit.reentryCooldownBars` を併設した。
+本エントリはそのチューニング結果から6候補を**観察レーン(未採用)**へ登録する記録である。
+**採用ではない。** 採用7EA、`strategies/virtual/`、EA枠数は変更せず、
+2026-08-18 (5) の「8枠目は増やさない」判断も不変である。
+
+### コード側の変更(コミット ccd2585、本エントリの前段)
+
+- エントリー型 `parabolicSarState` / `alligatorState` を追加(既存 `parabolicSar` / `alligator` は
+  イベント型のまま不変)。`src/lib/strategy.ts`・`src/lib/backtest.ts`・`src/lib/mql.ts`・
+  `src/components/EaBuilderPanel.tsx` が対応
+- 戦略の任意項目 `exit.reentryCooldownBars` を追加。仕様式は `index < closeIndex + N` で、
+  決済足cからc+N-1まで探索せず、c+Nの確定足で再開する。0または省略で従来どおり無制限
+- チューナー `scripts/tune-virtual-strategies.mjs` に entry-type index **18**(parabolicSarState) /
+  **19**(alligatorState)を追加。各12候補(6ペア×h1/h4)、1候補あたり
+  SL7段×TP10段×トレーリング2種×cooldown 2種=**280組合せ**
+- MQL4/MQL5 の生成に両型と cooldown を対応。既存18型のMQLスナップショットは差分0で、
+  新規スナップショットは新型2種×MQL4/5とCCI cooldown例の計6件のみ
+- `npx vitest run` は 877 tests 通過(コミットccd2585時点)。`strategies/`・`public/data/`・`docs/`
+  はそのコミットでは未変更
+
+### 出典レポートと証拠の固定
+
+`reports/` は `.gitignore` 対象なので、2026-08-28 エントリと同じ方式で判定入力を固定した。
+抽出は `scripts/extract-canonical-report.mjs` に `--report` / `--out` を足して行う
+(引数なしの既定動作=正典2026-08-18の抽出は不変で、再生成してもバイト同一)。
+
+| レポート | 内容 | sha256 | 固定先 |
+|---|---|---|---|
+| `tune-virtual-strategies-2026-09-14T06-03-31-827Z.json`(9,346,254 B) | parabolicSarState 12候補・6 passed / 6 rejected | `ee82a109bcb6881e1e1d3d8b335a2eae471fbf0ef64b911ad2db06fc1d250bb6` | `evidence/tune-virtual-strategies-2026-09-14T06-03-31-827Z.selected.json` |
+| `tune-virtual-strategies-2026-09-14T06-03-32-877Z.json`(9,548,701 B) | alligatorState 12候補・4 passed / 8 rejected | `5fb15299eae566df8cf42768a42d4be9d74136c08be232aea5a1d87b0679877b` | `evidence/tune-virtual-strategies-2026-09-14T06-03-32-877Z.selected.json` |
+
+実行コマンドは
+`node scripts/tune-virtual-strategies.mjs --entry-type <type> --deep-history --walk-forward`。
+本エントリの数値の作業メモは `.omc/specs/state-entry-mode.result.md`
+(この2本のレポートから生成)だが、`.omc/` はgitignore対象であり、
+**正典の記録は上表の `evidence/*.selected.json` 2件**である。
+
+### 通過10件の全数(チューナーの honest ゲート + walk-forward 通過)
+
+SL/TPの単位はpips。`TR`はトレーリング、`CD`は`reentryCooldownBars`。retention は
+Val/Opt 純益比。`Q` は四半期正数/総数。`Val 件/日` は Val 取引数 ÷ Val 暦日数
+(h1=222.666667日、h4=220.666667日)。旧型の`Opt 件/日`と`Opt 頻度倍率`は
+作業メモの参考比較表(旧型側は selectedCandidate があればその行、なければ
+四半期不通過行または最適化順位1の未選定行)からの引用で、**新旧でSL/TP等が異なるため
+state化だけの因果効果ではない**。
+
+| # | 型 | pair | tf | SL/TP/TR/CD | rank | Opt 件 | Opt 円 | Opt PF | Val 件 | Val 円 | Val PF | retention | Q | Val 件/日 | 旧型 Opt 件/日 | Opt 頻度倍率 | 本エントリの判定 |
+|---:|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---|
+| 1 | parabolicSarState | USDJPY | h1 | 20/140/なし/3 | 1/280 | 952 | 230,278 | 1.039864 | 330 | 201,937 | 1.092044 | 0.876927 | 4/4 | 1.482036 | 1.203695 | 1.538 | 除外(Opt PF<1.05) |
+| 2 | parabolicSarState | USDJPY | h4 | 35/140/なし/0 | 17/280 | 587 | 259,226 | 1.064828 | 143 | 111,230 | 1.110760 | 0.429085 | 3/4 | 0.648036 | 0.282010 | 4.0483 | **登録** |
+| 3 | parabolicSarState | EURUSD | h4 | 20/160/なし/3 | 1/280 | 238 | 178,400 | 1.101899 | 90 | 116,172 | 1.180117 | 0.651188 | 3/4 | 0.407855 | 0.241167 | 1.9194 | **登録** |
+| 4 | parabolicSarState | EURJPY | h4 | 65/160/なし/0 | 11/280 | 352 | 20,089 | 1.010413 | 102 | 15,774 | 1.035081 | 0.785206 | 3/4 | 0.462236 | 0.328687 | 2.0828 | 除外(Opt PF<1.05・Val PF<1.08) |
+| 5 | parabolicSarState | GBPUSD | h4 | 20/220/なし/3 | 1/280 | 256 | 138,621 | 1.073815 | 96 | 126,743 | 1.183361 | 0.914313 | 3/4 | 0.435045 | 0.196434 | 2.5347 | **登録** |
+| 6 | parabolicSarState | AUDJPY | h4 | 20/60/なし/3 | 1/280 | 384 | 275,462 | 1.095945 | 144 | 114,705 | 1.099247 | 0.416410 | 3/4 | 0.652568 | 0.280065 | 2.6667 | **登録** |
+| 7 | alligatorState | EURUSD | h4 | 50/220/25/3 | 2/280 | 318 | 70,008 | 1.100178 | 124 | 25,066 | 1.102314 | 0.358045 | 3/4 | 0.561934 | 0.054457 | 11.3571 | **登録** |
+| 8 | alligatorState | GBPUSD | h4 | 65/200/なし/3 | 30/280 | 101 | 101,922 | 1.161164 | 43 | 73,203 | 1.370148 | 0.718226 | 3/4 | 0.194864 | 0.062237 | 3.1562 | 除外(Val 0.195 件/日) |
+| 9 | alligatorState | AUDJPY | h1 | 35/60/なし/3 | 1/280 | 583 | 199,556 | 1.062460 | 236 | 101,251 | 1.081334 | 0.507381 | 3/4 | 1.059880 | 0.204181 | 5.5524 | **登録** |
+| 10 | alligatorState | AUDJPY | h4 | 110/220/なし/0 | 9/280 | 124 | 139,391 | 1.273971 | 44 | 55,577 | 1.346242 | 0.398713 | 3/4 | 0.199396 | 0.064182 | 3.7576 | 除外(Val 0.199 件/日) |
+
+### 選定規則(逐語)
+
+> チューナーの honest ゲートと walk-forward を通過し、**かつ** validation の取引頻度が
+> **0.222 件/暦日以上**(=エントリ(21)プロトコルの最初のチェックポイント180日で40取引に到達する頻度)、
+> **かつ** optimization PF **1.05 以上**で validation PF **1.08 以上**(PF≈1の薄い結果を除く)。
+
+除外した通過候補とその理由:
+
+- `parabolicSarState USDJPY h1`: Opt PF **1.04**(PF≈1の薄い結果)
+- `parabolicSarState EURJPY h4`: Opt PF **1.01** / Val PF **1.04**(同上)
+- `alligatorState GBPUSD h4`: Val **0.195 件/日**(180日で約35取引=40件に届かない)
+- `alligatorState AUDJPY h4`: Val **0.199 件/日**(同上)
+
+旧型の取引0件4候補(`obs-parabolicsar-{audjpy,gbpusd,usdjpy}-h4-v1`、
+`obs-alligator-usdjpy-h4-v1`)は**登録したまま残す**。プロトコルどおり観察を継続し、
+state型の登録をもってイベント型を差し替えたとは扱わない。
+
+### 登録6件と観察開始時点
+
+- 観察開始日時`T0`: **2026-09-14T06:18:06Z**(**2026-09-14 15:18:06 JST**)、`registeredAt=1789366686`。
+  6件すべて同一の登録時刻で、フォワード取引の採用期間は`entryTime >= T0`とする
+- 順位は候補内のin-sample順位で、分母は各候補の評価組合せ数**280**である
+
+| # | id | 型 | pair | tf | SL/TP/TR/CD | magicNumber | 出典レポート |
+|---:|---|---|---|---|---|---:|---|
+| 1 | `obs-sarstate-usdjpy-h4-v1` | parabolicSarState | USDJPY | h4 | 35/140/なし/0 | 1783200081 | ...T06-03-31-827Z |
+| 2 | `obs-sarstate-eurusd-h4-v1` | parabolicSarState | EURUSD | h4 | 20/160/なし/3 | 1783200181 | ...T06-03-31-827Z |
+| 3 | `obs-sarstate-gbpusd-h4-v1` | parabolicSarState | GBPUSD | h4 | 20/220/なし/3 | 1783200481 | ...T06-03-31-827Z |
+| 4 | `obs-sarstate-audjpy-h4-v1` | parabolicSarState | AUDJPY | h4 | 20/60/なし/3 | 1783200581 | ...T06-03-31-827Z |
+| 5 | `obs-alligatorstate-eurusd-h4-v1` | alligatorState | EURUSD | h4 | 50/220/25/3 | 1783200191 | ...T06-03-32-877Z |
+| 6 | `obs-alligatorstate-audjpy-h1-v1` | alligatorState | AUDJPY | h1 | 35/60/なし/3 | 1783200590 | ...T06-03-32-877Z |
+
+magicNumberは `candidateMagicNumber(pairIndex, 18 or 19, timeframeIndex)` の値そのもので、
+採用7EA・観察レーン全件に対して一意であることを確認した(チューナー行列とmagicを共有するのは
+既存の観察レーンと同じ設計)。`reentryCooldownBars` はレポート値が0の1件(#1)では省略し(0と省略は等価)、
+3の5件では明示した。
+
+- `node scripts/run-forward-test.mjs` を再実行し、`observation-results.json` を
+  31件→**37件**へ更新(新規6件は確定日0日・取引0件、`operationStatus=active`)。
+  採用7EA側の `results.json` は `computedAt` 以外バイト不変
+- `scripts/run-forward-test.test.mjs` は正典33件の表(`observationExpectations`)を保持したまま、
+  state型6件の表(`stateEntryObservationExpectations`)を追加し、
+  現物件数を「33 − 退役2 + 6 = 37」で照合する。
+  `scripts/extract-canonical-report.test.mjs` は各観察候補を、自身が宣言する `reportId` の
+  抽出物から (型, pair, timeframe) で引いて照合する形に一般化した
+
+### 留保(誠実表示)
+
+- **T0リセット**: 6件は新規登録なのでT0は本日である。旧型4候補の観察25日分を引き継がない
+- **判定プロトコルは不変**: エントリ(21)の基準1〜6をそのまま適用する。最初の判定は
+  `T0+180日`の**2027-03-13**以降、累積フォワード完了取引**40件以上**、以後30日ごとの
+  固定チェックポイント(2027-04-12、2027-05-12…)で**連続2回**合格して初めて再現合格。
+  基準の数値・係数は変更していない
+- **cooldownのMQLはネイティブ未検証**: 生成テキスト・シフト・履歴フィルタ・スナップショットは
+  検査したが、MetaEditorでのネイティブコンパイルと実機発注は未実施(この環境にコンパイラがない)
+- **頻度倍率は因果効果ではない**: 新旧の比較行はSL/TP/トレーリングが異なる別パラメータ行であり、
+  倍率は「state化の効果」ではなく参考行同士の取引頻度比である。参考行を登録候補と解釈しない
+- **PFは薄い**: 登録6件の Opt PF は **1.062〜1.102**、Val PF は **1.081〜1.183** に収まり、
+  エントリ(21)基準3のフォワード`PF >= 1.10`に対して余裕がない。
+  バックテストPFが基準ぎりぎりであることを「合格見込み」と読み替えない
+- **枠判断は不変**: 本エントリは観察登録のみで、採用・8枠目・既存EA置換のいずれでもない
