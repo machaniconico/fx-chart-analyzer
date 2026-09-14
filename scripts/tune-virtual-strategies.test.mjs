@@ -311,8 +311,9 @@ const legacyEntryTypeExpectations = [
   },
 ];
 
-const readMagicNumbers = async (directory) => {
-  const filenames = (await readdir(directory)).filter((filename) => filename.endsWith('.json'));
+const readMagicNumbers = async (directory, accept = () => true) => {
+  const filenames = (await readdir(directory))
+    .filter((filename) => filename.endsWith('.json') && accept(filename));
   return Promise.all(
     filenames.map(async (filename) => {
       const strategy = JSON.parse(await readFile(new URL(filename, directory), 'utf8'));
@@ -1301,10 +1302,27 @@ describe('tune-virtual-strategies candidate matrix and CLI filters', () => {
   it('keeps all candidate magic numbers unique from candidates and registered EAs', async () => {
     const matrix = buildCandidateMatrix();
     const matrixMagicNumbers = matrix.map((target) => target.strategy.magicNumber);
+    // strategies/retired/ は仮想レーンと観察レーンの両方の退役先。観察候補は
+    // チューナーの selectedCandidate をそのまま 1:1 で登録したものなので
+    // magicNumber が候補行列と一致するのが正常であり、「登録済みEA」には数えない
+    // (観察レーン側の一意性は run-forward-test.test.mjs が検証する)。
+    // どれが仮想レーンの退役かは retired.json(仮想レーン台帳)が正典。
+    const retiredVirtualLedger = JSON.parse(await readFile(
+      new URL('../public/data/forward/retired.json', import.meta.url),
+      'utf8',
+    ));
+    const retiredVirtualFiles = new Set(
+      Object.keys(retiredVirtualLedger.strategies).map((key) => `${key}.json`),
+    );
     const registeredMagicNumbers = [
       ...(await readMagicNumbers(new URL('../strategies/virtual/', import.meta.url))),
-      ...(await readMagicNumbers(new URL('../strategies/retired/', import.meta.url))),
+      ...(await readMagicNumbers(
+        new URL('../strategies/retired/', import.meta.url),
+        (filename) => retiredVirtualFiles.has(filename),
+      )),
     ];
+
+    expect(retiredVirtualFiles.size).toBeGreaterThan(0);
 
     expect(new Set(matrixMagicNumbers).size).toBe(matrixMagicNumbers.length);
     expect(matrixMagicNumbers.every((magicNumber) => !registeredMagicNumbers.includes(magicNumber))).toBe(

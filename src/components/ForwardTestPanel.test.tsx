@@ -279,8 +279,14 @@ const canonicalHistoryStrategies = (observationHistory as unknown as {
   strategies: Record<string, { days?: Record<string, unknown> }>;
 }).strategies;
 
+// 退役済み候補の行は監査証跡として履歴に残るため、期待件数は結果ファイル側
+// (= strategies/observation/ の現物)から導出する。
+const canonicalResultCount = (observationResults as unknown as {
+  strategies: unknown[];
+}).strategies.length;
+
 describe('ObservationCandidateSection', () => {
-  it('normalizes the canonical 33-result and 33-history files', async () => {
+  it('normalizes the canonical result file against the retirement-inclusive history file', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => new Response(
       JSON.stringify(
         String(input).includes('observation-history') ? observationHistory : observationResults,
@@ -294,7 +300,7 @@ describe('ObservationCandidateSection', () => {
 
       expect(state.status).toBe('ready');
       expect(state.historyAvailable).toBe(true);
-      expect(state.candidates).toHaveLength(33);
+      expect(state.candidates).toHaveLength(canonicalResultCount);
       expect(state.candidates.every((candidate) => {
         const entry = canonicalHistoryStrategies[candidate.meta.id];
         return entry !== undefined
@@ -305,8 +311,8 @@ describe('ObservationCandidateSection', () => {
       ))).toBe(true);
       const markup = renderObservationSection(state);
       const tbody = markup.match(/<tbody>([\s\S]*?)<\/tbody>/)?.[1] ?? '';
-      expect(markup).toContain(escapeHtml('33件を候補別に表示しています。'));
-      expect(tbody.match(/<td>[^<]+p<\/td>/g)).toHaveLength(66);
+      expect(markup).toContain(escapeHtml(`${canonicalResultCount}件を候補別に表示しています。`));
+      expect(tbody.match(/<td>[^<]+p<\/td>/g)).toHaveLength(canonicalResultCount * 2);
     } finally {
       vi.unstubAllGlobals();
     }
