@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-18T23:01:52.973Z",
+  "generatedAt": "2026-09-19T22:40:47.873Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-05-25T20:00:00.000Z",
+    "dataStart": "2025-06-23T20:00:00.000Z",
     "dataEnd": "2026-09-18T20:30:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
@@ -26,9 +26,9 @@
     "initialBalanceYen": 1000000,
     "riskPercent": 1,
     "simulationWindowMonths": 12,
-    "evaluatedDecisionPoints": 2932,
-    "recommendationsFound": 32,
-    "judgedRecommendations": 31,
+    "evaluatedDecisionPoints": 2923,
+    "recommendationsFound": 34,
+    "judgedRecommendations": 33,
     "skippedNoFutureBars": 1,
     "skippedIncompleteOutcome": 0,
     "skippedUnfilledPullbacks": 0
@@ -50,17 +50,17 @@
         }
       },
       "swing": {
-        "recommendations": 3,
-        "wins": 1,
+        "recommendations": 4,
+        "wins": 2,
         "losses": 2,
         "draws": 0,
-        "winRate": 0.3333,
-        "averageRealizedR": -0.2848,
+        "winRate": 0.5,
+        "averageRealizedR": 0.1674,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 2.93,
-          "winRate": 0.3411,
-          "averageRealizedR": -0.2682
+          "decayedSampleCount": 3.87,
+          "winRate": 0.5001,
+          "averageRealizedR": 0.1644
         }
       }
     },
@@ -140,17 +140,17 @@
         }
       },
       "swing": {
-        "recommendations": 6,
-        "wins": 2,
+        "recommendations": 7,
+        "wins": 3,
         "losses": 4,
         "draws": 0,
-        "winRate": 0.3333,
-        "averageRealizedR": -0.1465,
+        "winRate": 0.4286,
+        "averageRealizedR": 0.0581,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 5.67,
-          "winRate": 0.3409,
-          "averageRealizedR": -0.1287
+          "decayedSampleCount": 6.54,
+          "winRate": 0.4286,
+          "averageRealizedR": 0.0596
         }
       }
     },
@@ -232,31 +232,31 @@
         }
       },
       "medium": {
-        "recommendations": 3,
+        "recommendations": 4,
         "wins": 2,
-        "losses": 1,
+        "losses": 2,
         "draws": 0,
-        "winRate": 0.6667,
-        "averageRealizedR": 0.7089,
+        "winRate": 0.5,
+        "averageRealizedR": 0.2816,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 2.93,
-          "winRate": 0.6743,
-          "averageRealizedR": 0.7275
+          "decayedSampleCount": 3.87,
+          "winRate": 0.5116,
+          "averageRealizedR": 0.3105
         }
       },
       "low": {
-        "recommendations": 5,
+        "recommendations": 4,
         "wins": 3,
-        "losses": 2,
+        "losses": 1,
         "draws": 0,
-        "winRate": 0.6,
-        "averageRealizedR": 0.2409,
+        "winRate": 0.75,
+        "averageRealizedR": 0.5511,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 4.78,
-          "winRate": 0.5998,
-          "averageRealizedR": 0.2383
+          "decayedSampleCount": 3.87,
+          "winRate": 0.7413,
+          "averageRealizedR": 0.5304
         }
       }
     },
@@ -276,31 +276,31 @@
         }
       },
       "medium": {
-        "recommendations": 20,
-        "wins": 5,
+        "recommendations": 21,
+        "wins": 6,
         "losses": 15,
         "draws": 0,
-        "winRate": 0.25,
-        "averageRealizedR": -0.4086,
+        "winRate": 0.2857,
+        "averageRealizedR": -0.3279,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 16.2,
-          "winRate": 0.2551,
-          "averageRealizedR": -0.4021
+          "decayedSampleCount": 16.83,
+          "winRate": 0.2829,
+          "averageRealizedR": -0.3389
         }
       },
       "low": {
-        "recommendations": 2,
-        "wins": 1,
+        "recommendations": 3,
+        "wins": 2,
         "losses": 1,
         "draws": 0,
-        "winRate": 0.5,
-        "averageRealizedR": 0.1106,
+        "winRate": 0.6667,
+        "averageRealizedR": 0.5817,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 1.98,
-          "winRate": 0.5058,
-          "averageRealizedR": 0.1234
+          "decayedSampleCount": 2.93,
+          "winRate": 0.6667,
+          "averageRealizedR": 0.5795
         }
       }
     }
@@ -377,12 +377,12 @@
         },
         {
           "month": "2026-05",
-          "pnlYen": -9451,
+          "pnlYen": -18807,
           "wins": 0,
-          "losses": 1,
+          "losses": 2,
           "draws": 0,
-          "tradeCount": 1,
-          "endBalanceYen": 935622
+          "tradeCount": 2,
+          "endBalanceYen": 926266
         },
         {
           "month": "2026-06",
@@ -391,34 +391,34 @@
           "losses": 0,
           "draws": 0,
           "tradeCount": 0,
-          "endBalanceYen": 935622
+          "endBalanceYen": 926266
         },
         {
           "month": "2026-07",
-          "pnlYen": 12946,
+          "pnlYen": 12816,
           "wins": 2,
           "losses": 1,
           "draws": 0,
           "tradeCount": 3,
-          "endBalanceYen": 948568
+          "endBalanceYen": 939082
         },
         {
           "month": "2026-08",
-          "pnlYen": -9486,
+          "pnlYen": -9391,
           "wins": 0,
           "losses": 1,
           "draws": 0,
           "tradeCount": 1,
-          "endBalanceYen": 939082
+          "endBalanceYen": 929691
         },
         {
           "month": "2026-09",
-          "pnlYen": 19903,
+          "pnlYen": 19704,
           "wins": 2,
           "losses": 1,
           "draws": 0,
           "tradeCount": 3,
-          "endBalanceYen": 958985
+          "endBalanceYen": 949395
         }
       ],
       "summary": {
@@ -434,8 +434,8 @@
           "month": "2025-10",
           "pnlYen": -19900
         },
-        "averageMonthlyPnlYen": -3729,
-        "totalPnlYen": -41015
+        "averageMonthlyPnlYen": -4600,
+        "totalPnlYen": -50605
       }
     },
     "highOnly": {
