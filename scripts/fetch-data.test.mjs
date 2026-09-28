@@ -81,6 +81,24 @@ describe('source health aggregation', () => {
     expect(result.lastPrimarySuccessByTimeframe).toEqual(lastPrimarySuccessByTimeframe);
   });
 
+  it('does not record a timeframe as primary success when any pair fell back to Yahoo', () => {
+    const previousH1 = '2026-07-24T21:00:00.000Z';
+    const result = buildSourceHealth({
+      sources: [
+        { timeframe: 'h1', source: 'dukascopy' },
+        { timeframe: 'h1', source: 'yahoo-fallback' },
+        { timeframe: 'd1', source: 'dukascopy' },
+        { timeframe: 'd1', source: 'dukascopy' },
+      ],
+      previousHealth: { lastPrimarySuccessByTimeframe: { h1: previousH1 } },
+      nowMs: NOW,
+    });
+
+    expect(result.primaryOkThisRun).toBe(true);
+    expect(result.lastPrimarySuccessByTimeframe.h1).toBe(previousH1);
+    expect(result.lastPrimarySuccessByTimeframe.d1).toBe('2026-07-27T21:52:00.000Z');
+  });
+
   it('uses null when this run has no Dukascopy data and no previous success', () => {
     const result = buildSourceHealth({
       sources: [{ timeframe: 'm15', source: 'yahoo-fallback' }],
@@ -492,6 +510,24 @@ describe('Dukascopy request options', () => {
       retryCount: 0,
       retryOnEmpty: false,
     });
+  });
+
+  it('fetches the current h1 month separately with failing retries and merges bars', async () => {
+    const bar = (t) => ({ timestamp: t * 1000, open: 1, high: 2, low: 0.5, close: 1.5, volume: 1 });
+    const fetchRates = vi
+      .fn()
+      .mockResolvedValueOnce([bar(1_790_000_000), bar(1_790_003_600)])
+      .mockResolvedValueOnce([bar(1_790_003_600), bar(1_790_007_200)]);
+
+    const bars = await fetchTimeframe('USDJPY', 'h1', 730, { fetchRates });
+
+    expect(fetchRates).toHaveBeenCalledTimes(2);
+    const [history, current] = fetchRates.mock.calls.map(([options]) => options);
+    expect(history).toMatchObject({ retryCount: 0 });
+    expect(current).toMatchObject({ retryCount: 4, failAfterRetryCount: true });
+    expect(history.dates.to).toEqual(current.dates.from);
+    expect(current.dates.from.getUTCDate()).toBe(1);
+    expect(bars.map((b) => b.t)).toEqual([1_790_000_000, 1_790_003_600, 1_790_007_200]);
   });
 });
 

@@ -36,11 +36,32 @@ jobs:
 
       - run: npm ci
 
+      # 過去分(確定済みの月/日ファイル)を毎回取り直すと Dukascopy に 429 で制限され、
+      # h1 当月分などの後半リクエストが落ちる(2026-09-18〜)。確定分はキャッシュして使い回す。
+      # 保存は後段の成否に関係なく行うため restore/save を分ける(actions/cache は success() 時のみ保存)。
+      - name: Restore Dukascopy cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .dukascopy-cache
+          key: dukascopy-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: dukascopy-
+
+      # 空ファイルはキャッシュヒット扱いになり再取得されないため、取得前に除く。
+      - name: Drop empty Dukascopy cache entries
+        run: find .dukascopy-cache -type f -size 0 -delete 2>/dev/null || true
+
       # Dukascopy 全滅時(障害/ブロック)でもカレンダー/COT/統計/デプロイは続行する。
       # リポジトリにコミット済みの既存データがフォールバックになる。
       - name: Fetch latest FX data from Dukascopy
         continue-on-error: true
         run: npm run fetch:data
+
+      - name: Save Dukascopy cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .dukascopy-cache
+          key: dukascopy-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Fetch Forex Factory calendar
         continue-on-error: true
