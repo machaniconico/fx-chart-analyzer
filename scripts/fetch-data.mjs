@@ -292,9 +292,13 @@ const fetchRange = (pair, timeframe, { from, to, retry }, profile, fetchRates) =
       pauseBetweenRetriesMs: 1500,
       ...retry,
     }),
-    DUKASCOPY_TIMEOUT_MS,
-    `${pair} ${timeframe}: Dukascopy timed out after ${DUKASCOPY_TIMEOUT_MS / 1000}s`,
+    timeoutMsFor(retry),
+    `${pair} ${timeframe}: Dukascopy timed out after ${timeoutMsFor(retry) / 1000}s`,
   );
+
+// 再試行の待ち時間ぶん期限を延ばし、再試行途中で timeout に切られないようにする。
+const timeoutMsFor = (retry) =>
+  DUKASCOPY_TIMEOUT_MS + (retry ? retry.retryCount * retry.pauseBetweenRetriesMs : 0);
 
 const latest = (bars, tf) => {
   const count = TARGET_BARS_BY_TIMEFRAME[tf];
