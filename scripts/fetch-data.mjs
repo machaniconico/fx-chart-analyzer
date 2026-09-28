@@ -206,7 +206,16 @@ const persistBars = async (pair, tf, result) => {
 const REQUEST_PROFILE_BY_TIMEFRAME = {
   m15: { batchSize: 3, pauseBetweenBatchesMs: 600 },
   m30: { batchSize: 4, pauseBetweenBatchesMs: 400 },
+  h1: { batchSize: 3, pauseBetweenBatchesMs: 600 },
 };
+
+// h1 の当月分は 1 リクエストだけで、CI(GitHub Runner)では 200 以外が返ることがある
+// (2026-09-18〜)。dukascopy-node は retryCount=0 だと非 200 を空データとして黙って返すため、
+// 当月分だけ再試行し、最後まで失敗したら例外にして失敗理由をログに残す。
+const CURRENT_MONTH_RETRY_TIMEFRAMES = new Set(['h1']);
+const CURRENT_MONTH_RETRY = { retryCount: 4, failAfterRetryCount: true, pauseBetweenRetriesMs: 15_000 };
+
+const startOfUtcMonth = (date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
 
 const timeoutAfter = (ms, message) => {
   let timeoutId;
@@ -237,7 +246,30 @@ export const fetchTimeframe = async (
   const to = new Date();
   const from = new Date(to.getTime() - lookbackDays * dayMs);
   const profile = REQUEST_PROFILE_BY_TIMEFRAME[timeframe] ?? { batchSize: 8, pauseBetweenBatchesMs: 150 };
-  const rows = await withTimeout(
+  const monthStart = startOfUtcMonth(to);
+  const ranges =
+    CURRENT_MONTH_RETRY_TIMEFRAMES.has(timeframe) && from < monthStart
+      ? [
+          { from, to: monthStart },
+          { from: monthStart, to, retry: CURRENT_MONTH_RETRY },
+        ]
+      : [{ from, to }];
+  const rows = [];
+  for (const range of ranges) {
+    rows.push(...(await fetchRange(pair, timeframe, range, profile, fetchRates)));
+  }
+
+  const byTime = new Map();
+  for (const bar of rows.map(normalizeBar)) {
+    byTime.set(bar.t, bar);
+  }
+  return [...byTime.values()]
+    .filter((bar) => bar.h >= bar.l && bar.o > 0 && bar.c > 0)
+    .sort((a, b) => a.t - b.t);
+};
+
+const fetchRange = (pair, timeframe, { from, to, retry }, profile, fetchRates) =>
+  withTimeout(
     fetchRates({
       instrument: pair.toLowerCase(),
       dates: { from, to },
@@ -258,16 +290,11 @@ export const fetchTimeframe = async (
       // retryOnEmpty=true は 429 を "empty dataset" に変えて真因を隠すため、素の失敗を残す。
       retryOnEmpty: false,
       pauseBetweenRetriesMs: 1500,
+      ...retry,
     }),
     DUKASCOPY_TIMEOUT_MS,
     `${pair} ${timeframe}: Dukascopy timed out after ${DUKASCOPY_TIMEOUT_MS / 1000}s`,
   );
-
-  return rows
-    .map(normalizeBar)
-    .filter((bar) => bar.h >= bar.l && bar.o > 0 && bar.c > 0)
-    .sort((a, b) => a.t - b.t);
-};
 
 const latest = (bars, tf) => {
   const count = TARGET_BARS_BY_TIMEFRAME[tf];
@@ -283,6 +310,7 @@ const SOURCE_HEALTH_TIMEFRAMES = ['m15', 'm30', 'h1', 'h4', 'd1'];
 export const buildSourceHealth = ({ sources, previousHealth, nowMs = Date.now() }) => {
   const counts = { dukascopy: 0, 'yahoo-fallback': 0 };
   const primarySuccessTimeframes = new Set();
+  const fallbackTimeframes = new Set();
   for (const entry of sources) {
     const source = typeof entry === 'string' ? entry : entry?.source;
     if (Object.hasOwn(counts, source)) {
@@ -291,6 +319,14 @@ export const buildSourceHealth = ({ sources, previousHealth, nowMs = Date.now() 
     if (source === 'dukascopy' && SOURCE_HEALTH_TIMEFRAMES.includes(entry?.timeframe)) {
       primarySuccessTimeframes.add(entry.timeframe);
     }
+    if (source === 'yahoo-fallback') {
+      fallbackTimeframes.add(entry?.timeframe);
+    }
+  }
+  // 1 ペアでも Yahoo に落ちた時間足は成功扱いにしない(一部ペアだけの成功で鮮度表示が進み、
+  // 残りのペアの h1/h4 が Yahoo のままになっていたのを隠していた)。
+  for (const timeframe of fallbackTimeframes) {
+    primarySuccessTimeframes.delete(timeframe);
   }
 
   const primaryOkThisRun = counts.dukascopy > 0;
