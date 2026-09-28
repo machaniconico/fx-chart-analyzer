@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-27T23:38:40.296Z",
+  "generatedAt": "2026-09-28T03:51:03.984Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-06-30T20:00:00.000Z",
-    "dataEnd": "2026-09-27T23:30:00.000Z",
+    "dataStart": "2025-06-02T04:00:00.000Z",
+    "dataEnd": "2026-09-28T03:30:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
     "adaptiveStatsMode": "rolling-from-cutoff",
@@ -26,11 +26,11 @@
     "initialBalanceYen": 1000000,
     "riskPercent": 1,
     "simulationWindowMonths": 12,
-    "evaluatedDecisionPoints": 2935,
-    "recommendationsFound": 33,
-    "judgedRecommendations": 33,
+    "evaluatedDecisionPoints": 2947,
+    "recommendationsFound": 35,
+    "judgedRecommendations": 34,
     "skippedNoFutureBars": 0,
-    "skippedIncompleteOutcome": 0,
+    "skippedIncompleteOutcome": 1,
     "skippedUnfilledPullbacks": 0
   },
   "pairStyle": {
@@ -127,30 +127,30 @@
     "EURJPY": {
       "daytrade": {
         "recommendations": 1,
-        "wins": 1,
-        "losses": 0,
+        "wins": 0,
+        "losses": 1,
         "draws": 0,
-        "winRate": 1,
-        "averageRealizedR": 1.0355,
+        "winRate": 0,
+        "averageRealizedR": -1,
         "ewa": {
           "halfLifeSamples": 30,
           "decayedSampleCount": 1,
-          "winRate": 1,
-          "averageRealizedR": 1.0355
+          "winRate": 0,
+          "averageRealizedR": -1
         }
       },
       "swing": {
-        "recommendations": 6,
+        "recommendations": 7,
         "wins": 2,
-        "losses": 4,
+        "losses": 5,
         "draws": 0,
-        "winRate": 0.3333,
-        "averageRealizedR": -0.1465,
+        "winRate": 0.2857,
+        "averageRealizedR": -0.2684,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 5.67,
-          "winRate": 0.3409,
-          "averageRealizedR": -0.1287
+          "decayedSampleCount": 6.54,
+          "winRate": 0.2887,
+          "averageRealizedR": -0.262
         }
       }
     },
@@ -247,16 +247,16 @@
       },
       "low": {
         "recommendations": 4,
-        "wins": 3,
-        "losses": 1,
+        "wins": 2,
+        "losses": 2,
         "draws": 0,
-        "winRate": 0.75,
-        "averageRealizedR": 0.5511,
+        "winRate": 0.5,
+        "averageRealizedR": 0.0423,
         "ewa": {
           "halfLifeSamples": 30,
           "decayedSampleCount": 3.87,
-          "winRate": 0.7413,
-          "averageRealizedR": 0.5304
+          "winRate": 0.4942,
+          "averageRealizedR": 0.0275
         }
       }
     },
@@ -290,17 +290,17 @@
         }
       },
       "low": {
-        "recommendations": 4,
+        "recommendations": 5,
         "wins": 3,
-        "losses": 1,
+        "losses": 2,
         "draws": 0,
-        "winRate": 0.75,
-        "averageRealizedR": 0.6462,
+        "winRate": 0.6,
+        "averageRealizedR": 0.3169,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 3.87,
-          "winRate": 0.7586,
-          "averageRealizedR": 0.6656
+          "decayedSampleCount": 4.78,
+          "winRate": 0.6092,
+          "averageRealizedR": 0.3375
         }
       }
     }
