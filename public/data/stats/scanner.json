@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-29T00:51:33.165Z",
+  "generatedAt": "2026-09-30T00:06:31.872Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-06-03T00:00:00.000Z",
-    "dataEnd": "2026-09-29T00:30:00.000Z",
+    "dataStart": "2025-06-04T00:00:00.000Z",
+    "dataEnd": "2026-09-30T00:00:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
     "adaptiveStatsMode": "rolling-from-cutoff",
@@ -26,11 +26,11 @@
     "initialBalanceYen": 1000000,
     "riskPercent": 1,
     "simulationWindowMonths": 12,
-    "evaluatedDecisionPoints": 2941,
+    "evaluatedDecisionPoints": 2942,
     "recommendationsFound": 35,
-    "judgedRecommendations": 34,
+    "judgedRecommendations": 35,
     "skippedNoFutureBars": 0,
-    "skippedIncompleteOutcome": 1,
+    "skippedIncompleteOutcome": 0,
     "skippedUnfilledPullbacks": 0
   },
   "pairStyle": {
@@ -200,17 +200,17 @@
         }
       },
       "swing": {
-        "recommendations": 2,
-        "wins": 2,
+        "recommendations": 3,
+        "wins": 3,
         "losses": 0,
         "draws": 0,
         "winRate": 1,
-        "averageRealizedR": 1.1818,
+        "averageRealizedR": 1.2314,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 1.98,
+          "decayedSampleCount": 2.93,
           "winRate": 1,
-          "averageRealizedR": 1.1833
+          "averageRealizedR": 1.2336
         }
       }
     }
@@ -290,17 +290,17 @@
         }
       },
       "low": {
-        "recommendations": 5,
-        "wins": 3,
+        "recommendations": 6,
+        "wins": 4,
         "losses": 2,
         "draws": 0,
-        "winRate": 0.6,
-        "averageRealizedR": 0.3169,
+        "winRate": 0.6667,
+        "averageRealizedR": 0.4859,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 4.78,
-          "winRate": 0.6092,
-          "averageRealizedR": 0.3375
+          "decayedSampleCount": 5.67,
+          "winRate": 0.6782,
+          "averageRealizedR": 0.5128
         }
       }
     }
