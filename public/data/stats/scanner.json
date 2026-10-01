@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-30T00:06:31.872Z",
+  "generatedAt": "2026-10-01T00:19:58.045Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-06-04T00:00:00.000Z",
-    "dataEnd": "2026-09-30T00:00:00.000Z",
+    "dataStart": "2025-06-05T00:00:00.000Z",
+    "dataEnd": "2026-10-01T00:00:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
     "adaptiveStatsMode": "rolling-from-cutoff",
@@ -26,7 +26,7 @@
     "initialBalanceYen": 1000000,
     "riskPercent": 1,
     "simulationWindowMonths": 12,
-    "evaluatedDecisionPoints": 2942,
+    "evaluatedDecisionPoints": 2941,
     "recommendationsFound": 35,
     "judgedRecommendations": 35,
     "skippedNoFutureBars": 0,
@@ -313,52 +313,61 @@
       "riskPercent": 1,
       "months": [
         {
-          "month": "2025-10",
-          "pnlYen": -19900,
-          "wins": 0,
-          "losses": 2,
-          "draws": 0,
-          "tradeCount": 2,
-          "endBalanceYen": 980100
-        },
-        {
           "month": "2025-11",
-          "pnlYen": -9801,
+          "pnlYen": -10000,
           "wins": 0,
           "losses": 1,
           "draws": 0,
           "tradeCount": 1,
-          "endBalanceYen": 970299
+          "endBalanceYen": 990000
         },
         {
           "month": "2025-12",
-          "pnlYen": 20496,
+          "pnlYen": 20912,
           "wins": 2,
           "losses": 1,
           "draws": 0,
           "tradeCount": 3,
-          "endBalanceYen": 990795
+          "endBalanceYen": 1010912
         },
         {
           "month": "2026-01",
-          "pnlYen": -6955,
+          "pnlYen": -7096,
           "wins": 1,
           "losses": 2,
           "draws": 0,
           "tradeCount": 3,
-          "endBalanceYen": 983840
+          "endBalanceYen": 1003816
         },
         {
           "month": "2026-02",
-          "pnlYen": -19578,
+          "pnlYen": -19976,
           "wins": 0,
           "losses": 2,
           "draws": 0,
           "tradeCount": 2,
-          "endBalanceYen": 964261
+          "endBalanceYen": 983840
         },
         {
           "month": "2026-03",
+          "pnlYen": -9838,
+          "wins": 0,
+          "losses": 1,
+          "draws": 0,
+          "tradeCount": 1,
+          "endBalanceYen": 974001
+        },
+        {
+          "month": "2026-04",
+          "pnlYen": -9740,
+          "wins": 0,
+          "losses": 1,
+          "draws": 0,
+          "tradeCount": 1,
+          "endBalanceYen": 964261
+        },
+        {
+          "month": "2026-05",
           "pnlYen": -9643,
           "wins": 0,
           "losses": 1,
@@ -367,75 +376,66 @@
           "endBalanceYen": 954619
         },
         {
-          "month": "2026-04",
-          "pnlYen": -9546,
-          "wins": 0,
-          "losses": 1,
-          "draws": 0,
-          "tradeCount": 1,
-          "endBalanceYen": 945073
-        },
-        {
-          "month": "2026-05",
-          "pnlYen": -9451,
-          "wins": 0,
-          "losses": 1,
-          "draws": 0,
-          "tradeCount": 1,
-          "endBalanceYen": 935622
-        },
-        {
           "month": "2026-06",
           "pnlYen": 0,
           "wins": 0,
           "losses": 0,
           "draws": 0,
           "tradeCount": 0,
-          "endBalanceYen": 935622
+          "endBalanceYen": 954619
         },
         {
           "month": "2026-07",
-          "pnlYen": 12946,
+          "pnlYen": 13209,
           "wins": 2,
           "losses": 1,
           "draws": 0,
           "tradeCount": 3,
-          "endBalanceYen": 948568
+          "endBalanceYen": 967827
         },
         {
           "month": "2026-08",
-          "pnlYen": -9486,
+          "pnlYen": -9678,
           "wins": 0,
           "losses": 1,
           "draws": 0,
           "tradeCount": 1,
-          "endBalanceYen": 939082
+          "endBalanceYen": 958149
         },
         {
           "month": "2026-09",
-          "pnlYen": 32796,
+          "pnlYen": 33462,
           "wins": 3,
           "losses": 1,
           "draws": 0,
           "tradeCount": 4,
-          "endBalanceYen": 971878
+          "endBalanceYen": 991611
+        },
+        {
+          "month": "2026-10",
+          "pnlYen": 0,
+          "wins": 0,
+          "losses": 0,
+          "draws": 0,
+          "tradeCount": 0,
+          "endBalanceYen": 991611
         }
       ],
       "summary": {
-        "periodStartMonth": "2025-10",
-        "periodEndMonth": "2026-09",
-        "plusMonthRate": 0.2727,
-        "activeMonths": 11,
+        "periodStartMonth": "2025-11",
+        "periodEndMonth": "2026-10",
+        "plusMonthRate": 0.3,
+        "activeMonths": 10,
         "bestMonth": {
           "month": "2026-09",
-          "pnlYen": 32796
+          "pnlYen": 33462
         },
         "worstMonth": {
-          "month": "2025-10",
-          "pnlYen": -19900
+          "month": "2026-02",
+          "pnlYen": -19976
         },
-        "averageMonthlyPnlYen": -2557,
-        "totalPnlYen": -28122
+        "averageMonthlyPnlYen": -839,
+        "totalPnlYen": -8388
       }
     },
     "highOnly": {
@@ -445,15 +445,6 @@
       "riskPercent": 1,
       "months": [
         {
-          "month": "2025-10",
-          "pnlYen": 0,
-          "wins": 0,
-          "losses": 0,
-          "draws": 0,
-          "tradeCount": 0,
-          "endBalanceYen": 1000000
-        },
-        {
           "month": "2025-11",
           "pnlYen": 0,
           "wins": 0,
@@ -551,11 +542,20 @@
           "draws": 0,
           "tradeCount": 0,
           "endBalanceYen": 1000000
+        },
+        {
+          "month": "2026-10",
+          "pnlYen": 0,
+          "wins": 0,
+          "losses": 0,
+          "draws": 0,
+          "tradeCount": 0,
+          "endBalanceYen": 1000000
         }
       ],
       "summary": {
-        "periodStartMonth": "2025-10",
-        "periodEndMonth": "2026-09",
+        "periodStartMonth": "2025-11",
+        "periodEndMonth": "2026-10",
         "plusMonthRate": null,
         "activeMonths": 0,
         "bestMonth": null,
