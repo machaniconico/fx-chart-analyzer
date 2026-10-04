@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "computedAt": "2026-10-03T23:36:12.392Z",
+  "computedAt": "2026-10-04T23:54:01.042Z",
   "monthlySummary": {
     "months": [
       {
@@ -204,18 +204,18 @@
       {
         "month": "2026-10",
         "total": {
-          "netProfitYen": 44872,
-          "netPips": 82,
-          "tradeCount": 12
+          "netProfitYen": 35037,
+          "netPips": 53.3,
+          "tradeCount": 15
         },
         "strategies": [
           {
             "id": "bb-break-usdjpy-v1",
             "name": "ドル円BBブレイク順張り",
-            "netProfitYen": 11466,
-            "netPips": 44.1,
-            "tradeCount": 1,
-            "confirmedDays": 1,
+            "netProfitYen": 12159,
+            "netPips": 48.3,
+            "tradeCount": 3,
+            "confirmedDays": 3,
             "retired": false
           },
           {
@@ -224,7 +224,7 @@
             "netProfitYen": 17839,
             "netPips": 16,
             "tradeCount": 7,
-            "confirmedDays": 1,
+            "confirmedDays": 3,
             "retired": false
           },
           {
@@ -233,16 +233,16 @@
             "netProfitYen": 27689,
             "netPips": 53.3,
             "tradeCount": 1,
-            "confirmedDays": 1,
+            "confirmedDays": 3,
             "retired": false
           },
           {
             "id": "ichi-cross-usdjpy-v1",
             "name": "ドル円一目クロス順張り",
-            "netProfitYen": 0,
-            "netPips": 0,
-            "tradeCount": 0,
-            "confirmedDays": 1,
+            "netProfitYen": -10528,
+            "netPips": -32.9,
+            "tradeCount": 1,
+            "confirmedDays": 3,
             "retired": false
           },
           {
@@ -269,11 +269,11 @@
             "netProfitYen": 0,
             "netPips": 0,
             "tradeCount": 0,
-            "confirmedDays": 1,
+            "confirmedDays": 3,
             "retired": false
           }
         ],
-        "confirmedDays": 1,
+        "confirmedDays": 3,
         "complete": false
       }
     ]
@@ -313,34 +313,70 @@
       },
       "operationStatus": {
         "status": "active",
-        "reason": "淘汰・probation条件に該当せずactive: PF=1.13、取引数=45件、確定日数=46日"
+        "reason": "淘汰・probation条件に該当せずactive: PF=1.13、取引数=47件、確定日数=48日"
       },
       "forward": {
         "source": "confirmed-history",
         "firstConfirmedDate": "2026-08-17",
-        "confirmedThrough": "2026-10-01",
-        "confirmedDayCount": 46,
+        "confirmedThrough": "2026-10-03",
+        "confirmedDayCount": 48,
         "metrics": {
           "spreadPips": 0.9,
-          "winRate": 51.11111111111111,
-          "profitFactor": 1.133847549909256,
+          "winRate": 51.06382978723404,
+          "profitFactor": 1.130755224139426,
           "maxDrawdownPips": 249.9,
           "maxDrawdownYen": 68481,
           "maxDrawdownPct": 6.294267410546054,
-          "tradeCount": 45,
-          "netPips": 136.5,
-          "netProfitYen": 30975,
-          "grossProfitPips": 1014.3,
-          "grossLossPips": -877.8,
-          "grossProfitYen": 262395,
-          "grossLossYen": -231420,
-          "riskRewardRatio": 1.084549830347984,
-          "averageWinYen": 11408,
-          "averageLossYen": -10519,
+          "tradeCount": 47,
+          "netPips": 140.7,
+          "netProfitYen": 31668,
+          "grossProfitPips": 1058.4,
+          "grossLossPips": -917.7,
+          "grossProfitYen": 273861,
+          "grossLossYen": -242193,
+          "riskRewardRatio": 1.0836404231336167,
+          "averageWinYen": 11411,
+          "averageLossYen": -10530,
           "maxConsecutiveWins": 5,
           "maxConsecutiveLosses": 3
         },
         "trades": [
+          {
+            "id": 47,
+            "direction": "short",
+            "entryTime": 1790946000,
+            "exitTime": 1790946000,
+            "entryPrice": 157.167,
+            "exitPrice": 157.557,
+            "grossPips": -39,
+            "spreadPips": 0.9,
+            "netPips": -39.9,
+            "lotSize": 0.27,
+            "pipValueYenPerLot": 1000,
+            "grossProfitYen": -10530,
+            "spreadYen": 243,
+            "netProfitYen": -10773,
+            "balanceAfterYen": 1031668,
+            "exitReason": "stop_loss"
+          },
+          {
+            "id": 46,
+            "direction": "short",
+            "entryTime": 1790928000,
+            "exitTime": 1790942400,
+            "entryPrice": 157.588,
+            "exitPrice": 157.138,
+            "grossPips": 45,
+            "spreadPips": 0.9,
+            "netPips": 44.1,
+            "lotSize": 0.26,
+            "pipValueYenPerLot": 1000,
+            "grossProfitYen": 11700,
+            "spreadYen": 234,
+            "netProfitYen": 11466,
+            "balanceAfterYen": 1042441,
+            "exitReason": "take_profit"
+          },
           {
             "id": 45,
             "direction": "long",
@@ -1566,6 +1602,24 @@
             "netProfitYen": 30975,
             "drawdownYen": 46242,
             "drawdownPct": 4.292728391772503
+          },
+          {
+            "time": 1790985599,
+            "equityPips": 140.7,
+            "drawdownPips": 161.7,
+            "equityYen": 1031668,
+            "netProfitYen": 31668,
+            "drawdownYen": 45549,
+            "drawdownPct": 4.22839594993395
+          },
+          {
+            "time": 1791071999,
+            "equityPips": 140.7,
+            "drawdownPips": 161.7,
+            "equityYen": 1031668,
+            "netProfitYen": 31668,
+            "drawdownYen": 45549,
+            "drawdownPct": 4.22839594993395
           }
         ]
       },
@@ -1591,11 +1645,11 @@
       },
       "backtestReferenceCoverage": {
         "source": "current-window",
-        "firstBarAt": 1781006400,
+        "firstBarAt": 1781013600,
         "lastBarAt": 1786982400,
-        "barsEvaluated": 1181
+        "barsEvaluated": 1179
       },
-      "barsEvaluated": 819
+      "barsEvaluated": 821
     },
     {
       "meta": {
@@ -1608,13 +1662,13 @@
       },
       "operationStatus": {
         "status": "active",
-        "reason": "淘汰・probation条件に該当せずactive: PF=1.10、取引数=94件、確定日数=92日"
+        "reason": "淘汰・probation条件に該当せずactive: PF=1.10、取引数=94件、確定日数=94日"
       },
       "forward": {
         "source": "confirmed-history",
         "firstConfirmedDate": "2026-07-02",
-        "confirmedThrough": "2026-10-01",
-        "confirmedDayCount": 92,
+        "confirmedThrough": "2026-10-03",
+        "confirmedDayCount": 94,
         "metrics": {
           "spreadPips": 0.7,
           "winRate": 24.46808510638298,
@@ -3365,6 +3419,24 @@
             "netProfitYen": 76223,
             "drawdownYen": 123828,
             "drawdownPct": 10.318561461137902
+          },
+          {
+            "time": 1790985599,
+            "equityPips": 73.3,
+            "drawdownPips": 88.3,
+            "equityYen": 1076223,
+            "netProfitYen": 76223,
+            "drawdownYen": 123828,
+            "drawdownPct": 10.318561461137902
+          },
+          {
+            "time": 1791071999,
+            "equityPips": 73.3,
+            "drawdownPips": 88.3,
+            "equityYen": 1076223,
+            "netProfitYen": 76223,
+            "drawdownYen": 123828,
+            "drawdownPct": 10.318561461137902
           }
         ]
       },
@@ -3390,11 +3462,11 @@
       },
       "backtestReferenceCoverage": {
         "source": "current-window",
-        "firstBarAt": 1781010000,
+        "firstBarAt": 1781020800,
         "lastBarAt": 1782995400,
-        "barsEvaluated": 816
+        "barsEvaluated": 810
       },
-      "barsEvaluated": 3184
+      "barsEvaluated": 3190
     },
     {
       "meta": {
@@ -3431,13 +3503,13 @@
       },
       "operationStatus": {
         "status": "active",
-        "reason": "淘汰・probation条件に該当せずactive: PF=2.62、取引数=12件、確定日数=46日"
+        "reason": "淘汰・probation条件に該当せずactive: PF=2.62、取引数=12件、確定日数=48日"
       },
       "forward": {
         "source": "confirmed-history",
         "firstConfirmedDate": "2026-08-17",
-        "confirmedThrough": "2026-10-01",
-        "confirmedDayCount": 46,
+        "confirmedThrough": "2026-10-03",
+        "confirmedDayCount": 48,
         "metrics": {
           "spreadPips": 0.7,
           "winRate": 50,
@@ -4090,6 +4162,24 @@
             "netProfitYen": 97148,
             "drawdownYen": 0,
             "drawdownPct": 0
+          },
+          {
+            "time": 1790985599,
+            "equityPips": 195.6,
+            "drawdownPips": 0,
+            "equityYen": 1097148,
+            "netProfitYen": 97148,
+            "drawdownYen": 0,
+            "drawdownPct": 0
+          },
+          {
+            "time": 1791071999,
+            "equityPips": 195.6,
+            "drawdownPips": 0,
+            "equityYen": 1097148,
+            "netProfitYen": 97148,
+            "drawdownYen": 0,
+            "drawdownPct": 0
           }
         ]
       },
@@ -4115,11 +4205,11 @@
       },
       "backtestReferenceCoverage": {
         "source": "current-window",
-        "firstBarAt": 1781006400,
+        "firstBarAt": 1781013600,
         "lastBarAt": 1787000400,
-        "barsEvaluated": 1186
+        "barsEvaluated": 1184
       },
-      "barsEvaluated": 814
+      "barsEvaluated": 816
     },
     {
       "meta": {
@@ -4157,34 +4247,52 @@
       },
       "operationStatus": {
         "status": "active",
-        "reason": "淘汰・probation条件に該当せずactive: PF=2.25、取引数=12件、確定日数=46日"
+        "reason": "淘汰・probation条件に該当せずactive: PF=1.86、取引数=13件、確定日数=48日"
       },
       "forward": {
         "source": "confirmed-history",
         "firstConfirmedDate": "2026-08-17",
-        "confirmedThrough": "2026-10-01",
-        "confirmedDayCount": 46,
+        "confirmedThrough": "2026-10-03",
+        "confirmedDayCount": 48,
         "metrics": {
           "spreadPips": 0.9,
-          "winRate": 58.333333333333336,
-          "profitFactor": 2.2450900163666123,
+          "winRate": 53.84615384615385,
+          "profitFactor": 1.8629470348574015,
           "maxDrawdownPips": 79.6,
           "maxDrawdownYen": 25098,
           "maxDrawdownPct": 2.4087343251839437,
-          "tradeCount": 12,
-          "netPips": 207.2,
-          "netProfitYen": 63903,
+          "tradeCount": 13,
+          "netPips": 174.3,
+          "netProfitYen": 53375,
           "grossProfitPips": 371.7,
-          "grossLossPips": -164.5,
+          "grossLossPips": -197.4,
           "grossProfitYen": 115227,
-          "grossLossYen": -51324,
-          "riskRewardRatio": 1.6036357259761516,
+          "grossLossYen": -61852,
+          "riskRewardRatio": 1.596811744163487,
           "averageWinYen": 16461,
-          "averageLossYen": -10265,
+          "averageLossYen": -10309,
           "maxConsecutiveWins": 3,
           "maxConsecutiveLosses": 2
         },
         "trades": [
+          {
+            "id": 13,
+            "direction": "long",
+            "entryTime": 1790902800,
+            "exitTime": 1790906400,
+            "entryPrice": 158.136,
+            "exitPrice": 157.816,
+            "grossPips": -32,
+            "spreadPips": 0.9,
+            "netPips": -32.9,
+            "lotSize": 0.32,
+            "pipValueYenPerLot": 1000,
+            "grossProfitYen": -10240,
+            "spreadYen": 288,
+            "netProfitYen": -10528,
+            "balanceAfterYen": 1053375,
+            "exitReason": "stop_loss"
+          },
           {
             "id": 12,
             "direction": "short",
@@ -4816,6 +4924,24 @@
             "netProfitYen": 63903,
             "drawdownYen": 0,
             "drawdownPct": 0
+          },
+          {
+            "time": 1790985599,
+            "equityPips": 174.3,
+            "drawdownPips": 32.9,
+            "equityYen": 1053375,
+            "netProfitYen": 53375,
+            "drawdownYen": 10528,
+            "drawdownPct": 0.9895638982125251
+          },
+          {
+            "time": 1791071999,
+            "equityPips": 174.3,
+            "drawdownPips": 32.9,
+            "equityYen": 1053375,
+            "netProfitYen": 53375,
+            "drawdownYen": 10528,
+            "drawdownPct": 0.9895638982125251
           }
         ]
       },
@@ -4841,11 +4967,11 @@
       },
       "backtestReferenceCoverage": {
         "source": "current-window",
-        "firstBarAt": 1781006400,
+        "firstBarAt": 1781013600,
         "lastBarAt": 1786993200,
-        "barsEvaluated": 1184
+        "barsEvaluated": 1182
       },
-      "barsEvaluated": 816
+      "barsEvaluated": 818
     },
     {
       "meta": {
@@ -6723,13 +6849,13 @@
       },
       "operationStatus": {
         "status": "active",
-        "reason": "サンプル不足（取引10件未満）のためactive: PF=1.28、取引数=8件、確定日数=92日"
+        "reason": "サンプル不足（取引10件未満）のためactive: PF=1.28、取引数=8件、確定日数=94日"
       },
       "forward": {
         "source": "confirmed-history",
         "firstConfirmedDate": "2026-07-02",
-        "confirmedThrough": "2026-10-01",
-        "confirmedDayCount": 92,
+        "confirmedThrough": "2026-10-03",
+        "confirmedDayCount": 94,
         "metrics": {
           "spreadPips": 0.9,
           "winRate": 37.5,
@@ -7724,6 +7850,24 @@
             "netProfitYen": 3887,
             "drawdownYen": 0,
             "drawdownPct": 0
+          },
+          {
+            "time": 1790985599,
+            "equityPips": 29.9,
+            "drawdownPips": 0,
+            "equityYen": 1003887,
+            "netProfitYen": 3887,
+            "drawdownYen": 0,
+            "drawdownPct": 0
+          },
+          {
+            "time": 1791071999,
+            "equityPips": 29.9,
+            "drawdownPips": 0,
+            "equityYen": 1003887,
+            "netProfitYen": 3887,
+            "drawdownYen": 0,
+            "drawdownPct": 0
           }
         ]
       },
@@ -7749,11 +7893,11 @@
       },
       "backtestReferenceCoverage": {
         "source": "current-window",
-        "firstBarAt": 1751932800,
+        "firstBarAt": 1751947200,
         "lastBarAt": 1782993600,
-        "barsEvaluated": 1589
+        "barsEvaluated": 1588
       },
-      "barsEvaluated": 411
+      "barsEvaluated": 412
     }
   ]
 }
