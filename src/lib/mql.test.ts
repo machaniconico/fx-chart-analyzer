@@ -1149,7 +1149,7 @@ describe('state entries and reentry cooldown', () => {
       for (const [extension, generate] of [['mq4', generateMql4], ['mq5', generateMql5]] as const) {
         const source = generate(strategy);
         expectBalanced(source);
-        expect(source).not.toContain('ReentryCooldownAllows');
+        expect(source).toContain('elapsedBars - 1 >= 0');
         if (condition.type === 'parabolicSarState') {
           const signal = source.slice(source.indexOf('bool Condition1('), source.indexOf('bool EntrySignal('));
           expect(signal).not.toContain('previous');
