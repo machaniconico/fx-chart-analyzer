@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME,
   aggregateDailyFromH1,
+  aggregateH1FromMinuteBars,
   aggregateH4,
   buildSourceHealth,
   fetchDailyWithFallback,
@@ -565,5 +566,128 @@ describe('Yahoo h4 aggregation', () => {
         v: 0,
       },
     ]);
+  });
+});
+
+describe('h1 fallback from Dukascopy minute bars', () => {
+  const H = 3600;
+  const fnow = Date.UTC(2026, 9, 6, 12, 10) / 1000; // 12:10 UTC
+  const fnowMs = fnow * 1000;
+  const m30 = (t, o, h, l, c, v = 1) => ({ t, o, h, l, c, v });
+  const base = Date.UTC(2026, 9, 6, 8) / 1000;
+
+  it('aggregates m30 into UTC hours (open first, high max, low min, close last, volume sum)', () => {
+    const out = aggregateH1FromMinuteBars(
+      [m30(base + 1800, 2, 9, 1, 3, 5), m30(base, 1, 5, 0.5, 2, 4), m30(base + H, 3, 4, 2, 3.5), m30(base + H + 1800, 3, 4, 2, 3.5)],
+      'm30',
+      { nowSeconds: fnow },
+    );
+    expect(out[0]).toEqual({ t: base, o: 1, h: 9, l: 0.5, c: 3, v: 9 });
+    expect(out).toHaveLength(2);
+  });
+
+  it('drops the unfinished last bar and an incomplete tail hour', () => {
+    const bars = [m30(base, 1, 1, 1, 1), m30(base + 1800, 1, 1, 1, 1), m30(base + H, 1, 1, 1, 1)];
+    // tail hour has only the first half -> dropped
+    expect(aggregateH1FromMinuteBars(bars, 'm30', { nowSeconds: fnow }).map((b) => b.t)).toEqual([base]);
+    // last m30 (12:00) still forming at 12:10 -> excluded, hour 11 incomplete -> dropped
+    const forming = [m30(base + 3 * H, 1, 1, 1, 1), m30(base + 3 * H + 1800, 1, 1, 1, 1), m30(fnow - 600 - 1200, 1, 1, 1, 1)];
+    expect(aggregateH1FromMinuteBars(forming, 'm30', { nowSeconds: fnow }).map((b) => b.t)).toEqual([base + 3 * H]);
+  });
+
+  it('keeps a middle hour that has a single m30 (flat half skipped by ignoreFlats)', () => {
+    const bars = [
+      m30(base, 1, 1, 1, 1),
+      m30(base + 1800, 1, 1, 1, 1),
+      m30(base + H, 2, 3, 2, 3),
+      m30(base + 2 * H, 3, 3, 3, 3),
+      m30(base + 2 * H + 1800, 3, 3, 3, 3),
+    ];
+    const out = aggregateH1FromMinuteBars(bars, 'm30', { nowSeconds: fnow });
+    expect(out.map((b) => b.t)).toEqual([base, base + H, base + 2 * H]);
+  });
+
+  const existingH1 = () =>
+    makeBars({ count: 8000, endTime: Date.UTC(2026, 9, 3, 20) / 1000, stepSeconds: H });
+  const freshM30 = () =>
+    makeBars({ count: 4000, endTime: fnow - 1800 - 600, stepSeconds: 1800 }).map((bar, i) => ({
+      ...bar,
+      t: Math.floor((fnow - 1800 - 600) / 1800) * 1800 - (3999 - i) * 1800,
+    }));
+
+  it('uses Dukascopy m30 when h1 gets 429, before Yahoo', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchYahoo = vi.fn();
+    const stored = { h1: existingH1(), h4: aggregateH4(existingH1(), { dropIncompleteTail: true }) };
+    const result = await fetchH1AndH4WithFallback('GBPJPY', {
+      fetchPrimary: async () => {
+        throw new Error('Request failed with status 429');
+      },
+      fetchYahoo,
+      readExisting: async (_pair, tf) => stored[tf],
+      nowMs: fnowMs,
+      lowerTimeframeBars: { m30: freshM30() },
+    });
+    expect(fetchYahoo).not.toHaveBeenCalled();
+    expect(result.h1.source).toBe('dukascopy-m30');
+    expect(result.h4.source).toBe('dukascopy-m30');
+    expect(result.h1.bars.at(-1).t).toBeGreaterThan(stored.h1.at(-1).t);
+    expect(result.h1.bars.at(-1).t % H).toBe(0);
+    expect(result.h1.bars.at(-1).t + H).toBeLessThanOrEqual(fnow);
+  });
+
+  it('falls back to m15 when m30 is missing, and to Yahoo when neither exists', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const stored = { h1: existingH1(), h4: aggregateH4(existingH1(), { dropIncompleteTail: true }) };
+    const m15 = makeBars({ count: 4000, endTime: Math.floor((fnow - 900 - 600) / 900) * 900, stepSeconds: 900 });
+    const common = {
+      fetchPrimary: async () => {
+        throw new Error('429');
+      },
+      readExisting: async (_pair, tf) => stored[tf],
+      nowMs: fnowMs,
+    };
+    const viaM15 = await fetchH1AndH4WithFallback('GBPJPY', {
+      ...common,
+      fetchYahoo: vi.fn(),
+      lowerTimeframeBars: { m15 },
+    });
+    expect(viaM15.h1.source).toBe('dukascopy-m15');
+
+    const yahooH1 = makeBars({ count: 8000, endTime: fnow - H, stepSeconds: H, price: 200 });
+    const fetchYahoo = vi.fn(async () => yahooH1);
+    const viaYahoo = await fetchH1AndH4WithFallback('GBPJPY', { ...common, fetchYahoo, lowerTimeframeBars: {} });
+    expect(fetchYahoo).toHaveBeenCalledOnce();
+    expect(viaYahoo.h1.source).toBe('yahoo-fallback');
+  });
+
+  it('goes to Yahoo when there is no existing h1 to extend', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const yahooH1 = makeBars({ count: 8000, endTime: fnow - H, stepSeconds: H, price: 200 });
+    const fetchYahoo = vi.fn(async () => yahooH1);
+    const result = await fetchH1AndH4WithFallback('GBPJPY', {
+      fetchPrimary: async () => {
+        throw new Error('429');
+      },
+      fetchYahoo,
+      readExisting: async () => null,
+      nowMs: fnowMs,
+      lowerTimeframeBars: { m30: freshM30() },
+    });
+    expect(result.h1.source).toBe('yahoo-fallback');
+  });
+
+  it('records derived sources as primary success in health', () => {
+    const health = buildSourceHealth({
+      sources: [
+        { timeframe: 'h1', source: 'dukascopy-m30' },
+        { timeframe: 'h4', source: 'dukascopy-m30' },
+      ],
+      previousHealth: null,
+      nowMs: fnowMs,
+    });
+    expect(health.sources['dukascopy-m30']).toBe(2);
+    expect(health.primaryOkThisRun).toBe(true);
+    expect(health.lastPrimarySuccessByTimeframe.h1).toBe(health.updatedAt);
   });
 });

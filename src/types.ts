@@ -14,7 +14,7 @@ export interface DataFile {
   pair: Pair;
   tf: Timeframe;
   updatedAt: string;
-  source?: 'dukascopy' | 'yahoo-fallback';
+  source?: 'dukascopy' | 'dukascopy-m30' | 'dukascopy-m15' | 'yahoo-fallback';
   bars: Bar[];
 }
 

@@ -306,6 +306,7 @@ const latest = (bars, tf) => {
 };
 
 const formatError = (error) => (error instanceof Error ? error.message : String(error));
+const DERIVED_PRIMARY_SOURCES = ['dukascopy-m30', 'dukascopy-m15'];
 const SOURCE_HEALTH_TIMEFRAMES = ['m15', 'm30', 'h1', 'h4', 'd1'];
 
 // previousHealth comes from main's checked-out health.json, so carry-over depends on data/daily-update PRs
@@ -313,14 +314,19 @@ const SOURCE_HEALTH_TIMEFRAMES = ['m15', 'm30', 'h1', 'h4', 'd1'];
 // OPEN_PR_MAX_AGE_HOURS persistence gate should fail first.
 export const buildSourceHealth = ({ sources, previousHealth, nowMs = Date.now() }) => {
   const counts = { dukascopy: 0, 'yahoo-fallback': 0 };
+  // h1 を Dukascopy の m30/m15 から集約した場合 (dukascopy-m30 / dukascopy-m15)。Dukascopy 由来なので
+  // 一次ソース成功として扱うが、内訳は別キーに残す(出現した時だけ追加し、既存スキーマは変えない)。
   const primarySuccessTimeframes = new Set();
   const fallbackTimeframes = new Set();
   for (const entry of sources) {
     const source = typeof entry === 'string' ? entry : entry?.source;
-    if (Object.hasOwn(counts, source)) {
+    const isDerivedPrimary = DERIVED_PRIMARY_SOURCES.includes(source);
+    if (isDerivedPrimary) {
+      counts[source] = (counts[source] ?? 0) + 1;
+    } else if (Object.hasOwn(counts, source)) {
       counts[source] += 1;
     }
-    if (source === 'dukascopy' && SOURCE_HEALTH_TIMEFRAMES.includes(entry?.timeframe)) {
+    if ((source === 'dukascopy' || isDerivedPrimary) && SOURCE_HEALTH_TIMEFRAMES.includes(entry?.timeframe)) {
       primarySuccessTimeframes.add(entry.timeframe);
     }
     if (source === 'yahoo-fallback') {
@@ -333,7 +339,8 @@ export const buildSourceHealth = ({ sources, previousHealth, nowMs = Date.now() 
     primarySuccessTimeframes.delete(timeframe);
   }
 
-  const primaryOkThisRun = counts.dukascopy > 0;
+  const primaryOkThisRun =
+    counts.dukascopy > 0 || DERIVED_PRIMARY_SOURCES.some((source) => counts[source] > 0);
   const updatedAt = new Date(nowMs).toISOString();
   const timeframeTrackingSince =
     previousHealth != null && Object.hasOwn(previousHealth, 'timeframeTrackingSince')
@@ -471,7 +478,7 @@ const buildYahooFallbackBars = async (
   pair,
   tf,
   incomingBars,
-  { readExisting = readExistingBars } = {},
+  { readExisting = readExistingBars, source = 'yahoo-fallback' } = {},
 ) => {
   const existingBars = await readExisting(pair, tf);
   const hasExistingBars = Array.isArray(existingBars);
@@ -492,7 +499,7 @@ const buildYahooFallbackBars = async (
   validateBars(pair, tf, bars, validateOptions);
   return {
     bars,
-    source: 'yahoo-fallback',
+    source,
     validateOptions,
     shouldWrite: !hasExistingBars || appendedCount > 0 || replacesLast,
   };
@@ -589,6 +596,8 @@ export const fetchH1AndH4WithFallback = async (
     fetchYahoo = fetchYahooTimeframe,
     readExisting = readExistingBars,
     nowMs = Date.now(),
+    // 同じ実行で Dukascopy から取得済みの m30 / m15 (Yahoo など他ソースのものは渡さない)。
+    lowerTimeframeBars = {},
   } = {},
 ) => {
   try {
@@ -608,6 +617,14 @@ export const fetchH1AndH4WithFallback = async (
       h4: { bars: h4, source: 'dukascopy', validateOptions: {}, shouldWrite: true },
     };
   } catch (dukascopyError) {
+    const derived = await buildH1H4FromLowerTimeframes(pair, dukascopyError, {
+      readExisting,
+      lowerTimeframeBars,
+      nowMs,
+    });
+    if (derived) {
+      return derived;
+    }
     console.warn(`  Dukascopy failed for ${pair} h1/h4: ${formatError(dukascopyError)}; trying Yahoo fallback`);
     try {
       const yahooH1 = await fetchYahoo(pair, 'h1');
@@ -625,6 +642,82 @@ export const fetchH1AndH4WithFallback = async (
       );
     }
   }
+};
+
+// 分足(m30/m15)を UTC の 1 時間境界で h1 に集約する。集約元の最後の足がまだ確定していない場合と、
+// 末尾の 1 時間が最後のスロットまで揃っていない場合は、その末尾の時間を除外する(aggregateH4 の
+// dropIncompleteTail と同じ流儀)。途中の時間は ignoreFlats で値動きの無い足が欠けうるため、
+// 1 本以上あれば集約する。
+export const aggregateH1FromMinuteBars = (bars, tf, { nowSeconds = Math.floor(Date.now() / 1000) } = {}) => {
+  const barSeconds = barSecondsByTimeframe[tf];
+  if (!barSeconds || barSeconds >= barSecondsByTimeframe.h1) {
+    throw new Error(`h1 aggregation is not supported from timeframe: ${tf}`);
+  }
+  const hour = barSecondsByTimeframe.h1;
+  const closed = [...bars]
+    .filter((bar) => bar.t % barSeconds === 0 && bar.t + barSeconds <= nowSeconds)
+    .sort((a, b) => a.t - b.t);
+  const grouped = new Map();
+  for (const bar of closed) {
+    const bucket = Math.floor(bar.t / hour) * hour;
+    const group = grouped.get(bucket);
+    if (!group) {
+      grouped.set(bucket, { t: bucket, o: bar.o, h: bar.h, l: bar.l, c: bar.c, v: bar.v });
+      continue;
+    }
+    group.h = Math.max(group.h, bar.h);
+    group.l = Math.min(group.l, bar.l);
+    group.c = bar.c;
+    group.v += bar.v;
+  }
+  const result = [...grouped.values()].sort((a, b) => a.t - b.t);
+  const lastSource = closed[closed.length - 1];
+  if (result.length > 0 && lastSource.t + barSeconds < result[result.length - 1].t + hour) {
+    result.pop();
+  }
+  return result;
+};
+
+// h1 の Dukascopy 取得が失敗した時、同じ実行で取得済みの Dukascopy m30 (無ければ m15) から h1 を作り、
+// h4 は結合後の h1 から既存の aggregateH4 で作る。使えなければ null を返し、呼び出し側が Yahoo に落とす。
+const buildH1H4FromLowerTimeframes = async (
+  pair,
+  dukascopyError,
+  { readExisting, lowerTimeframeBars, nowMs },
+) => {
+  for (const tf of ['m30', 'm15']) {
+    const minuteBars = lowerTimeframeBars[tf];
+    if (!Array.isArray(minuteBars) || minuteBars.length === 0) {
+      continue;
+    }
+    try {
+      const existingH1 = await readExisting(pair, 'h1');
+      if (!Array.isArray(existingH1)) {
+        throw new Error('no existing h1 to extend');
+      }
+      const incomingH1 = aggregateH1FromMinuteBars(minuteBars, tf, { nowSeconds: Math.floor(nowMs / 1000) });
+      if (incomingH1.length === 0) {
+        throw new Error('no complete hours');
+      }
+      assertPrimaryResponseUsable(pair, 'h1', incomingH1, existingH1, { nowMs });
+      const source = `dukascopy-${tf}`;
+      const mergedH1 = mergeAppendOnlyBars(existingH1, incomingH1);
+      const h1 = await buildYahooFallbackBars(pair, 'h1', incomingH1, { readExisting, source });
+      const h4 = await buildYahooFallbackBars(
+        pair,
+        'h4',
+        aggregateH4(mergedH1, { dropIncompleteTail: true }),
+        { readExisting, source },
+      );
+      console.warn(
+        `  Dukascopy h1 failed for ${pair}: ${formatError(dukascopyError)}; built h1/h4 from Dukascopy ${tf}`,
+      );
+      return { h1, h4 };
+    } catch (error) {
+      console.warn(`  Dukascopy ${tf} -> h1 aggregation unusable for ${pair}: ${formatError(error)}`);
+    }
+  }
+  return null;
 };
 
 export const aggregateH4 = (h1Bars, { dropIncompleteTail = false } = {}) => {
@@ -678,9 +771,11 @@ export const main = async () => {
   };
 
   for (const pair of PAIRS) {
+    const lowerTimeframeBars = {};
     console.log(`Fetching ${pair} m15...`);
     await tryUpdate(pair, 'm15', async () => {
       const m15 = await fetchTimeframeWithFallback(pair, 'm15', M15_LOOKBACK_DAYS);
+      if (m15.source === 'dukascopy') lowerTimeframeBars.m15 = m15.bars;
       const message = await persistBars(pair, 'm15', m15);
       processedSources.push({ timeframe: 'm15', source: m15.source });
       console.log(`  ${message}`);
@@ -689,6 +784,7 @@ export const main = async () => {
     console.log(`Fetching ${pair} m30...`);
     await tryUpdate(pair, 'm30', async () => {
       const m30 = await fetchTimeframeWithFallback(pair, 'm30', M30_LOOKBACK_DAYS);
+      if (m30.source === 'dukascopy') lowerTimeframeBars.m30 = m30.bars;
       const message = await persistBars(pair, 'm30', m30);
       processedSources.push({ timeframe: 'm30', source: m30.source });
       console.log(`  ${message}`);
@@ -696,7 +792,7 @@ export const main = async () => {
 
     console.log(`Fetching ${pair} h1...`);
     await tryUpdate(pair, 'h1/h4', async () => {
-      const { h1, h4 } = await fetchH1AndH4WithFallback(pair);
+      const { h1, h4 } = await fetchH1AndH4WithFallback(pair, { lowerTimeframeBars });
       const h1Message = await persistBars(pair, 'h1', h1);
       processedSources.push({ timeframe: 'h1', source: h1.source });
       const h4Message = await persistBars(pair, 'h4', h4);
