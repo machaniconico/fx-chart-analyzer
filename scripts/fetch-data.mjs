@@ -617,43 +617,37 @@ export const fetchH1AndH4WithFallback = async (
       h4: { bars: h4, source: 'dukascopy', validateOptions: {}, shouldWrite: true },
     };
   } catch (dukascopyError) {
-    const derived = await buildH1H4FromLowerTimeframes(pair, dukascopyError, {
+    console.warn(`  Dukascopy failed for ${pair} h1/h4: ${formatError(dukascopyError)}; trying Yahoo fallback`);
+    // origin/main と同じ Yahoo 経路を必ず実行し(Yahoo 版)、同じ実行で取得済みの分足から作った
+    // 集約版が Yahoo 版を「支配」する時だけ集約版を採用する。支配しなければ Yahoo 版 = 従来と同一。
+    let yahooVersion = null;
+    let yahooError = null;
+    try {
+      const yahooH1 = await fetchYahoo(pair, 'h1');
+      yahooVersion = {
+        h1: await buildYahooFallbackBars(pair, 'h1', yahooH1, { readExisting }),
+        h4: await buildYahooFallbackBars(pair, 'h4', aggregateH4(yahooH1, { dropIncompleteTail: true }), {
+          readExisting,
+        }),
+      };
+    } catch (error) {
+      yahooError = error;
+    }
+    const adopted = await pickDominatingAggregate(pair, yahooVersion, {
       readExisting,
       lowerTimeframeBars,
       nowMs,
     });
-    if (derived?.complete) {
-      return derived.result;
+    if (adopted) {
+      console.warn(`  built ${pair} h1/h4 from ${adopted.h1.source} (dominates the Yahoo version)`);
+      return adopted;
     }
-    console.warn(`  Dukascopy failed for ${pair} h1/h4: ${formatError(dukascopyError)}; trying Yahoo fallback`);
-    try {
-      const yahooH1 = await fetchYahoo(pair, 'h1');
-      const h1 = await buildYahooFallbackBars(pair, 'h1', yahooH1, { readExisting });
-      const h4 = await buildYahooFallbackBars(
-        pair,
-        'h4',
-        aggregateH4(yahooH1, { dropIncompleteTail: true }),
-        { readExisting },
-      );
-      // 最良の集約候補が最新 h4 に届かなかった場合のみここに来る。Yahoo が厳密に新しければ Yahoo、他は候補。
-      const yahooResult = { h1, h4 };
-      if (!derived) {
-        return yahooResult;
-      }
-      // 穴(欠損 h1 / 部分 h4)が残る候補は Yahoo の追記で埋まるので、Yahoo が古くなければ Yahoo を使う。
-      // 穴が無く末尾だけ遅れる候補は、Yahoo が厳密に新しい時だけ Yahoo に譲る。
-      const yahooWins = derived.hasHoles
-        ? !isNewerResult(derived.result, yahooResult)
-        : isNewerResult(yahooResult, derived.result);
-      return yahooWins ? yahooResult : derived.result;
-    } catch (yahooError) {
-      if (derived) {
-        return derived.result;
-      }
+    if (!yahooVersion) {
       throw new Error(
         `Dukascopy failed: ${formatError(dukascopyError)}; Yahoo fallback failed: ${formatError(yahooError)}`,
       );
     }
+    return yahooVersion;
   }
 };
 
@@ -696,9 +690,7 @@ export const aggregateH1FromMinuteBars = (bars, tf, { nowSeconds = Math.floor(Da
   return result;
 };
 
-// 分足集約の採用条件。既存末尾より集約末尾が少し遅れる程度(Yahoo が数本先行)は許容するが、
-// 閾値を超えて遅れる場合・古すぎる場合・市場時間中に連続した欠損がある場合は不完全として拒否する。
-const AGGREGATE_MAX_LAG_HOURS = 6;
+// 集約版の内部品質チェック: 市場時間内に連続して欠けた h1 が多い集約は不完全として拒否する。
 const AGGREGATE_MAX_MARKET_GAP_HOURS = 3;
 
 // FX の週末クローズ: America/New_York の金 17:00 〜 日 17:00 (夏冬で UTC 境界が 1 時間動く)。
@@ -719,22 +711,11 @@ export const isFxMarketHour = (seconds) => {
   return true;
 };
 
-const assertAggregateUsable = (pair, incomingH1, existingH1, { nowMs }) => {
+const assertNoLongMarketGap = (incomingH1, existingH1) => {
   const hour = barSecondsByTimeframe.h1;
-  const incomingTail = incomingH1[incomingH1.length - 1].t;
-  const ageHours = (nowMs / 1000 - incomingTail) / 3600;
-  if (ageHours > PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME.h1) {
-    throw new Error(`stale aggregate: ${pair} h1 ageHours=${ageHours.toFixed(1)}`);
-  }
-  const existingTail = existingH1.length > 0 ? existingH1[existingH1.length - 1].t : null;
-  if (existingTail === null) {
-    return;
-  }
-  const lagHours = (existingTail - incomingTail) / 3600;
-  if (lagHours > AGGREGATE_MAX_LAG_HOURS) {
-    throw new Error(`aggregate lags existing h1 by ${lagHours}h (limit ${AGGREGATE_MAX_LAG_HOURS}h)`);
-  }
   const present = new Set(incomingH1.map((bar) => bar.t));
+  const existingTail = existingH1[existingH1.length - 1].t;
+  const incomingTail = incomingH1[incomingH1.length - 1].t;
   let run = 0;
   for (let t = existingTail + hour; t <= incomingTail; t += hour) {
     if (present.has(t) || !isFxMarketHour(t)) {
@@ -757,118 +738,108 @@ const overlayBars = (existingBars, incomingBars) => {
   return [...byTime.values()].sort((a, b) => a.t - b.t);
 };
 
-const buildOverlayResult = async (pair, tf, mergedBars, existingBars, incomingBars, source) => {
+const buildOverlayResult = (pair, tf, mergedBars, source) => {
   const bars = latest(mergedBars, tf);
   const validateOptions = { minExpectedBars: MIN_EXPECTED_BARS_BY_TIMEFRAME[tf] };
   validateBars(pair, tf, bars, validateOptions);
-  const existingByTime = new Map(existingBars.map((bar) => [bar.t, bar]));
-  const changed = incomingBars.some((bar) => {
-    const previous = existingByTime.get(bar.t);
-    return !previous || !barsEqual(previous, bar);
-  });
-  return { bars, source, validateOptions, shouldWrite: changed };
+  return { bars, source, validateOptions, shouldWrite: true };
 };
 
-// h1 の Dukascopy 取得が失敗した時、同じ実行で取得済みの Dukascopy m30 (無ければ m15) から h1 を作り、
-// h4 は結合後の h1 から既存の aggregateH4 で作る。使えなければ null を返し、呼び出し側が Yahoo に落とす。
-const buildH1H4FromLowerTimeframes = async (
-  pair,
-  dukascopyError,
-  { readExisting, lowerTimeframeBars, nowMs },
-) => {
+// 分足から作った h1/h4 の集約版。分足の確定判定は処理時点ではなく取得時刻(fetchedAtMs)で行い、
+// 材料の h1 が揃わない h4 バケットは追加も置換もしない(partialH4 は既存側に残る部分バケットの検出)。
+const buildAggregateVersion = async (pair, tf, entry, { readExisting, nowMs }) => {
+  const minuteBars = Array.isArray(entry) ? entry : entry?.bars;
+  if (!Array.isArray(minuteBars) || minuteBars.length === 0) {
+    return null;
+  }
+  const fetchedAtSeconds = Math.floor((Array.isArray(entry) ? nowMs : entry.fetchedAtMs ?? nowMs) / 1000);
+  const [existingH1, existingH4] = await Promise.all([readExisting(pair, 'h1'), readExisting(pair, 'h4')]);
+  if (!Array.isArray(existingH1) || existingH1.length === 0) {
+    throw new Error('no existing h1 to extend');
+  }
+  const incomingH1 = aggregateH1FromMinuteBars(minuteBars, tf, { nowSeconds: fetchedAtSeconds });
+  if (incomingH1.length === 0) {
+    throw new Error('no complete hours');
+  }
+  assertNoLongMarketGap(incomingH1, existingH1);
+  const source = `dukascopy-${tf}`;
+  const h4Seconds = barSecondsByTimeframe.h4;
+  const mergedH1 = overlayBars(existingH1, incomingH1);
+  const mergedH1Times = new Set(mergedH1.map((bar) => bar.t));
+  const isBucketComplete = (bucket) =>
+    [0, 1, 2, 3].every((i) => {
+      const t = bucket + i * barSecondsByTimeframe.h1;
+      return mergedH1Times.has(t) || !isFxMarketHour(t);
+    });
+  const h4FirstBucket = Math.floor(incomingH1[0].t / h4Seconds) * h4Seconds;
+  const incomingH4 = aggregateH4(mergedH1, { dropIncompleteTail: true }).filter(
+    (bar) => bar.t >= h4FirstBucket && isBucketComplete(bar.t),
+  );
+  const h1 = buildOverlayResult(pair, 'h1', mergedH1, source);
+  const h4 = buildOverlayResult(pair, 'h4', overlayBars(existingH4 ?? [], incomingH4), source);
+  const windowStart = Math.floor(existingH1[existingH1.length - 1].t / h4Seconds) * h4Seconds;
+  const partialH4 = h4.bars.some((bar) => bar.t >= windowStart && !isBucketComplete(bar.t));
+  return { h1, h4, partialH4, aggregatedH1Tail: incomingH1[incomingH1.length - 1].t };
+};
+
+const tailOf = (result) => result.bars[result.bars.length - 1].t;
+
+const changedTimestamps = (result, existingBars) => {
+  const existingByTime = new Map((existingBars ?? []).map((bar) => [bar.t, bar]));
+  return result.bars
+    .filter((bar) => {
+      const previous = existingByTime.get(bar.t);
+      return !previous || !barsEqual(previous, bar);
+    })
+    .map((bar) => bar.t);
+};
+
+// Yahoo 版(失敗時は既存データそのまま)の末尾と、今回追加・置換されるタイムスタンプ。
+export const describeBaseline = (version, existingH1, existingH4) => {
+  const source = version ?? { h1: { bars: existingH1 ?? [] }, h4: { bars: existingH4 ?? [] } };
+  return {
+    h1Tail: source.h1.bars.length > 0 ? tailOf(source.h1) : -Infinity,
+    h4Tail: source.h4.bars.length > 0 ? tailOf(source.h4) : -Infinity,
+    changedH1: version ? changedTimestamps(version.h1, existingH1) : [],
+    changedH4: version ? changedTimestamps(version.h4, existingH4) : [],
+  };
+};
+
+// 集約版が基準(Yahoo 版)を支配する: 集約した h1 の末尾と h4 末尾が同等以上で、基準が追加・置換する足を全て持ち、
+// 部分 h4 バケットを含まない。
+export const aggregateDominates = (aggregate, baseline) => {
+  const h1Times = new Set(aggregate.h1.bars.map((bar) => bar.t));
+  const h4Times = new Set(aggregate.h4.bars.map((bar) => bar.t));
+  return (
+    !aggregate.partialH4 &&
+    aggregate.aggregatedH1Tail >= baseline.h1Tail &&
+    tailOf(aggregate.h4) >= baseline.h4Tail &&
+    baseline.changedH1.every((t) => h1Times.has(t)) &&
+    baseline.changedH4.every((t) => h4Times.has(t))
+  );
+};
+
+const isNewerResult = (a, b) => {
+  const h4Diff = tailOf(a.h4) - tailOf(b.h4);
+  return h4Diff !== 0 ? h4Diff > 0 : a.aggregatedH1Tail > b.aggregatedH1Tail;
+};
+
+// m30 / m15 の集約版のうち Yahoo 版を支配するものを選ぶ((h4 末尾, h1 末尾) が新しい方、同点は m30)。
+const pickDominatingAggregate = async (pair, yahooVersion, { readExisting, lowerTimeframeBars, nowMs }) => {
+  const [existingH1, existingH4] = await Promise.all([readExisting(pair, 'h1'), readExisting(pair, 'h4')]);
+  const baseline = describeBaseline(yahooVersion, existingH1, existingH4);
   let best = null;
-  let latestFetchedAtSeconds = 0;
   for (const tf of ['m30', 'm15']) {
-    // 分足は取得時点のスナップショット。確定判定は処理時点ではなく取得時刻(fetchedAtMs)で行う。
-    const entry = lowerTimeframeBars[tf];
-    const minuteBars = Array.isArray(entry) ? entry : entry?.bars;
-    if (!Array.isArray(minuteBars) || minuteBars.length === 0) {
-      continue;
-    }
-    const fetchedAtSeconds = Math.floor((Array.isArray(entry) ? nowMs : entry.fetchedAtMs ?? nowMs) / 1000);
     try {
-      const existingH1 = await readExisting(pair, 'h1');
-      if (!Array.isArray(existingH1)) {
-        throw new Error('no existing h1 to extend');
-      }
-      const incomingH1 = aggregateH1FromMinuteBars(minuteBars, tf, { nowSeconds: fetchedAtSeconds });
-      if (incomingH1.length === 0) {
-        throw new Error('no complete hours');
-      }
-      assertAggregateUsable(pair, incomingH1, existingH1, { nowMs });
-      const source = `dukascopy-${tf}`;
-      const mergedH1 = overlayBars(existingH1, incomingH1);
-      const h1 = await buildOverlayResult(pair, 'h1', mergedH1, existingH1, incomingH1, source);
-      const existingH4 = await readExisting(pair, 'h4');
-      const h4FirstBucket = Math.floor(incomingH1[0].t / barSecondsByTimeframe.h4) * barSecondsByTimeframe.h4;
-      const mergedH1Times = new Set(mergedH1.map((bar) => bar.t));
-      // 材料の h1 が揃っている(市場時間内の欠けが無い)バケットだけ追加/置換する。
-      // 揃わないバケットは、既存の有無に関わらず触らない(h1 が回復して完全になった時点で反映される)。
-      const isBucketComplete = (bucket) =>
-        [0, 1, 2, 3].every((i) => {
-          const t = bucket + i * barSecondsByTimeframe.h1;
-          return mergedH1Times.has(t) || !isFxMarketHour(t);
-        });
-      const incomingH4 = aggregateH4(mergedH1, { dropIncompleteTail: true }).filter(
-        (bar) => bar.t >= h4FirstBucket && isBucketComplete(bar.t),
-      );
-      const mergedH4 = overlayBars(existingH4 ?? [], incomingH4);
-      const h4 = await buildOverlayResult(pair, 'h4', mergedH4, existingH4 ?? [], incomingH4, source);
-      // m30/m15 は両方とも同じ実行で取得済みなので全候補を計算し、(h4 末尾, h1 末尾) が最も新しいものを選ぶ。
-      // 同点は先に評価した m30 を優先する。
-      // 既存末尾のバケットから取得時点で確定済みの最後の時間までに、市場時間内の h1 欠損や
-      // 欠けた h4 バケットが残っていれば、Yahoo(追記で埋まる)の方が良い可能性があるので hasHoles とする。
-      const windowStart = Math.floor(existingH1[existingH1.length - 1].t / barSecondsByTimeframe.h4) * barSecondsByTimeframe.h4;
-      const lastClosedHour = Math.floor(fetchedAtSeconds / barSecondsByTimeframe.h1) * barSecondsByTimeframe.h1 - barSecondsByTimeframe.h1;
-      let hasHoles = false;
-      for (let t = windowStart; t <= lastClosedHour; t += barSecondsByTimeframe.h1) {
-        if (isFxMarketHour(t) && !mergedH1Times.has(t)) hasHoles = true;
-      }
-      const h4Times = new Set(h4.bars.map((bar) => bar.t));
-      const ownExpectedBucket = expectedLatestH4Bucket(fetchedAtSeconds);
-      for (let t = windowStart; t <= ownExpectedBucket; t += barSecondsByTimeframe.h4) {
-        if (!h4Times.has(t) && [0, 1, 2, 3].some((i) => isFxMarketHour(t + i * barSecondsByTimeframe.h1))) hasHoles = true;
-      }
-      latestFetchedAtSeconds = Math.max(latestFetchedAtSeconds, fetchedAtSeconds);
-      const candidate = { h1, h4, hasHoles };
-      if (!best || isNewerResult(candidate, best)) {
-        best = candidate;
+      const aggregate = await buildAggregateVersion(pair, tf, lowerTimeframeBars[tf], { readExisting, nowMs });
+      if (aggregate && aggregateDominates(aggregate, baseline) && (!best || isNewerResult(aggregate, best))) {
+        best = aggregate;
       }
     } catch (error) {
       console.warn(`  Dukascopy ${tf} -> h1 aggregation unusable for ${pair}: ${formatError(error)}`);
     }
   }
-  if (!best) {
-    return null;
-  }
-  const expectedBucket = expectedLatestH4Bucket(latestFetchedAtSeconds);
-  const complete = !best.hasHoles && best.h4.bars.at(-1).t >= expectedBucket;
-  if (complete) {
-    console.warn(
-      `  Dukascopy h1 failed for ${pair}: ${formatError(dukascopyError)}; built h1/h4 from ${best.h1.source}`,
-    );
-  } else {
-    console.warn(
-      `  ${best.h1.source} h4 for ${pair} lacks the latest closed bucket ${new Date(expectedBucket * 1000).toISOString()}`,
-    );
-  }
-  return { result: { h1: best.h1, h4: best.h4 }, complete, hasHoles: best.hasHoles };
-};
-
-const isNewerResult = (a, b) => {
-  const h4Diff = a.h4.bars.at(-1).t - b.h4.bars.at(-1).t;
-  return h4Diff !== 0 ? h4Diff > 0 : a.h1.bars.at(-1).t > b.h1.bars.at(-1).t;
-};
-
-// 現在時刻までに確定している最新の h4 バケット。市場時間が全く無い(週末)バケットは遡って飛ばす。
-const expectedLatestH4Bucket = (nowSeconds) => {
-  const h4Seconds = barSecondsByTimeframe.h4;
-  const hour = barSecondsByTimeframe.h1;
-  let bucket = Math.floor(nowSeconds / h4Seconds) * h4Seconds - h4Seconds;
-  while ([0, 1, 2, 3].every((i) => !isFxMarketHour(bucket + i * hour))) {
-    bucket -= h4Seconds;
-  }
-  return bucket;
+  return best && { h1: best.h1, h4: best.h4 };
 };
 
 export const aggregateH4 = (h1Bars, { dropIncompleteTail = false } = {}) => {

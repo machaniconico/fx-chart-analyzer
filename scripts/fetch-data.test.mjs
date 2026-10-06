@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME,
   aggregateDailyFromH1,
+  aggregateDominates,
   aggregateH1FromMinuteBars,
+  describeBaseline,
   aggregateH4,
   isFxMarketHour,
   buildSourceHealth,
@@ -570,12 +572,12 @@ describe('Yahoo h4 aggregation', () => {
   });
 });
 
-describe('h1 fallback from Dukascopy minute bars', () => {
+describe('h1 aggregation from Dukascopy minute bars', () => {
   const H = 3600;
-  const fnow = Date.UTC(2026, 9, 6, 12, 10) / 1000; // 12:10 UTC
-  const fnowMs = fnow * 1000;
+  const u = (...a) => Date.UTC(...a) / 1000;
+  const fnow = u(2026, 9, 6, 12, 10);
   const m30 = (t, o, h, l, c, v = 1) => ({ t, o, h, l, c, v });
-  const base = Date.UTC(2026, 9, 6, 8) / 1000;
+  const base = u(2026, 9, 6, 8);
 
   it('aggregates m30 into UTC hours (open first, high max, low min, close last, volume sum)', () => {
     const out = aggregateH1FromMinuteBars(
@@ -589,13 +591,10 @@ describe('h1 fallback from Dukascopy minute bars', () => {
 
   it('drops the unfinished last bar and an incomplete tail hour', () => {
     const bars = [m30(base, 1, 1, 1, 1), m30(base + 1800, 1, 1, 1, 1), m30(base + H, 1, 1, 1, 1)];
-    // tail hour has only the first half -> dropped
     expect(aggregateH1FromMinuteBars(bars, 'm30', { nowSeconds: fnow }).map((b) => b.t)).toEqual([base]);
-    // 12:40: the aligned 12:30 m30 is still forming -> excluded, so hour 12 is incomplete and dropped
-    const noon = Date.UTC(2026, 9, 6, 12) / 1000;
+    const noon = u(2026, 9, 6, 12);
     const at1240 = [m30(noon - H, 1, 1, 1, 1), m30(noon - H + 1800, 1, 1, 1, 1), m30(noon, 1, 1, 1, 1), m30(noon + 1800, 1, 1, 1, 1)];
     expect(aggregateH1FromMinuteBars(at1240, 'm30', { nowSeconds: noon + 2400 }).map((b) => b.t)).toEqual([noon - H]);
-    // exactly at 13:00 the 12:30 bar is closed -> hour 12 is complete and kept
     expect(aggregateH1FromMinuteBars(at1240, 'm30', { nowSeconds: noon + H }).map((b) => b.t)).toEqual([noon - H, noon]);
   });
 
@@ -607,78 +606,24 @@ describe('h1 fallback from Dukascopy minute bars', () => {
       m30(base + 2 * H, 3, 3, 3, 3),
       m30(base + 2 * H + 1800, 3, 3, 3, 3),
     ];
-    const out = aggregateH1FromMinuteBars(bars, 'm30', { nowSeconds: fnow });
-    expect(out.map((b) => b.t)).toEqual([base, base + H, base + 2 * H]);
+    expect(aggregateH1FromMinuteBars(bars, 'm30', { nowSeconds: fnow }).map((b) => b.t)).toEqual([base, base + H, base + 2 * H]);
   });
 
-  const existingH1 = () =>
-    makeBars({ count: 8000, endTime: Date.UTC(2026, 9, 3, 20) / 1000, stepSeconds: H });
-  const freshM30 = () =>
-    makeBars({ count: 4000, endTime: fnow - 1800 - 600, stepSeconds: 1800 }).map((bar, i) => ({
-      ...bar,
-      t: Math.floor((fnow - 1800 - 600) / 1800) * 1800 - (3999 - i) * 1800,
-    }));
-
-  it('uses Dukascopy m30 when h1 gets 429, before Yahoo', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const fetchYahoo = vi.fn();
-    const stored = { h1: existingH1(), h4: aggregateH4(existingH1(), { dropIncompleteTail: true }) };
-    const result = await fetchH1AndH4WithFallback('GBPJPY', {
-      fetchPrimary: async () => {
-        throw new Error('Request failed with status 429');
-      },
-      fetchYahoo,
-      readExisting: async (_pair, tf) => stored[tf],
-      nowMs: fnowMs,
-      lowerTimeframeBars: { m30: freshM30() },
-    });
-    expect(fetchYahoo).not.toHaveBeenCalled();
-    expect(result.h1.source).toBe('dukascopy-m30');
-    expect(result.h4.source).toBe('dukascopy-m30');
-    expect(result.h1.bars.at(-1).t).toBeGreaterThan(stored.h1.at(-1).t);
-    expect(result.h1.bars.at(-1).t % H).toBe(0);
-    expect(result.h1.bars.at(-1).t + H).toBeLessThanOrEqual(fnow);
+  it('excludes a first hour that starts mid-hour (m15 starting 09:45)', () => {
+    const t0 = u(2026, 9, 6, 9, 45);
+    const bars = Array.from({ length: 12 }, (_, i) => m30(t0 + i * 900, 1, 1, 1, 1));
+    expect(aggregateH1FromMinuteBars(bars, 'm15', { nowSeconds: fnow })[0].t).toBe(u(2026, 9, 6, 10));
   });
 
-  it('falls back to m15 when m30 is missing, and to Yahoo when neither exists', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const stored = { h1: existingH1(), h4: aggregateH4(existingH1(), { dropIncompleteTail: true }) };
-    const m15 = makeBars({ count: 4000, endTime: Math.floor((fnow - 900 - 600) / 900) * 900, stepSeconds: 900 });
-    const common = {
-      fetchPrimary: async () => {
-        throw new Error('429');
-      },
-      readExisting: async (_pair, tf) => stored[tf],
-      nowMs: fnowMs,
-    };
-    const viaM15 = await fetchH1AndH4WithFallback('GBPJPY', {
-      ...common,
-      fetchYahoo: vi.fn(),
-      lowerTimeframeBars: { m15 },
-    });
-    expect(viaM15.h1.source).toBe('dukascopy-m15');
-
-    const yahooH1 = makeBars({ count: 8000, endTime: fnow - H, stepSeconds: H, price: 200 });
-    const fetchYahoo = vi.fn(async () => yahooH1);
-    const viaYahoo = await fetchH1AndH4WithFallback('GBPJPY', { ...common, fetchYahoo, lowerTimeframeBars: {} });
-    expect(fetchYahoo).toHaveBeenCalledOnce();
-    expect(viaYahoo.h1.source).toBe('yahoo-fallback');
-  });
-
-  it('goes to Yahoo when there is no existing h1 to extend', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const yahooH1 = makeBars({ count: 8000, endTime: fnow - H, stepSeconds: H, price: 200 });
-    const fetchYahoo = vi.fn(async () => yahooH1);
-    const result = await fetchH1AndH4WithFallback('GBPJPY', {
-      fetchPrimary: async () => {
-        throw new Error('429');
-      },
-      fetchYahoo,
-      readExisting: async () => null,
-      nowMs: fnowMs,
-      lowerTimeframeBars: { m30: freshM30() },
-    });
-    expect(result.h1.source).toBe('yahoo-fallback');
+  it('classifies FX market hours by New York time across DST', () => {
+    expect(isFxMarketHour(u(2026, 6, 10, 20))).toBe(true);
+    expect(isFxMarketHour(u(2026, 6, 10, 21))).toBe(false);
+    expect(isFxMarketHour(u(2026, 6, 12, 20))).toBe(false);
+    expect(isFxMarketHour(u(2026, 6, 12, 21))).toBe(true);
+    expect(isFxMarketHour(u(2026, 0, 9, 21))).toBe(true);
+    expect(isFxMarketHour(u(2026, 0, 9, 22))).toBe(false);
+    expect(isFxMarketHour(u(2026, 0, 11, 21))).toBe(false);
+    expect(isFxMarketHour(u(2026, 0, 11, 22))).toBe(true);
   });
 
   it('records derived sources as primary success in health', () => {
@@ -688,336 +633,250 @@ describe('h1 fallback from Dukascopy minute bars', () => {
         { timeframe: 'h4', source: 'dukascopy-m30' },
       ],
       previousHealth: null,
-      nowMs: fnowMs,
+      nowMs: fnow * 1000,
     });
     expect(health.sources['dukascopy-m30']).toBe(2);
     expect(health.primaryOkThisRun).toBe(true);
     expect(health.lastPrimarySuccessByTimeframe.h1).toBe(health.updatedAt);
   });
 
-  describe('aggregate adoption rules', () => {
-    const E = Date.UTC(2026, 9, 6, 11) / 1000; // incoming tail hour for fnow=12:10
-    const run = async ({ existingEnd, drop = () => false, yahoo, olderYahoo = false }) => {
-      vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const h1 = makeBars({ count: 8000, endTime: existingEnd, stepSeconds: H });
-      const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
-      const minute = freshM30().filter((bar) => !drop(bar.t));
-      const fetchYahoo = vi.fn(async () => yahoo ?? makeBars({ count: 8000, endTime: fnow - (olderYahoo ? 48 : 1) * H, stepSeconds: H, price: 200 }));
-      const result = await fetchH1AndH4WithFallback('GBPJPY', {
-        fetchPrimary: async () => {
-          throw new Error('429');
-        },
-        fetchYahoo,
-        readExisting: async (_pair, tf) => stored[tf],
-        nowMs: fnowMs,
-        lowerTimeframeBars: { m30: minute },
-      });
-      return { result, fetchYahoo, existing: h1 };
-    };
+  describe('dominance rule', () => {
+    const bars = (...ts) => ({ bars: ts.map((t) => ({ t, o: 1, h: 1, l: 1, c: 1, v: 0 })) });
+    const baseline = { h1Tail: 10, h4Tail: 4, changedH1: [9, 10], changedH4: [4] };
+    const agg = (over = {}) => ({ h1: bars(8, 9, 10, 11), h4: bars(0, 4), partialH4: false, aggregatedH1Tail: 11, ...over });
 
-    it('adopts the aggregate when existing (Yahoo) is one hour ahead, replacing overlap and keeping newer bars', async () => {
-      const { result, fetchYahoo, existing } = await run({ existingEnd: E + H });
-      expect(fetchYahoo).not.toHaveBeenCalled();
-      expect(result.h1.source).toBe('dukascopy-m30');
-      expect(result.h1.bars.at(-1).t).toBe(E + H);
-      expect(result.h1.bars.at(-1)).toEqual(existing.at(-1));
-      const replaced = result.h1.bars.find((bar) => bar.t === E);
-      expect(replaced).not.toEqual(existing.find((bar) => bar.t === E));
-      expect(result.h1.shouldWrite).toBe(true);
+    it('dominates when tails are not older, all Yahoo-changed bars exist, and no partial h4', () => {
+      expect(aggregateDominates(agg(), baseline)).toBe(true);
     });
 
-    it('rejects an aggregate that lags existing h1 beyond the limit', async () => {
-      const { result, fetchYahoo } = await run({ existingEnd: E + 7 * H });
-      expect(fetchYahoo).toHaveBeenCalledOnce();
-      expect(result.h1.source).toBe('yahoo-fallback');
+    it.each([
+      ['older aggregated h1 tail', { aggregatedH1Tail: 9 }],
+      ['older h4 tail', { h4: bars(0) }],
+      ['missing a Yahoo-changed h1', { h1: bars(8, 10, 11) }],
+      ['missing a Yahoo-changed h4', { h4: bars(0, 5) }],
+      ['partial h4 bucket', { partialH4: true }],
+    ])('does not dominate with %s', (_name, over) => {
+      expect(aggregateDominates(agg(over), baseline)).toBe(false);
     });
 
-    it('rejects an aggregate missing a whole market day', async () => {
-      const dayStart = Date.UTC(2026, 9, 6) / 1000;
-      const { result, fetchYahoo } = await run({
-        existingEnd: Date.UTC(2026, 9, 5, 12) / 1000,
-        drop: (t) => t >= dayStart && t < dayStart + 9 * H,
-      });
-      expect(fetchYahoo).toHaveBeenCalledOnce();
-      expect(result.h1.source).toBe('yahoo-fallback');
-    });
-
-    it('accepts the weekend gap and a single missing hour', async () => {
-      const friClose = Date.UTC(2026, 9, 2, 22) / 1000;
-      const sunOpen = Date.UTC(2026, 9, 4, 21) / 1000;
-      const missingHour = Date.UTC(2026, 9, 6, 5) / 1000;
-      // holes remain (single missing hour) so Yahoo is consulted, but an older Yahoo loses to the aggregate
-      const { result } = await run({
-        olderYahoo: true,
-        existingEnd: Date.UTC(2026, 9, 2, 20) / 1000,
-        drop: (t) => (t >= friClose && t < sunOpen) || (t >= missingHour && t < missingHour + H),
-      });
-      expect(result.h1.source).toBe('dukascopy-m30');
+    it('describes the baseline from the Yahoo version, or from existing data when Yahoo failed', () => {
+      const existing = [{ t: 1, o: 1, h: 1, l: 1, c: 1, v: 0 }, { t: 2, o: 1, h: 1, l: 1, c: 1, v: 0 }];
+      const changedTail = { t: 2, o: 5, h: 5, l: 5, c: 5, v: 0 };
+      const yahoo = {
+        h1: { bars: [existing[0], changedTail, { t: 3, o: 1, h: 1, l: 1, c: 1, v: 0 }] },
+        h4: { bars: existing },
+      };
+      expect(describeBaseline(yahoo, existing, existing)).toEqual({ h1Tail: 3, h4Tail: 2, changedH1: [2, 3], changedH4: [] });
+      expect(describeBaseline(null, existing, existing)).toEqual({ h1Tail: 2, h4Tail: 2, changedH1: [], changedH4: [] });
     });
   });
 
-  it('excludes a first hour that starts mid-hour (m15 starting 09:45)', () => {
-    const t0 = Date.UTC(2026, 9, 6, 9, 45) / 1000;
-    const bars = Array.from({ length: 12 }, (_, i) => m30(t0 + i * 900, 1, 1, 1, 1));
-    const out = aggregateH1FromMinuteBars(bars, 'm15', { nowSeconds: fnow });
-    expect(out[0].t).toBe(Date.UTC(2026, 9, 6, 10) / 1000);
-  });
-
-  it('classifies FX market hours by New York time across DST', () => {
-    const u = (...a) => Date.UTC(...a) / 1000;
-    // summer (EDT): closed Fri 21:00 UTC - Sun 21:00 UTC
-    expect(isFxMarketHour(u(2026, 6, 10, 20))).toBe(true);
-    expect(isFxMarketHour(u(2026, 6, 10, 21))).toBe(false);
-    expect(isFxMarketHour(u(2026, 6, 12, 20))).toBe(false);
-    expect(isFxMarketHour(u(2026, 6, 12, 21))).toBe(true);
-    // winter (EST): closed Fri 22:00 UTC - Sun 22:00 UTC
-    expect(isFxMarketHour(u(2026, 0, 9, 21))).toBe(true);
-    expect(isFxMarketHour(u(2026, 0, 9, 22))).toBe(false);
-    expect(isFxMarketHour(u(2026, 0, 11, 21))).toBe(false);
-    expect(isFxMarketHour(u(2026, 0, 11, 22))).toBe(true);
-  });
-
-  describe('h4 replacement and DST gap rules', () => {
-    const u = (...a) => Date.UTC(...a) / 1000;
+  describe('integration: always runs the Yahoo path, adopts an aggregate only when it dominates', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     const failPrimary = async () => {
       throw new Error('429');
     };
-
-    it('keeps an existing complete h4 when its leading bucket lacks source h1 (Codex GBPJPY case)', async () => {
+    const series = (step, end, drop = () => false) =>
+      makeBars({ count: 8000, endTime: end, stepSeconds: step })
+        .map((bar, i) => ({ ...bar, t: end - (7999 - i) * step }))
+        .filter((bar) => !drop(bar.t));
+    // yahooEnd: last Yahoo h1 time, or null when Yahoo fails
+    const scenario = async ({ nowS = fnow, h1End = u(2026, 9, 6, 7), h1, h4, m30: m30Bars, m15, fetchedAtMs, yahooEnd }) => {
       vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const h1 = makeBars({ count: (u(2026, 9, 3, 20) - u(2026, 5, 10, 14)) / H + 1, endTime: u(2026, 9, 3, 20), stepSeconds: H });
-      const bucket = u(2026, 5, 10, 12);
-      const sentinel = { t: bucket, o: 999, h: 1000, l: 998, c: 999.5, v: 1 };
-      const older = makeBars({ count: 1000, endTime: bucket - 4 * H, stepSeconds: 4 * H });
-      const h4 = [...older, sentinel, ...aggregateH4(h1.filter((bar) => bar.t >= bucket + 4 * H))];
-      expect(h1[0].t).toBe(u(2026, 5, 10, 14));
-      const nowS = u(2026, 9, 6, 12, 10);
-      const start = u(2026, 5, 10, 14, 30);
-      const minute = Array.from({ length: Math.floor((nowS - start) / 1800) }, (_, i) => ({
-        t: start + i * 1800, o: 150, h: 151, l: 149, c: 150.5, v: 1,
-      }));
-      const result = await fetchH1AndH4WithFallback('GBPJPY', {
-        fetchPrimary: failPrimary,
-        fetchYahoo: vi.fn(),
-        readExisting: async (_p, tf) => (tf === 'h1' ? h1 : h4),
-        nowMs: nowS * 1000,
-        lowerTimeframeBars: { m30: minute },
+      const existingH1 = h1 ?? makeBars({ count: 8000, endTime: h1End, stepSeconds: H });
+      const stored = { h1: existingH1, h4: h4 ?? aggregateH4(existingH1, { dropIncompleteTail: true }) };
+      const fetchYahoo = vi.fn(async () => {
+        if (yahooEnd == null) throw new Error('yahoo down');
+        return makeBars({ count: 8000, endTime: yahooEnd, stepSeconds: H, price: 200 });
       });
-      expect(result.h4.source).toBe('dukascopy-m30');
-      // m30 starts 14:30 -> first aggregated h1 is 15:00, so bucket 12:00 has only h1 14 (existing) and 15
-      expect(result.h4.bars.find((bar) => bar.t === bucket)).toEqual(sentinel);
-    });
-
-    it('does not add a partial h4 bucket when no existing h4 covers it (Codex 10/6 08:00 case)', async () => {
-      vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 7), stepSeconds: H });
-      const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
-      const nowS = u(2026, 9, 6, 12, 10);
-      const gapFrom = u(2026, 9, 6, 8);
-      const lastClosed = u(2026, 9, 6, 11, 30);
-      const minute = makeBars({ count: 4000, endTime: lastClosed, stepSeconds: 1800 })
-        .map((bar, i) => ({ ...bar, t: lastClosed - (3999 - i) * 1800 }))
-        .filter((bar) => !(bar.t >= gapFrom && bar.t < gapFrom + 2 * H));
-      const result = await fetchH1AndH4WithFallback('GBPJPY', {
-        fetchPrimary: failPrimary,
-        fetchYahoo: vi.fn(),
-        readExisting: async (_p, tf) => stored[tf],
-        nowMs: nowS * 1000,
-        lowerTimeframeBars: { m30: minute },
-      });
-      expect(result.h1.source).toBe('dukascopy-m30');
-      expect(result.h1.bars.at(-1).t).toBe(u(2026, 9, 6, 11));
-      expect(result.h4.bars.some((bar) => bar.t === gapFrom)).toBe(false);
-      expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 4));
-    });
-
-    it('skips an m30 candidate missing the latest closed h4 bucket and uses complete m15 (Codex 12:10 case)', async () => {
-      vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 7), stepSeconds: H });
-      const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
-      const nowS = u(2026, 9, 6, 12, 10);
-      const gapFrom = u(2026, 9, 6, 9);
-      const m30 = makeBars({ count: 4000, endTime: u(2026, 9, 6, 11, 30), stepSeconds: 1800 })
-        .map((bar, i) => ({ ...bar, t: u(2026, 9, 6, 11, 30) - (3999 - i) * 1800 }))
-        .filter((bar) => !(bar.t >= gapFrom && bar.t < gapFrom + H));
-      const m15 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 11, 45), stepSeconds: 900 })
-        .map((bar, i) => ({ ...bar, t: u(2026, 9, 6, 11, 45) - (7999 - i) * 900 }));
-      const fetchYahoo = vi.fn();
-      const result = await fetchH1AndH4WithFallback('GBPJPY', {
-        fetchPrimary: failPrimary,
-        fetchYahoo,
-        readExisting: async (_p, tf) => stored[tf],
-        nowMs: nowS * 1000,
-        lowerTimeframeBars: { m30, m15 },
-      });
-      expect(fetchYahoo).not.toHaveBeenCalled();
-      expect(result.h1.source).toBe('dukascopy-m15');
-      expect(result.h4.source).toBe('dukascopy-m15');
-      expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 8));
-    });
-
-    it('uses the best incomplete candidate when m15 and Yahoo are unavailable', async () => {
-      vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 7), stepSeconds: H });
-      const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
-      const gapFrom = u(2026, 9, 6, 9);
-      const m30 = makeBars({ count: 4000, endTime: u(2026, 9, 6, 11, 30), stepSeconds: 1800 })
-        .map((bar, i) => ({ ...bar, t: u(2026, 9, 6, 11, 30) - (3999 - i) * 1800 }))
-        .filter((bar) => !(bar.t >= gapFrom && bar.t < gapFrom + H));
-      const result = await fetchH1AndH4WithFallback('GBPJPY', {
-        fetchPrimary: failPrimary,
-        fetchYahoo: async () => {
-          throw new Error('yahoo down');
-        },
-        readExisting: async (_p, tf) => stored[tf],
-        nowMs: u(2026, 9, 6, 12, 10) * 1000,
-        lowerTimeframeBars: { m30 },
-      });
-      expect(result.h1.source).toBe('dukascopy-m30');
-      expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 4));
-    });
-
-    describe('candidate selection', () => {
-      const series = (step, end, drop = () => false) =>
-        makeBars({ count: 8000, endTime: end, stepSeconds: step })
-          .map((bar, i) => ({ ...bar, t: end - (7999 - i) * step }))
-          .filter((bar) => !drop(bar.t));
-      const select = async ({ nowS, m30, m15, yahooEnd }) => {
-        vi.spyOn(console, 'warn').mockImplementation(() => {});
-        const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 7), stepSeconds: H });
-        const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
-        const fetchYahoo = vi.fn(async () => {
-          if (yahooEnd === undefined) throw new Error('yahoo down');
-          return makeBars({ count: 8000, endTime: yahooEnd, stepSeconds: H, price: 200 });
-        });
-        const result = await fetchH1AndH4WithFallback('GBPJPY', {
+      const wrap = (bars) => (bars && fetchedAtMs ? { bars, fetchedAtMs } : bars);
+      const run = () =>
+        fetchH1AndH4WithFallback('GBPJPY', {
           fetchPrimary: failPrimary,
           fetchYahoo,
           readExisting: async (_p, tf) => stored[tf],
           nowMs: nowS * 1000,
-          lowerTimeframeBars: { m30, m15 },
+          lowerTimeframeBars: { m30: wrap(m30Bars), m15: wrap(m15) },
         });
-        return { result, fetchYahoo };
-      };
-      const now16 = u(2026, 9, 6, 16, 10);
-      const hole13 = (t) => t >= u(2026, 9, 6, 13) && t < u(2026, 9, 6, 14);
-      const lagging = () => ({
-        m30: series(1800, u(2026, 9, 6, 15, 30), hole13),
-        m15: series(900, u(2026, 9, 6, 7, 45)),
-      });
+      return { fetchYahoo, stored, run };
+    };
 
-      it('prefers the newer m30 over a stale m15 (Codex 16:10 case); neither reaches 12:00 -> Yahoo older -> m30', async () => {
-        const { result, fetchYahoo } = await select({ nowS: now16, ...lagging(), yahooEnd: u(2026, 9, 6, 10) });
-        expect(fetchYahoo).toHaveBeenCalledOnce();
-        expect(result.h1.source).toBe('dukascopy-m30');
-        expect(result.h1.bars.at(-1).t).toBe(u(2026, 9, 6, 15));
-        expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 8));
-      });
-
-      it('uses Yahoo when neither candidate reaches the expected bucket and Yahoo is newer', async () => {
-        const { result } = await select({ nowS: now16, ...lagging(), yahooEnd: u(2026, 9, 6, 15) });
-        expect(result.h1.source).toBe('yahoo-fallback');
-        expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 12));
-      });
-
-      it('prefers the newer m15 over a stale m30 and does not call Yahoo when expectation is met', async () => {
-        const { result, fetchYahoo } = await select({
-          nowS: u(2026, 9, 6, 12, 10),
-          m30: series(1800, u(2026, 9, 6, 7, 30)),
-          m15: series(900, u(2026, 9, 6, 11, 45)),
-        });
-        expect(fetchYahoo).not.toHaveBeenCalled();
-        expect(result.h1.source).toBe('dukascopy-m15');
-        expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 8));
-      });
-
-      it('breaks ties in favour of m30 and skips Yahoo when the expected bucket is reached', async () => {
-        const { result, fetchYahoo } = await select({
-          nowS: u(2026, 9, 6, 12, 10),
-          m30: series(1800, u(2026, 9, 6, 11, 30)),
-          m15: series(900, u(2026, 9, 6, 11, 45)),
-        });
-        expect(fetchYahoo).not.toHaveBeenCalled();
-        expect(result.h1.source).toBe('dukascopy-m30');
-      });
+    it('adopts m30 when it is newer than Yahoo; Yahoo is still called once', async () => {
+      const sc = await scenario({ m30: series(1800, u(2026, 9, 6, 11, 30)), yahooEnd: u(2026, 9, 6, 10) });
+      const result = await sc.run();
+      expect(sc.fetchYahoo).toHaveBeenCalledOnce();
+      expect(result.h1.source).toBe('dukascopy-m30');
+      expect(result.h1.bars.at(-1).t).toBe(u(2026, 9, 6, 11));
+      expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 8));
     });
 
-    it('uses the fetch time, not processing time, to decide which minute bars are closed (Codex 11:59 m15 case)', async () => {
-      vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 7), stepSeconds: H });
-      const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
-      const end = u(2026, 9, 6, 11, 45);
-      const m15 = makeBars({ count: 8000, endTime: end, stepSeconds: 900 }).map((bar, i) => ({ ...bar, t: end - (7999 - i) * 900 }));
-      const fetchYahoo = vi.fn();
-      const result = await fetchH1AndH4WithFallback('GBPJPY', {
-        fetchPrimary: failPrimary,
-        fetchYahoo,
-        readExisting: async (_p, tf) => stored[tf],
-        nowMs: u(2026, 9, 6, 12, 1) * 1000,
-        lowerTimeframeBars: { m15: { bars: m15, fetchedAtMs: u(2026, 9, 6, 11, 59) * 1000 } },
+    it('keeps the Yahoo version when Yahoo is one hour ahead of the aggregate', async () => {
+      const sc = await scenario({ m30: series(1800, u(2026, 9, 6, 11, 30)), yahooEnd: u(2026, 9, 6, 12) });
+      const result = await sc.run();
+      expect(result.h1.source).toBe('yahoo-fallback');
+      expect(result.h1.bars.at(-1).t).toBe(u(2026, 9, 6, 12));
+    });
+
+    it('with Yahoo down, adopts an aggregate that is newer than existing and otherwise fails like before', async () => {
+      const fresh = await scenario({ m30: series(1800, u(2026, 9, 6, 11, 30)), yahooEnd: null });
+      expect((await fresh.run()).h1.source).toBe('dukascopy-m30');
+      const stale = await scenario({ m30: series(1800, u(2026, 9, 6, 5, 30)), yahooEnd: null });
+      await expect(stale.run()).rejects.toThrow(/Yahoo fallback failed/);
+      const none = await scenario({ yahooEnd: null });
+      await expect(none.run()).rejects.toThrow(/Yahoo fallback failed/);
+    });
+
+    it('falls to the Yahoo version when m30 and m15 are both absent', async () => {
+      const sc = await scenario({ yahooEnd: u(2026, 9, 6, 11) });
+      expect((await sc.run()).h1.source).toBe('yahoo-fallback');
+    });
+
+    it('prefers newer m30 over stale m15 (Codex 16:10); Yahoo newer than both wins', async () => {
+      const hole13 = (t) => t >= u(2026, 9, 6, 13) && t < u(2026, 9, 6, 14);
+      const m30Bars = series(1800, u(2026, 9, 6, 15, 30), hole13);
+      const m15 = series(900, u(2026, 9, 6, 7, 45));
+      const nowS = u(2026, 9, 6, 16, 10);
+      const older = await (await scenario({ nowS, m30: m30Bars, m15, yahooEnd: u(2026, 9, 6, 10) })).run();
+      expect(older.h1.source).toBe('dukascopy-m30');
+      expect(older.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 8));
+      const newer = await (await scenario({ nowS, m30: m30Bars, m15, yahooEnd: u(2026, 9, 6, 15) })).run();
+      expect(newer.h1.source).toBe('yahoo-fallback');
+    });
+
+    it('prefers a newer m15 over a stale m30, and ties go to m30', async () => {
+      const m15 = series(900, u(2026, 9, 6, 11, 45));
+      const stale = await (await scenario({ m30: series(1800, u(2026, 9, 6, 7, 30)), m15, yahooEnd: u(2026, 9, 6, 6) })).run();
+      expect(stale.h1.source).toBe('dukascopy-m15');
+      const tie = await (await scenario({ m30: series(1800, u(2026, 9, 6, 11, 30)), m15, yahooEnd: u(2026, 9, 6, 6) })).run();
+      expect(tie.h1.source).toBe('dukascopy-m30');
+    });
+
+    it('judges closure at fetch time (Codex 11:59 m15 snapshot processed at 12:01)', async () => {
+      const sc = await scenario({
+        nowS: u(2026, 9, 6, 12, 1),
+        m15: series(900, u(2026, 9, 6, 11, 45)),
+        fetchedAtMs: u(2026, 9, 6, 11, 59) * 1000,
+        yahooEnd: u(2026, 9, 6, 6),
       });
-      expect(fetchYahoo).not.toHaveBeenCalled();
+      const result = await sc.run();
       expect(result.h1.source).toBe('dukascopy-m15');
       expect(result.h1.bars.at(-1).t).toBe(u(2026, 9, 6, 10));
       expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 4));
     });
 
-    it('does not freeze a partial existing h4 / missing h1: Yahoo fills it (Codex 20:00 bucket case)', async () => {
-      vi.spyOn(console, 'warn').mockImplementation(() => {});
+    it('never freezes a partial existing h4: with a hole the Yahoo version repairs it (Codex 20:00 bucket)', async () => {
       const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 21), stepSeconds: H });
-      const h4 = aggregateH4(h1); // keeps the partial 20:00 bucket saved by the 21:00 run
-      expect(h4.at(-1).t).toBe(u(2026, 9, 6, 20));
-      const stored = { h1, h4 };
       const lastClosed = u(2026, 9, 7, 0, 30);
-      const m30 = makeBars({ count: 4000, endTime: lastClosed, stepSeconds: 1800 })
-        .map((bar, i) => ({ ...bar, t: lastClosed - (3999 - i) * 1800 }))
-        .filter((bar) => bar.t < u(2026, 9, 6, 22) || bar.t >= u(2026, 9, 6, 23));
-      const yahooH1 = makeBars({ count: 8000, endTime: u(2026, 9, 7, 0), stepSeconds: H, price: 200 });
-      const fetchYahoo = vi.fn(async () => yahooH1);
-      const result = await fetchH1AndH4WithFallback('GBPJPY', {
-        fetchPrimary: failPrimary,
-        fetchYahoo,
-        readExisting: async (_p, tf) => stored[tf],
-        nowMs: u(2026, 9, 7, 1, 10) * 1000,
-        lowerTimeframeBars: { m30 },
+      const holey = series(1800, lastClosed, (t) => t >= u(2026, 9, 6, 22) && t < u(2026, 9, 6, 23));
+      const sc = await scenario({
+        nowS: u(2026, 9, 7, 1, 10),
+        h1,
+        h4: aggregateH4(h1), // keeps the partial 20:00 bucket
+        m30: holey,
+        yahooEnd: u(2026, 9, 7, 0),
       });
-      expect(fetchYahoo).toHaveBeenCalledOnce();
+      const result = await sc.run();
       expect(result.h1.source).toBe('yahoo-fallback');
       expect(result.h1.bars.find((bar) => bar.t === u(2026, 9, 6, 22))).toBeDefined();
     });
 
-    const dstRun = async ({ now, existingEnd, dropFrom, dropTo, yahooAgeHours = 1 }) => {
-      vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const nowS = Math.floor(now / 1800) * 1800 + 600;
-      const h1 = makeBars({ count: 8000, endTime: existingEnd, stepSeconds: H });
-      const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
-      const lastClosed = Math.floor((nowS - 1800) / 1800) * 1800;
-      const minute = makeBars({ count: 4000, endTime: lastClosed, stepSeconds: 1800 })
-        .map((bar, i) => ({ ...bar, t: lastClosed - (3999 - i) * 1800 }))
-        .filter((bar) => !(bar.t >= dropFrom && bar.t < dropTo));
-      const fetchYahoo = vi.fn(async () => makeBars({ count: 8000, endTime: nowS - yahooAgeHours * H, stepSeconds: H, price: 200 }));
-      const result = await fetchH1AndH4WithFallback('GBPJPY', {
-        fetchPrimary: failPrimary,
-        fetchYahoo,
-        readExisting: async (_p, tf) => stored[tf],
-        nowMs: nowS * 1000,
-        lowerTimeframeBars: { m30: minute },
+    it('repairs a partial existing h4 itself when the aggregate is complete and dominates', async () => {
+      const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 21), stepSeconds: H });
+      const sc = await scenario({
+        nowS: u(2026, 9, 7, 1, 10),
+        h1,
+        h4: aggregateH4(h1),
+        m30: series(1800, u(2026, 9, 7, 0, 30)),
+        yahooEnd: u(2026, 9, 6, 22),
       });
-      return result.h1.source;
-    };
+      const result = await sc.run();
+      expect(result.h1.source).toBe('dukascopy-m30');
+      const repaired = result.h4.bars.find((bar) => bar.t === u(2026, 9, 6, 20));
+      expect(repaired).not.toEqual(sc.stored.h4.at(-1));
+      expect(result.h4.bars.at(-1).t).toBeGreaterThanOrEqual(u(2026, 9, 6, 20));
+    });
+
+    it('keeps an existing complete h4 when its leading bucket lacks source h1 (Codex GBPJPY case)', async () => {
+      const h1 = makeBars({ count: (u(2026, 9, 3, 20) - u(2026, 5, 10, 14)) / H + 1, endTime: u(2026, 9, 3, 20), stepSeconds: H });
+      const bucket = u(2026, 5, 10, 12);
+      const sentinel = { t: bucket, o: 999, h: 1000, l: 998, c: 999.5, v: 1 };
+      const older = makeBars({ count: 1000, endTime: bucket - 4 * H, stepSeconds: 4 * H });
+      const h4 = [...older, sentinel, ...aggregateH4(h1.filter((bar) => bar.t >= bucket + 4 * H))];
+      const start = u(2026, 5, 10, 14, 30);
+      const minute = Array.from({ length: Math.floor((fnow - start) / 1800) }, (_, i) => ({
+        t: start + i * 1800, o: 150, h: 151, l: 149, c: 150.5, v: 1,
+      }));
+      const sc = await scenario({ h1, h4, m30: minute, yahooEnd: null });
+      const result = await sc.run();
+      expect(result.h4.source).toBe('dukascopy-m30');
+      expect(result.h4.bars.find((bar) => bar.t === bucket)).toEqual(sentinel);
+    });
+
+    it('does not add a partial h4 bucket (08:00 with hours 08 and 09 missing)', async () => {
+      const gapFrom = u(2026, 9, 6, 8);
+      const sc = await scenario({
+        m30: series(1800, u(2026, 9, 6, 11, 30), (t) => t >= gapFrom && t < gapFrom + 2 * H),
+        yahooEnd: null,
+      });
+      const result = await sc.run();
+      expect(result.h1.source).toBe('dukascopy-m30');
+      expect(result.h4.bars.some((bar) => bar.t === gapFrom)).toBe(false);
+    });
+
+    it('rejects an aggregate missing a whole market day; the Yahoo version is used', async () => {
+      const dayStart = u(2026, 9, 6);
+      const sc = await scenario({
+        h1End: u(2026, 9, 5, 12),
+        m30: series(1800, u(2026, 9, 6, 11, 30), (t) => t >= dayStart && t < dayStart + 9 * H),
+        yahooEnd: u(2026, 9, 6, 11),
+      });
+      expect((await sc.run()).h1.source).toBe('yahoo-fallback');
+    });
+
+    it('accepts a weekend gap', async () => {
+      const friClose = u(2026, 9, 2, 22);
+      const sunOpen = u(2026, 9, 4, 21);
+      const sc = await scenario({
+        h1End: u(2026, 9, 2, 20),
+        m30: series(1800, u(2026, 9, 6, 11, 30), (t) => t >= friClose && t < sunOpen),
+        yahooEnd: null,
+      });
+      expect((await sc.run()).h1.source).toBe('dukascopy-m30');
+    });
 
     it('summer: 3 missing market hours before the Friday 17:00 NY close are tolerated, 4 are rejected', async () => {
       const now = u(2026, 6, 14, 12);
       const sunOpen = u(2026, 6, 12, 21);
-      expect(await dstRun({ now, existingEnd: u(2026, 6, 10, 17), dropFrom: u(2026, 6, 10, 18), dropTo: sunOpen, yahooAgeHours: 60 })).toBe('dukascopy-m30');
-      expect(await dstRun({ now, existingEnd: u(2026, 6, 10, 16), dropFrom: u(2026, 6, 10, 17), dropTo: sunOpen })).toBe('yahoo-fallback');
+      const mk = async (existingEnd, dropFrom) => {
+        const nowS = Math.floor(now / 1800) * 1800 + 600;
+        const lastClosed = Math.floor((nowS - 1800) / 1800) * 1800;
+        const sc = await scenario({
+          nowS,
+          h1End: existingEnd,
+          m30: series(1800, lastClosed, (t) => t >= dropFrom && t < sunOpen),
+          yahooEnd: null,
+        });
+        return sc.run();
+      };
+      expect((await mk(u(2026, 6, 10, 17), u(2026, 6, 10, 18))).h1.source).toBe('dukascopy-m30');
+      await expect(mk(u(2026, 6, 10, 16), u(2026, 6, 10, 17))).rejects.toThrow(/Yahoo fallback failed/);
     });
 
     it('winter: 3 missing market hours after the Sunday 17:00 NY reopen are tolerated, 4 are rejected', async () => {
       const now = u(2026, 0, 13, 12);
-      const dropFrom = u(2026, 0, 9, 22);
-      expect(await dstRun({ now, existingEnd: u(2026, 0, 9, 21), dropFrom, dropTo: u(2026, 0, 12, 1), yahooAgeHours: 60 })).toBe('dukascopy-m30');
-      expect(await dstRun({ now, existingEnd: u(2026, 0, 9, 21), dropFrom, dropTo: u(2026, 0, 12, 2) })).toBe('yahoo-fallback');
+      const nowS = Math.floor(now / 1800) * 1800 + 600;
+      const lastClosed = Math.floor((nowS - 1800) / 1800) * 1800;
+      const mk = async (dropTo) => {
+        const sc = await scenario({
+          nowS,
+          h1End: u(2026, 0, 9, 21),
+          m30: series(1800, lastClosed, (t) => t >= u(2026, 0, 9, 22) && t < dropTo),
+          yahooEnd: null,
+        });
+        return sc.run();
+      };
+      expect((await mk(u(2026, 0, 12, 1))).h1.source).toBe('dukascopy-m30');
+      await expect(mk(u(2026, 0, 12, 2))).rejects.toThrow(/Yahoo fallback failed/);
     });
   });
 });
