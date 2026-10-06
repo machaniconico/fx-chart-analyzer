@@ -1149,7 +1149,7 @@ describe('state entries and reentry cooldown', () => {
       for (const [extension, generate] of [['mq4', generateMql4], ['mq5', generateMql5]] as const) {
         const source = generate(strategy);
         expectBalanced(source);
-        expect(source).toContain('elapsedBars - 1 >= 0');
+        expect(source).toContain('iTime(_Symbol, _Period, 0)');
         if (condition.type === 'parabolicSarState') {
           const signalEnd = [source.indexOf('bool CooldownPositionKnown('), source.indexOf('bool ReentryCooldownAllows(')]
             .filter((position) => position >= 0)
@@ -1180,13 +1180,17 @@ describe('state entries and reentry cooldown', () => {
       expectBalanced(source);
       expect(source).toContain('if(!(ReentryCooldownAllows() && EntryFiltersAllow()))');
       expect(source).toContain('if(InpCloseOnOppositeSignal && ');
-      expect(source).toContain('elapsedBars - 1 >= 3');
+      expect(source).toContain('iTime(_Symbol, _Period, 3)');
+      expect(source).toContain('return lastClose < boundary;');
+      const cooldownBody = source.slice(source.indexOf('bool ReentryCooldownAllows('));
+      expect(cooldownBody.slice(0, cooldownBody.indexOf('\n}\n'))).not.toContain('iBarShift(_Symbol');
       expect(source).toContain(extension === 'mq4' ? 'OrdersHistoryTotal()' : 'HistorySelect(0, TimeCurrent())');
       expect(source).toContain(extension === 'mq4' ? 'OrderMagicNumber() == InpMagicNumber && OrderSymbol() == Symbol()' : 'HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagicNumber');
       if (extension === 'mq5') {
         expect(source).toContain('for(int i = 0; i < dealCount; i++)');
+        expect(source).toContain('(entry == DEAL_ENTRY_IN || entry == DEAL_ENTRY_INOUT) && magicMatches');
+        expect(source).toContain('entry == DEAL_ENTRY_OUT_BY || entry == DEAL_ENTRY_INOUT');
         expect(source).toContain('DEAL_POSITION_ID');
-        expect(source).toContain('entry == DEAL_ENTRY_IN && magicMatches &&');
         expect(source).toContain('!CooldownPositionKnown(positionIds, positionCount, positionId, true)) return false;');
         expect(source).toContain('(magicMatches || CooldownPositionKnown(positionIds, positionCount, positionId, false))');
         expect(source).toContain('entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY');
@@ -1282,7 +1286,7 @@ describe('entry directions parity with runBacktest', () => {
     for (const [extension, generate] of generators) {
       const source = generate(withDirections('long', ['long', 'short']));
       expect(source).toContain('bool ReentryCooldownAllows()');
-      expect(source).toContain('elapsedBars - 1 >= 0');
+      expect(source).toContain('iTime(_Symbol, _Period, 0)');
       expect(source).toContain('if(!(ReentryCooldownAllows() && EntryFiltersAllow()))');
       expect(source).toContain(extension === 'mq4' ? 'OrderCloseTime()' : 'DEAL_ENTRY_OUT');
     }

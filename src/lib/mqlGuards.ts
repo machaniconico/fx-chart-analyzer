@@ -33,3 +33,23 @@ export const fillingChoice = (fillingModeFlags: number, marketExecution: boolean
   if ((fillingModeFlags & SYMBOL_FILLING_IOC) !== 0) return 'IOC';
   return marketExecution ? 'DEFAULT' : 'RETURN';
 };
+
+/**
+ * Mirror of the tail of ReentryCooldownAllows: a close within the last `cooldownBars + 1` bars
+ * (current bar = shift 0) blocks entry. `barTime(shift)` returns 0 when unavailable.
+ */
+export const reentryAllowed = (
+  lastClose: number,
+  cooldownBars: number,
+  barTime: (shift: number) => number,
+  barsAvailable: number,
+): boolean => {
+  if (lastClose === 0) return true;
+  let boundary = barTime(cooldownBars);
+  if (boundary === 0) {
+    if (barsAvailable <= 0) return false;
+    boundary = barTime(barsAvailable - 1);
+    if (boundary === 0) return false;
+  }
+  return lastClose < boundary;
+};

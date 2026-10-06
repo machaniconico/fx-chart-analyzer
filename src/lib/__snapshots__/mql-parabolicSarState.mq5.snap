@@ -477,10 +477,10 @@ bool ReentryCooldownAllows()
     long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
     bool magicMatches = HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagicNumber;
     ulong positionId = (ulong)HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
-    if(entry == DEAL_ENTRY_IN && magicMatches &&
+    if((entry == DEAL_ENTRY_IN || entry == DEAL_ENTRY_INOUT) && magicMatches &&
       !CooldownPositionKnown(positionIds, positionCount, positionId, true)) return false;
     // Server SL/TP deals may omit Magic; match either Magic or a latched entry position ID.
-    if((entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY) &&
+    if((entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY || entry == DEAL_ENTRY_INOUT) &&
       (magicMatches || CooldownPositionKnown(positionIds, positionCount, positionId, false)))
     {
       datetime closeTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
@@ -488,10 +488,19 @@ bool ReentryCooldownAllows()
     }
   }
   if(lastClose == 0) return true;
-  int elapsedBars = iBarShift(_Symbol, _Period, lastClose);
-  // TS blocks entry search while index < closeIndex + N. MQL evaluates shift 1,
-  // so index - closeIndex == elapsedBars - 1; allow entry when elapsedBars - 1 >= N.
-  return elapsedBars >= 0 && elapsedBars - 1 >= 0;
+  // TS blocks entry search while index < closeIndex + N, i.e. a close within the last N+1 bars
+  // (current bar = shift 0) blocks. Compare the close time with the start of the bar N back
+  // directly: iBarShift() returns -1 for closes older than the available history.
+  datetime boundary = iTime(_Symbol, _Period, 0);
+  if(boundary == 0)
+  {
+    // History is shorter than the cooldown: only closes older than all available bars are clear.
+    int available = iBars(_Symbol, _Period);
+    if(available <= 0) return false;
+    boundary = iTime(_Symbol, _Period, available - 1);
+    if(boundary == 0) return false;
+  }
+  return lastClose < boundary;
 }
 
 bool EntrySignal(bool longSide)
