@@ -830,6 +830,52 @@ describe('h1 fallback from Dukascopy minute bars', () => {
       expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 4));
     });
 
+    it('skips an m30 candidate missing the latest closed h4 bucket and uses complete m15 (Codex 12:10 case)', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 7), stepSeconds: H });
+      const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
+      const nowS = u(2026, 9, 6, 12, 10);
+      const gapFrom = u(2026, 9, 6, 9);
+      const m30 = makeBars({ count: 4000, endTime: u(2026, 9, 6, 11, 30), stepSeconds: 1800 })
+        .map((bar, i) => ({ ...bar, t: u(2026, 9, 6, 11, 30) - (3999 - i) * 1800 }))
+        .filter((bar) => !(bar.t >= gapFrom && bar.t < gapFrom + H));
+      const m15 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 11, 45), stepSeconds: 900 })
+        .map((bar, i) => ({ ...bar, t: u(2026, 9, 6, 11, 45) - (7999 - i) * 900 }));
+      const fetchYahoo = vi.fn();
+      const result = await fetchH1AndH4WithFallback('GBPJPY', {
+        fetchPrimary: failPrimary,
+        fetchYahoo,
+        readExisting: async (_p, tf) => stored[tf],
+        nowMs: nowS * 1000,
+        lowerTimeframeBars: { m30, m15 },
+      });
+      expect(fetchYahoo).not.toHaveBeenCalled();
+      expect(result.h1.source).toBe('dukascopy-m15');
+      expect(result.h4.source).toBe('dukascopy-m15');
+      expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 8));
+    });
+
+    it('uses the best incomplete candidate when m15 and Yahoo are unavailable', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 7), stepSeconds: H });
+      const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
+      const gapFrom = u(2026, 9, 6, 9);
+      const m30 = makeBars({ count: 4000, endTime: u(2026, 9, 6, 11, 30), stepSeconds: 1800 })
+        .map((bar, i) => ({ ...bar, t: u(2026, 9, 6, 11, 30) - (3999 - i) * 1800 }))
+        .filter((bar) => !(bar.t >= gapFrom && bar.t < gapFrom + H));
+      const result = await fetchH1AndH4WithFallback('GBPJPY', {
+        fetchPrimary: failPrimary,
+        fetchYahoo: async () => {
+          throw new Error('yahoo down');
+        },
+        readExisting: async (_p, tf) => stored[tf],
+        nowMs: u(2026, 9, 6, 12, 10) * 1000,
+        lowerTimeframeBars: { m30 },
+      });
+      expect(result.h1.source).toBe('dukascopy-m30');
+      expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 4));
+    });
+
     const dstRun = async ({ now, existingEnd, dropFrom, dropTo }) => {
       vi.spyOn(console, 'warn').mockImplementation(() => {});
       const nowS = Math.floor(now / 1800) * 1800 + 600;

@@ -622,8 +622,8 @@ export const fetchH1AndH4WithFallback = async (
       lowerTimeframeBars,
       nowMs,
     });
-    if (derived) {
-      return derived;
+    if (derived?.complete) {
+      return derived.result;
     }
     console.warn(`  Dukascopy failed for ${pair} h1/h4: ${formatError(dukascopyError)}; trying Yahoo fallback`);
     try {
@@ -635,8 +635,15 @@ export const fetchH1AndH4WithFallback = async (
         aggregateH4(yahooH1, { dropIncompleteTail: true }),
         { readExisting },
       );
+      // 集約候補が最新 h4 を作れなかった場合は、h4 がより新しい方(同点は Dukascopy 側)を使う。
+      if (derived && derived.result.h4.bars.at(-1).t >= h4.bars.at(-1).t) {
+        return derived.result;
+      }
       return { h1, h4 };
     } catch (yahooError) {
+      if (derived) {
+        return derived.result;
+      }
       throw new Error(
         `Dukascopy failed: ${formatError(dukascopyError)}; Yahoo fallback failed: ${formatError(yahooError)}`,
       );
@@ -763,6 +770,7 @@ const buildH1H4FromLowerTimeframes = async (
   dukascopyError,
   { readExisting, lowerTimeframeBars, nowMs },
 ) => {
+  let best = null;
   for (const tf of ['m30', 'm15']) {
     const minuteBars = lowerTimeframeBars[tf];
     if (!Array.isArray(minuteBars) || minuteBars.length === 0) {
@@ -796,15 +804,31 @@ const buildH1H4FromLowerTimeframes = async (
       );
       const mergedH4 = overlayBars(existingH4 ?? [], incomingH4);
       const h4 = await buildOverlayResult(pair, 'h4', mergedH4, existingH4 ?? [], incomingH4, source);
+      // 確定しているはずの最新 h4 バケット(最後の確定 h1 の終端までで閉じる最後のバケット)を
+      // 作れない候補は不採用にして次の候補へ。全滅時は h4 が最も新しい候補を返す。
+      const incomingTail = incomingH1[incomingH1.length - 1].t;
+      const h4Seconds = barSecondsByTimeframe.h4;
+      const expectedBucket =
+        Math.floor((incomingTail + barSecondsByTimeframe.h1) / h4Seconds) * h4Seconds - h4Seconds;
+      const hasLatestH4 = [...incomingH4, ...(existingH4 ?? [])].some((bar) => bar.t === expectedBucket);
+      const candidate = { h1, h4 };
+      if (hasLatestH4) {
+        console.warn(
+          `  Dukascopy h1 failed for ${pair}: ${formatError(dukascopyError)}; built h1/h4 from Dukascopy ${tf}`,
+        );
+        return { result: candidate, complete: true };
+      }
       console.warn(
-        `  Dukascopy h1 failed for ${pair}: ${formatError(dukascopyError)}; built h1/h4 from Dukascopy ${tf}`,
+        `  Dukascopy ${tf} -> h4 for ${pair} lacks the latest closed bucket ${new Date(expectedBucket * 1000).toISOString()}`,
       );
-      return { h1, h4 };
+      if (!best || candidate.h4.bars.at(-1).t > best.h4.bars.at(-1).t) {
+        best = candidate;
+      }
     } catch (error) {
       console.warn(`  Dukascopy ${tf} -> h1 aggregation unusable for ${pair}: ${formatError(error)}`);
     }
   }
-  return null;
+  return best ? { result: best, complete: false } : null;
 };
 
 export const aggregateH4 = (h1Bars, { dropIncompleteTail = false } = {}) => {
