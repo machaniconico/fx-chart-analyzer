@@ -29,7 +29,7 @@ import type {
   StochasticCondition,
   StrategyDefinition,
 } from './strategy';
-import { defaultMoneyManagement, reentryCooldownBarsForStrategy } from './strategy';
+import { defaultMoneyManagement, entryDirectionsForStrategy, reentryCooldownBarsForStrategy } from './strategy';
 
 const boolLiteral = (value: boolean): string => (value ? 'true' : 'false');
 
@@ -2334,10 +2334,9 @@ ${ichimokuParityComment}${ichimokuDisplacementWarning(condition)}bool Condition$
 `;
 
 const reentryCooldownFunction = (strategy: StrategyDefinition, mql5: boolean): string => {
+  // Always emitted: with bars = 0 it still blocks entries on the bar a position was closed
+  // (e.g. server-side SL/TP hit on the first tick), like runBacktest's closeIndex rule.
   const bars = reentryCooldownBarsForStrategy(strategy);
-  if (bars === 0) {
-    return '';
-  }
   return `${mql5 ? `
 // A small growing hash set keeps the history scan amortized O(n).
 bool CooldownPositionKnown(ulong &ids[], int &count, ulong id, bool latch)
@@ -2388,10 +2387,10 @@ ${mql5 ? `  if(!HistorySelect(0, TimeCurrent()))
     long entry = HistoryDealGetInteger(ticket, DEAL_ENTRY);
     bool magicMatches = HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagicNumber;
     ulong positionId = (ulong)HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
-    if(entry == DEAL_ENTRY_IN && magicMatches &&
+    if((entry == DEAL_ENTRY_IN || entry == DEAL_ENTRY_INOUT) && magicMatches &&
       !CooldownPositionKnown(positionIds, positionCount, positionId, true)) return false;
     // Server SL/TP deals may omit Magic; match either Magic or a latched entry position ID.
-    if((entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY) &&
+    if((entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY || entry == DEAL_ENTRY_INOUT) &&
       (magicMatches || CooldownPositionKnown(positionIds, positionCount, positionId, false)))
     {
       datetime closeTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
@@ -2409,10 +2408,22 @@ ${mql5 ? `  if(!HistorySelect(0, TimeCurrent()))
     }
   }`}
   if(lastClose == 0) return true;
-  int elapsedBars = iBarShift(_Symbol, _Period, lastClose);
-  // TS blocks entry search while index < closeIndex + N. MQL evaluates shift 1,
-  // so index - closeIndex == elapsedBars - 1; allow entry when elapsedBars - 1 >= N.
-  return elapsedBars >= 0 && elapsedBars - 1 >= ${bars};
+  // TS blocks entry search while index < closeIndex + N, i.e. a close within the last N+1 bars
+  // (current bar = shift 0) blocks. Compare the close time with the start of the bar N back
+  // directly: iBarShift() returns -1 for closes older than the available history.
+  datetime boundary = iTime(_Symbol, _Period, ${bars});
+  if(boundary == 0)
+  {
+    // The cooldown exceeds the available bars, so elapsed bars cannot be confirmed: hold re-entry.
+    static bool cooldownWarned = false;
+    if(!cooldownWarned)
+    {
+      Print("Re-entry held: reentry cooldown (${bars} bars) exceeds the available bars");
+      cooldownWarned = true;
+    }
+    return false;
+  }
+  return lastClose < boundary;
 }
 `;
 };
@@ -2451,6 +2462,18 @@ const lotSizingModeValue = (mode: LotSizingMode): number => {
 const moneyManagementForStrategy = (strategy: StrategyDefinition): MoneyManagementSettings =>
   strategy.moneyManagement ?? defaultMoneyManagement(strategy.lotSize);
 
+// Mirrors runBacktest: the first direction in entryDirections order whose signal fires opens the trade.
+const entryDispatchLines = (strategy: StrategyDefinition): string =>
+  entryDirectionsForStrategy(strategy)
+    .map((direction, index) => {
+      const input = direction === 'long' ? 'InpTradeLong' : 'InpTradeShort';
+      return `  ${index === 0 ? 'if' : 'else if'}(${input} && EntrySignal(${direction === 'long'}))
+  {
+    OpenPosition(${direction === 'long'});
+  }`;
+    })
+    .join('\n');
+
 const commonInputs = (strategy: StrategyDefinition, mql5: boolean): string[] => {
   const moneyManagement = moneyManagementForStrategy(strategy);
   return [
@@ -2460,7 +2483,8 @@ const commonInputs = (strategy: StrategyDefinition, mql5: boolean): string[] => 
     `input double InpRiskPercent = ${numberLiteral(moneyManagement.riskPercent)};`,
     `input double InpMaxLots = ${numberLiteral(moneyManagement.maxLot)};`,
     `input int InpMagicNumber = ${integerLiteral(strategy.magicNumber)};`,
-    `input bool InpTradeLong = ${boolLiteral(strategy.direction === 'long')};`,
+    `input bool InpTradeLong = ${boolLiteral(entryDirectionsForStrategy(strategy).includes('long'))};`,
+    `input bool InpTradeShort = ${boolLiteral(entryDirectionsForStrategy(strategy).includes('short'))};`,
     `input bool InpSessionFilterEnable = ${boolLiteral(strategy.sessionFilter.enabled)};`,
     `input string InpSessionStart = "${mqlString(strategy.sessionFilter.start)}";`,
     `input string InpSessionEnd = "${mqlString(strategy.sessionFilter.end)}";`,
@@ -3066,24 +3090,75 @@ bool SelectCurrentPosition()
   return false;
 }
 
-void OpenPosition()
+void ApplyFillingMode()
+{
+  long modes = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
+  if((modes & SYMBOL_FILLING_FOK) != 0)
+  {
+    trade.SetTypeFilling(ORDER_FILLING_FOK);
+    return;
+  }
+  if((modes & SYMBOL_FILLING_IOC) != 0)
+  {
+    trade.SetTypeFilling(ORDER_FILLING_IOC);
+    return;
+  }
+  if(SymbolInfoInteger(_Symbol, SYMBOL_TRADE_EXEMODE) != SYMBOL_TRADE_EXECUTION_MARKET)
+  {
+    trade.SetTypeFilling(ORDER_FILLING_RETURN);
+    return;
+  }
+  Print("Neither FOK nor IOC filling is advertised on a market-execution symbol; keeping the default filling mode");
+}
+
+bool TradeRetcodeOk(uint retcode)
+{
+  return retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_DONE_PARTIAL || retcode == TRADE_RETCODE_PLACED;
+}
+
+// Orders whose SL/TP sit closer than the broker minimum (or on the wrong side) are skipped, not silently widened, so results stay comparable with the backtest.
+bool StopsDistanceAllowed(bool longSide, double referencePrice, double sl, double tp)
+{
+  long minPoints = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+  long slPoints = (long)MathRound((longSide ? referencePrice - sl : sl - referencePrice) / _Point);
+  long tpPoints = (long)MathRound((longSide ? tp - referencePrice : referencePrice - tp) / _Point);
+  if(slPoints <= 0 || tpPoints <= 0 || slPoints < minPoints || tpPoints < minPoints)
+  {
+    Print("Order skipped: SL/TP must be on the correct side and at least SYMBOL_TRADE_STOPS_LEVEL (", minPoints, ") points away; sl=", slPoints, " tp=", tpPoints);
+    return false;
+  }
+  return true;
+}
+
+void OpenPosition(bool longSide)
 {
   double pip = PipPoint();
   double lots = LotSizeForEntry();
   trade.SetExpertMagicNumber(InpMagicNumber);
   trade.SetDeviationInPoints(20);
-  if(InpTradeLong)
+  ApplyFillingMode();
+  double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+  double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+  if(longSide)
   {
-    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double sl = NormalizeDouble(ask - InpStopLossPips * pip, _Digits);
     double tp = NormalizeDouble(ask + InpTakeProfitPips * pip, _Digits);
-    trade.Buy(lots, _Symbol, ask, sl, tp, "${expertName}");
+    if(!StopsDistanceAllowed(true, bid, sl, tp)) return;
+    bool sent = trade.Buy(lots, _Symbol, ask, sl, tp, "${expertName}");
+    if(!sent || !TradeRetcodeOk(trade.ResultRetcode()))
+    {
+      Print("Buy failed: retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+    }
     return;
   }
-  double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
   double sl = NormalizeDouble(bid + InpStopLossPips * pip, _Digits);
   double tp = NormalizeDouble(bid - InpTakeProfitPips * pip, _Digits);
-  trade.Sell(lots, _Symbol, bid, sl, tp, "${expertName}");
+  if(!StopsDistanceAllowed(false, ask, sl, tp)) return;
+  bool sent = trade.Sell(lots, _Symbol, bid, sl, tp, "${expertName}");
+  if(!sent || !TradeRetcodeOk(trade.ResultRetcode()))
+  {
+    Print("Sell failed: retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+  }
 }
 
 void CloseCurrentPosition()
@@ -3138,16 +3213,17 @@ void OnTick()
   }
   if(SelectCurrentPosition())
   {
-    if(InpCloseOnOppositeSignal && EntrySignal(!InpTradeLong))
+    if(InpCloseOnOppositeSignal && EntrySignal(PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_BUY))
     {
       CloseCurrentPosition();
     }
     return;
   }
-  if(${reentryCooldownBarsForStrategy(strategy) > 0 ? 'ReentryCooldownAllows() && ' : ''}EntryFiltersAllow() && EntrySignal(InpTradeLong))
+  if(!(ReentryCooldownAllows() && EntryFiltersAllow()))
   {
-    OpenPosition();
+    return;
   }
+${entryDispatchLines(strategy)}
 }
 `;
 };
@@ -3345,15 +3421,30 @@ bool HasPosition()
   return CurrentOrderTicket() >= 0;
 }
 
-void OpenPosition()
+// Orders whose SL/TP sit closer than the broker minimum (or on the wrong side) are skipped, not silently widened, so results stay comparable with the backtest.
+bool StopsDistanceAllowed(bool longSide, double referencePrice, double sl, double tp)
+{
+  int minPoints = (int)MarketInfo(_Symbol, MODE_STOPLEVEL);
+  int slPoints = (int)MathRound((longSide ? referencePrice - sl : sl - referencePrice) / Point);
+  int tpPoints = (int)MathRound((longSide ? tp - referencePrice : referencePrice - tp) / Point);
+  if(slPoints <= 0 || tpPoints <= 0 || slPoints < minPoints || tpPoints < minPoints)
+  {
+    Print("Order skipped: SL/TP must be on the correct side and at least MODE_STOPLEVEL (", minPoints, ") points away; sl=", slPoints, " tp=", tpPoints);
+    return false;
+  }
+  return true;
+}
+
+void OpenPosition(bool longSide)
 {
   RefreshRates();
   double pip = PipPoint();
   double lots = LotSizeForEntry();
-  if(InpTradeLong)
+  if(longSide)
   {
     double sl = NormalizeDouble(Ask - InpStopLossPips * pip, Digits);
     double tp = NormalizeDouble(Ask + InpTakeProfitPips * pip, Digits);
+    if(!StopsDistanceAllowed(true, Bid, sl, tp)) return;
     int ticket = OrderSend(_Symbol, OP_BUY, lots, Ask, 20, sl, tp, "${expertName}", InpMagicNumber, 0, clrGreen);
     if(ticket < 0)
     {
@@ -3363,6 +3454,7 @@ void OpenPosition()
   }
   double sl = NormalizeDouble(Bid + InpStopLossPips * pip, Digits);
   double tp = NormalizeDouble(Bid - InpTakeProfitPips * pip, Digits);
+  if(!StopsDistanceAllowed(false, Ask, sl, tp)) return;
   int ticket = OrderSend(_Symbol, OP_SELL, lots, Bid, 20, sl, tp, "${expertName}", InpMagicNumber, 0, clrRed);
   if(ticket < 0)
   {
@@ -3436,16 +3528,17 @@ void OnTick()
   }
   if(HasPosition())
   {
-    if(InpCloseOnOppositeSignal && EntrySignal(!InpTradeLong))
+    if(InpCloseOnOppositeSignal && OrderSelect(CurrentOrderTicket(), SELECT_BY_TICKET, MODE_TRADES) && EntrySignal(OrderType() != OP_BUY))
     {
       CloseCurrentPosition();
     }
     return;
   }
-  if(${reentryCooldownBarsForStrategy(strategy) > 0 ? 'ReentryCooldownAllows() && ' : ''}EntryFiltersAllow() && EntrySignal(InpTradeLong))
+  if(!(ReentryCooldownAllows() && EntryFiltersAllow()))
   {
-    OpenPosition();
+    return;
   }
+${entryDispatchLines(strategy)}
 }
 `;
 };
