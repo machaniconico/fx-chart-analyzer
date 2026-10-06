@@ -1151,7 +1151,10 @@ describe('state entries and reentry cooldown', () => {
         expectBalanced(source);
         expect(source).toContain('elapsedBars - 1 >= 0');
         if (condition.type === 'parabolicSarState') {
-          const signal = source.slice(source.indexOf('bool Condition1('), source.indexOf('bool EntrySignal('));
+          const signalEnd = [source.indexOf('bool CooldownPositionKnown('), source.indexOf('bool ReentryCooldownAllows(')]
+            .filter((position) => position >= 0)
+            .reduce((least, position) => Math.min(least, position), source.indexOf('bool EntrySignal('));
+          const signal = source.slice(source.indexOf('bool Condition1('), signalEnd);
           expect(signal).not.toContain('previous');
           expect(signal).toContain('return longSide ? currentIsLong : !currentIsLong;');
           expect(source).toContain('firstReversalShift - (signalShift) >= 100');
