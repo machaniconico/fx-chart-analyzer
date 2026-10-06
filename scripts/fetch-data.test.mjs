@@ -590,9 +590,12 @@ describe('h1 fallback from Dukascopy minute bars', () => {
     const bars = [m30(base, 1, 1, 1, 1), m30(base + 1800, 1, 1, 1, 1), m30(base + H, 1, 1, 1, 1)];
     // tail hour has only the first half -> dropped
     expect(aggregateH1FromMinuteBars(bars, 'm30', { nowSeconds: fnow }).map((b) => b.t)).toEqual([base]);
-    // last m30 (12:00) still forming at 12:10 -> excluded, hour 11 incomplete -> dropped
-    const forming = [m30(base + 3 * H, 1, 1, 1, 1), m30(base + 3 * H + 1800, 1, 1, 1, 1), m30(fnow - 600 - 1200, 1, 1, 1, 1)];
-    expect(aggregateH1FromMinuteBars(forming, 'm30', { nowSeconds: fnow }).map((b) => b.t)).toEqual([base + 3 * H]);
+    // 12:40: the aligned 12:30 m30 is still forming -> excluded, so hour 12 is incomplete and dropped
+    const noon = Date.UTC(2026, 9, 6, 12) / 1000;
+    const at1240 = [m30(noon - H, 1, 1, 1, 1), m30(noon - H + 1800, 1, 1, 1, 1), m30(noon, 1, 1, 1, 1), m30(noon + 1800, 1, 1, 1, 1)];
+    expect(aggregateH1FromMinuteBars(at1240, 'm30', { nowSeconds: noon + 2400 }).map((b) => b.t)).toEqual([noon - H]);
+    // exactly at 13:00 the 12:30 bar is closed -> hour 12 is complete and kept
+    expect(aggregateH1FromMinuteBars(at1240, 'm30', { nowSeconds: noon + H }).map((b) => b.t)).toEqual([noon - H, noon]);
   });
 
   it('keeps a middle hour that has a single m30 (flat half skipped by ignoreFlats)', () => {
@@ -689,5 +692,65 @@ describe('h1 fallback from Dukascopy minute bars', () => {
     expect(health.sources['dukascopy-m30']).toBe(2);
     expect(health.primaryOkThisRun).toBe(true);
     expect(health.lastPrimarySuccessByTimeframe.h1).toBe(health.updatedAt);
+  });
+
+  describe('aggregate adoption rules', () => {
+    const E = Date.UTC(2026, 9, 6, 11) / 1000; // incoming tail hour for fnow=12:10
+    const run = async ({ existingEnd, drop = () => false, yahoo }) => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const h1 = makeBars({ count: 8000, endTime: existingEnd, stepSeconds: H });
+      const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
+      const minute = freshM30().filter((bar) => !drop(bar.t));
+      const fetchYahoo = vi.fn(async () => yahoo ?? makeBars({ count: 8000, endTime: fnow - H, stepSeconds: H, price: 200 }));
+      const result = await fetchH1AndH4WithFallback('GBPJPY', {
+        fetchPrimary: async () => {
+          throw new Error('429');
+        },
+        fetchYahoo,
+        readExisting: async (_pair, tf) => stored[tf],
+        nowMs: fnowMs,
+        lowerTimeframeBars: { m30: minute },
+      });
+      return { result, fetchYahoo, existing: h1 };
+    };
+
+    it('adopts the aggregate when existing (Yahoo) is one hour ahead, replacing overlap and keeping newer bars', async () => {
+      const { result, fetchYahoo, existing } = await run({ existingEnd: E + H });
+      expect(fetchYahoo).not.toHaveBeenCalled();
+      expect(result.h1.source).toBe('dukascopy-m30');
+      expect(result.h1.bars.at(-1).t).toBe(E + H);
+      expect(result.h1.bars.at(-1)).toEqual(existing.at(-1));
+      const replaced = result.h1.bars.find((bar) => bar.t === E);
+      expect(replaced).not.toEqual(existing.find((bar) => bar.t === E));
+      expect(result.h1.shouldWrite).toBe(true);
+    });
+
+    it('rejects an aggregate that lags existing h1 beyond the limit', async () => {
+      const { result, fetchYahoo } = await run({ existingEnd: E + 7 * H });
+      expect(fetchYahoo).toHaveBeenCalledOnce();
+      expect(result.h1.source).toBe('yahoo-fallback');
+    });
+
+    it('rejects an aggregate missing a whole market day', async () => {
+      const dayStart = Date.UTC(2026, 9, 6) / 1000;
+      const { result, fetchYahoo } = await run({
+        existingEnd: Date.UTC(2026, 9, 5, 12) / 1000,
+        drop: (t) => t >= dayStart && t < dayStart + 9 * H,
+      });
+      expect(fetchYahoo).toHaveBeenCalledOnce();
+      expect(result.h1.source).toBe('yahoo-fallback');
+    });
+
+    it('accepts the weekend gap and a single missing hour', async () => {
+      const friClose = Date.UTC(2026, 9, 2, 22) / 1000;
+      const sunOpen = Date.UTC(2026, 9, 4, 21) / 1000;
+      const missingHour = Date.UTC(2026, 9, 6, 5) / 1000;
+      const { result, fetchYahoo } = await run({
+        existingEnd: Date.UTC(2026, 9, 2, 20) / 1000,
+        drop: (t) => (t >= friClose && t < sunOpen) || (t >= missingHour && t < missingHour + H),
+      });
+      expect(fetchYahoo).not.toHaveBeenCalled();
+      expect(result.h1.source).toBe('dukascopy-m30');
+    });
   });
 });

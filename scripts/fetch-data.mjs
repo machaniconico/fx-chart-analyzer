@@ -678,6 +678,72 @@ export const aggregateH1FromMinuteBars = (bars, tf, { nowSeconds = Math.floor(Da
   return result;
 };
 
+// 分足集約の採用条件。既存末尾より集約末尾が少し遅れる程度(Yahoo が数本先行)は許容するが、
+// 閾値を超えて遅れる場合・古すぎる場合・市場時間中に連続した欠損がある場合は不完全として拒否する。
+const AGGREGATE_MAX_LAG_HOURS = 6;
+const AGGREGATE_MAX_MARKET_GAP_HOURS = 3;
+
+// FX の週末クローズ: 金 22:00 UTC 頃 〜 日 21:00 UTC 頃。
+const isFxMarketHour = (seconds) => {
+  const date = new Date(seconds * 1000);
+  const day = date.getUTCDay();
+  const hour = date.getUTCHours();
+  if (day === 6) return false;
+  if (day === 5 && hour >= 22) return false;
+  if (day === 0 && hour < 21) return false;
+  return true;
+};
+
+const assertAggregateUsable = (pair, incomingH1, existingH1, { nowMs }) => {
+  const hour = barSecondsByTimeframe.h1;
+  const incomingTail = incomingH1[incomingH1.length - 1].t;
+  const ageHours = (nowMs / 1000 - incomingTail) / 3600;
+  if (ageHours > PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME.h1) {
+    throw new Error(`stale aggregate: ${pair} h1 ageHours=${ageHours.toFixed(1)}`);
+  }
+  const existingTail = existingH1.length > 0 ? existingH1[existingH1.length - 1].t : null;
+  if (existingTail === null) {
+    return;
+  }
+  const lagHours = (existingTail - incomingTail) / 3600;
+  if (lagHours > AGGREGATE_MAX_LAG_HOURS) {
+    throw new Error(`aggregate lags existing h1 by ${lagHours}h (limit ${AGGREGATE_MAX_LAG_HOURS}h)`);
+  }
+  const present = new Set(incomingH1.map((bar) => bar.t));
+  let run = 0;
+  for (let t = existingTail + hour; t <= incomingTail; t += hour) {
+    if (present.has(t) || !isFxMarketHour(t)) {
+      run = 0;
+      continue;
+    }
+    run += 1;
+    if (run > AGGREGATE_MAX_MARKET_GAP_HOURS) {
+      throw new Error(`aggregate has >${AGGREGATE_MAX_MARKET_GAP_HOURS}h market-hours gap before ${new Date(t * 1000).toISOString()}`);
+    }
+  }
+};
+
+// 既存に集約足を上書きで重ねる(重なる時刻は集約足、集約末尾より後の既存足は保持)。
+const overlayBars = (existingBars, incomingBars) => {
+  const byTime = new Map(existingBars.map((bar) => [bar.t, bar]));
+  for (const bar of incomingBars) {
+    byTime.set(bar.t, bar);
+  }
+  return [...byTime.values()].sort((a, b) => a.t - b.t);
+};
+
+const buildOverlayResult = async (pair, tf, mergedBars, existingBars, incomingBars, source) => {
+  const bars = latest(mergedBars, tf);
+  const validateOptions = { minExpectedBars: MIN_EXPECTED_BARS_BY_TIMEFRAME[tf] };
+  validateBars(pair, tf, bars, validateOptions);
+  const existingByTime = new Map(existingBars.map((bar) => [bar.t, bar]));
+  const changed = incomingBars.some((bar) => {
+    const previous = existingByTime.get(bar.t);
+    return !previous || !barsEqual(previous, bar);
+  });
+  return { bars, source, validateOptions, shouldWrite: changed };
+};
+
 // h1 の Dukascopy 取得が失敗した時、同じ実行で取得済みの Dukascopy m30 (無ければ m15) から h1 を作り、
 // h4 は結合後の h1 から既存の aggregateH4 で作る。使えなければ null を返し、呼び出し側が Yahoo に落とす。
 const buildH1H4FromLowerTimeframes = async (
@@ -699,16 +765,15 @@ const buildH1H4FromLowerTimeframes = async (
       if (incomingH1.length === 0) {
         throw new Error('no complete hours');
       }
-      assertPrimaryResponseUsable(pair, 'h1', incomingH1, existingH1, { nowMs });
+      assertAggregateUsable(pair, incomingH1, existingH1, { nowMs });
       const source = `dukascopy-${tf}`;
-      const mergedH1 = mergeAppendOnlyBars(existingH1, incomingH1);
-      const h1 = await buildYahooFallbackBars(pair, 'h1', incomingH1, { readExisting, source });
-      const h4 = await buildYahooFallbackBars(
-        pair,
-        'h4',
-        aggregateH4(mergedH1, { dropIncompleteTail: true }),
-        { readExisting, source },
-      );
+      const mergedH1 = overlayBars(existingH1, incomingH1);
+      const h1 = await buildOverlayResult(pair, 'h1', mergedH1, existingH1, incomingH1, source);
+      const existingH4 = await readExisting(pair, 'h4');
+      const h4FirstBucket = Math.floor(incomingH1[0].t / barSecondsByTimeframe.h4) * barSecondsByTimeframe.h4;
+      const incomingH4 = aggregateH4(mergedH1, { dropIncompleteTail: true }).filter((bar) => bar.t >= h4FirstBucket);
+      const mergedH4 = overlayBars(existingH4 ?? [], incomingH4);
+      const h4 = await buildOverlayResult(pair, 'h4', mergedH4, existingH4 ?? [], incomingH4, source);
       console.warn(
         `  Dukascopy h1 failed for ${pair}: ${formatError(dukascopyError)}; built h1/h4 from Dukascopy ${tf}`,
       );
