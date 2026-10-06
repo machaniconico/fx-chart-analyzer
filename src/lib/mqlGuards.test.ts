@@ -49,30 +49,30 @@ describe('reentryAllowed', () => {
   const current = barTime(0);
 
   it('allows when there was no close', () => {
-    expect(reentryAllowed(0, 0, barTime, total)).toBe(true);
+    expect(reentryAllowed(0, 0, barTime)).toBe(true);
   });
   it('blocks a close inside the current bar and exactly at its start with cooldown 0', () => {
-    expect(reentryAllowed(current + 5, 0, barTime, total)).toBe(false);
-    expect(reentryAllowed(current, 0, barTime, total)).toBe(false);
+    expect(reentryAllowed(current + 5, 0, barTime)).toBe(false);
+    expect(reentryAllowed(current, 0, barTime)).toBe(false);
   });
   it('allows a close on the previous bar with cooldown 0', () => {
-    expect(reentryAllowed(current - 1, 0, barTime, total)).toBe(true);
+    expect(reentryAllowed(current - 1, 0, barTime)).toBe(true);
   });
   it('matches the bar-count cooldown: close at shift s is allowed iff s >= N + 1', () => {
     for (const cooldown of [1, 3]) {
       for (let shift = 0; shift < 10; shift += 1) {
-        expect(reentryAllowed(barTime(shift) + 1800, cooldown, barTime, total)).toBe(shift >= cooldown + 1);
+        expect(reentryAllowed(barTime(shift) + 1800, cooldown, barTime)).toBe(shift >= cooldown + 1);
       }
     }
   });
-  it('does not block forever on a close older than all available history', () => {
-    expect(reentryAllowed(-86400, 0, barTime, total)).toBe(true);
-    expect(reentryAllowed(-86400, 5, (shift) => (shift < 3 ? barTime(shift) : 0), 3)).toBe(true);
+  it('holds re-entry when a close exists but the cooldown exceeds the available bars', () => {
+    expect(reentryAllowed(-86400, 500, barTime)).toBe(false);
+    expect(reentryAllowed(barTime(1), 500, barTime)).toBe(false);
   });
-  it('blocks when the cooldown exceeds the history but the close is within it', () => {
-    expect(reentryAllowed(barTime(1), 500, barTime, total)).toBe(false);
+  it('allows when there is no close even if the cooldown exceeds the available bars', () => {
+    expect(reentryAllowed(0, 500, barTime)).toBe(true);
   });
   it('fails closed when no bar data exists', () => {
-    expect(reentryAllowed(1000, 0, () => 0, 0)).toBe(false);
+    expect(reentryAllowed(1000, 0, () => 0)).toBe(false);
   });
 });

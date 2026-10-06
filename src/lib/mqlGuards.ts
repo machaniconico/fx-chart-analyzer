@@ -36,20 +36,16 @@ export const fillingChoice = (fillingModeFlags: number, marketExecution: boolean
 
 /**
  * Mirror of the tail of ReentryCooldownAllows: a close within the last `cooldownBars + 1` bars
- * (current bar = shift 0) blocks entry. `barTime(shift)` returns 0 when unavailable.
+ * (current bar = shift 0) blocks entry. `barTime(shift)` returns 0 when unavailable; then the
+ * elapsed bars cannot be confirmed, so any recorded close holds re-entry.
  */
 export const reentryAllowed = (
   lastClose: number,
   cooldownBars: number,
   barTime: (shift: number) => number,
-  barsAvailable: number,
 ): boolean => {
   if (lastClose === 0) return true;
-  let boundary = barTime(cooldownBars);
-  if (boundary === 0) {
-    if (barsAvailable <= 0) return false;
-    boundary = barTime(barsAvailable - 1);
-    if (boundary === 0) return false;
-  }
+  const boundary = barTime(cooldownBars);
+  if (boundary === 0) return false;
   return lastClose < boundary;
 };

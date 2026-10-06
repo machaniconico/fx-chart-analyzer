@@ -1182,6 +1182,8 @@ describe('state entries and reentry cooldown', () => {
       expect(source).toContain('if(InpCloseOnOppositeSignal && ');
       expect(source).toContain('iTime(_Symbol, _Period, 3)');
       expect(source).toContain('return lastClose < boundary;');
+      expect(source).toContain('exceeds the available bars');
+      expect(source).not.toContain('iBars(_Symbol');
       const cooldownBody = source.slice(source.indexOf('bool ReentryCooldownAllows('));
       expect(cooldownBody.slice(0, cooldownBody.indexOf('\n}\n'))).not.toContain('iBarShift(_Symbol');
       expect(source).toContain(extension === 'mq4' ? 'OrdersHistoryTotal()' : 'HistorySelect(0, TimeCurrent())');

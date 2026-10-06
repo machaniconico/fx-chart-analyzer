@@ -2414,11 +2414,14 @@ ${mql5 ? `  if(!HistorySelect(0, TimeCurrent()))
   datetime boundary = iTime(_Symbol, _Period, ${bars});
   if(boundary == 0)
   {
-    // History is shorter than the cooldown: only closes older than all available bars are clear.
-    int available = iBars(_Symbol, _Period);
-    if(available <= 0) return false;
-    boundary = iTime(_Symbol, _Period, available - 1);
-    if(boundary == 0) return false;
+    // The cooldown exceeds the available bars, so elapsed bars cannot be confirmed: hold re-entry.
+    static bool cooldownWarned = false;
+    if(!cooldownWarned)
+    {
+      Print("Re-entry held: reentry cooldown (${bars} bars) exceeds the available bars");
+      cooldownWarned = true;
+    }
+    return false;
   }
   return lastClose < boundary;
 }
