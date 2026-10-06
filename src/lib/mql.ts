@@ -2334,10 +2334,9 @@ ${ichimokuParityComment}${ichimokuDisplacementWarning(condition)}bool Condition$
 `;
 
 const reentryCooldownFunction = (strategy: StrategyDefinition, mql5: boolean): string => {
+  // Always emitted: with bars = 0 it still blocks entries on the bar a position was closed
+  // (e.g. server-side SL/TP hit on the first tick), like runBacktest's closeIndex rule.
   const bars = reentryCooldownBarsForStrategy(strategy);
-  if (bars === 0) {
-    return '';
-  }
   return `${mql5 ? `
 // A small growing hash set keeps the history scan amortized O(n).
 bool CooldownPositionKnown(ulong &ids[], int &count, ulong id, bool latch)
@@ -3079,21 +3078,41 @@ bool SelectCurrentPosition()
   return false;
 }
 
-ENUM_ORDER_TYPE_FILLING FillingModeForSymbol()
+void ApplyFillingMode()
 {
   long modes = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
-  if((modes & SYMBOL_FILLING_FOK) != 0) return ORDER_FILLING_FOK;
-  if((modes & SYMBOL_FILLING_IOC) != 0) return ORDER_FILLING_IOC;
-  return ORDER_FILLING_RETURN;
+  if((modes & SYMBOL_FILLING_FOK) != 0)
+  {
+    trade.SetTypeFilling(ORDER_FILLING_FOK);
+    return;
+  }
+  if((modes & SYMBOL_FILLING_IOC) != 0)
+  {
+    trade.SetTypeFilling(ORDER_FILLING_IOC);
+    return;
+  }
+  if(SymbolInfoInteger(_Symbol, SYMBOL_TRADE_EXEMODE) != SYMBOL_TRADE_EXECUTION_MARKET)
+  {
+    trade.SetTypeFilling(ORDER_FILLING_RETURN);
+    return;
+  }
+  Print("Neither FOK nor IOC filling is advertised on a market-execution symbol; keeping the default filling mode");
 }
 
-// Orders whose SL/TP sit closer than the broker minimum are skipped, not silently widened, so results stay comparable with the backtest.
-bool StopsDistanceAllowed(double referencePrice, double sl, double tp)
+bool TradeRetcodeOk(uint retcode)
 {
-  double minDistance = (double)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * _Point;
-  if(MathAbs(referencePrice - sl) < minDistance || MathAbs(referencePrice - tp) < minDistance)
+  return retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_DONE_PARTIAL || retcode == TRADE_RETCODE_PLACED;
+}
+
+// Orders whose SL/TP sit closer than the broker minimum (or on the wrong side) are skipped, not silently widened, so results stay comparable with the backtest.
+bool StopsDistanceAllowed(bool longSide, double referencePrice, double sl, double tp)
+{
+  long minPoints = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+  long slPoints = (long)MathRound((longSide ? referencePrice - sl : sl - referencePrice) / _Point);
+  long tpPoints = (long)MathRound((longSide ? tp - referencePrice : referencePrice - tp) / _Point);
+  if(slPoints <= 0 || tpPoints <= 0 || slPoints < minPoints || tpPoints < minPoints)
   {
-    Print("Order skipped: SL/TP closer than SYMBOL_TRADE_STOPS_LEVEL (", minDistance, ")");
+    Print("Order skipped: SL/TP must be on the correct side and at least SYMBOL_TRADE_STOPS_LEVEL (", minPoints, ") points away; sl=", slPoints, " tp=", tpPoints);
     return false;
   }
   return true;
@@ -3105,15 +3124,16 @@ void OpenPosition(bool longSide)
   double lots = LotSizeForEntry();
   trade.SetExpertMagicNumber(InpMagicNumber);
   trade.SetDeviationInPoints(20);
-  trade.SetTypeFilling(FillingModeForSymbol());
+  ApplyFillingMode();
   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
   if(longSide)
   {
     double sl = NormalizeDouble(ask - InpStopLossPips * pip, _Digits);
     double tp = NormalizeDouble(ask + InpTakeProfitPips * pip, _Digits);
-    if(!StopsDistanceAllowed(bid, sl, tp)) return;
-    if(!trade.Buy(lots, _Symbol, ask, sl, tp, "${expertName}"))
+    if(!StopsDistanceAllowed(true, bid, sl, tp)) return;
+    bool sent = trade.Buy(lots, _Symbol, ask, sl, tp, "${expertName}");
+    if(!sent || !TradeRetcodeOk(trade.ResultRetcode()))
     {
       Print("Buy failed: retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
     }
@@ -3121,8 +3141,9 @@ void OpenPosition(bool longSide)
   }
   double sl = NormalizeDouble(bid + InpStopLossPips * pip, _Digits);
   double tp = NormalizeDouble(bid - InpTakeProfitPips * pip, _Digits);
-  if(!StopsDistanceAllowed(ask, sl, tp)) return;
-  if(!trade.Sell(lots, _Symbol, bid, sl, tp, "${expertName}"))
+  if(!StopsDistanceAllowed(false, ask, sl, tp)) return;
+  bool sent = trade.Sell(lots, _Symbol, bid, sl, tp, "${expertName}");
+  if(!sent || !TradeRetcodeOk(trade.ResultRetcode()))
   {
     Print("Sell failed: retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
   }
@@ -3186,7 +3207,7 @@ void OnTick()
     }
     return;
   }
-  if(!(${reentryCooldownBarsForStrategy(strategy) > 0 ? 'ReentryCooldownAllows() && ' : ''}EntryFiltersAllow()))
+  if(!(ReentryCooldownAllows() && EntryFiltersAllow()))
   {
     return;
   }
@@ -3388,13 +3409,15 @@ bool HasPosition()
   return CurrentOrderTicket() >= 0;
 }
 
-// Orders whose SL/TP sit closer than the broker minimum are skipped, not silently widened, so results stay comparable with the backtest.
-bool StopsDistanceAllowed(double referencePrice, double sl, double tp)
+// Orders whose SL/TP sit closer than the broker minimum (or on the wrong side) are skipped, not silently widened, so results stay comparable with the backtest.
+bool StopsDistanceAllowed(bool longSide, double referencePrice, double sl, double tp)
 {
-  double minDistance = MarketInfo(_Symbol, MODE_STOPLEVEL) * Point;
-  if(MathAbs(referencePrice - sl) < minDistance || MathAbs(referencePrice - tp) < minDistance)
+  int minPoints = (int)MarketInfo(_Symbol, MODE_STOPLEVEL);
+  int slPoints = (int)MathRound((longSide ? referencePrice - sl : sl - referencePrice) / Point);
+  int tpPoints = (int)MathRound((longSide ? tp - referencePrice : referencePrice - tp) / Point);
+  if(slPoints <= 0 || tpPoints <= 0 || slPoints < minPoints || tpPoints < minPoints)
   {
-    Print("Order skipped: SL/TP closer than MODE_STOPLEVEL (", minDistance, ")");
+    Print("Order skipped: SL/TP must be on the correct side and at least MODE_STOPLEVEL (", minPoints, ") points away; sl=", slPoints, " tp=", tpPoints);
     return false;
   }
   return true;
@@ -3409,7 +3432,7 @@ void OpenPosition(bool longSide)
   {
     double sl = NormalizeDouble(Ask - InpStopLossPips * pip, Digits);
     double tp = NormalizeDouble(Ask + InpTakeProfitPips * pip, Digits);
-    if(!StopsDistanceAllowed(Bid, sl, tp)) return;
+    if(!StopsDistanceAllowed(true, Bid, sl, tp)) return;
     int ticket = OrderSend(_Symbol, OP_BUY, lots, Ask, 20, sl, tp, "${expertName}", InpMagicNumber, 0, clrGreen);
     if(ticket < 0)
     {
@@ -3419,7 +3442,7 @@ void OpenPosition(bool longSide)
   }
   double sl = NormalizeDouble(Bid + InpStopLossPips * pip, Digits);
   double tp = NormalizeDouble(Bid - InpTakeProfitPips * pip, Digits);
-  if(!StopsDistanceAllowed(Ask, sl, tp)) return;
+  if(!StopsDistanceAllowed(false, Ask, sl, tp)) return;
   int ticket = OrderSend(_Symbol, OP_SELL, lots, Bid, 20, sl, tp, "${expertName}", InpMagicNumber, 0, clrRed);
   if(ticket < 0)
   {
@@ -3499,7 +3522,7 @@ void OnTick()
     }
     return;
   }
-  if(!(${reentryCooldownBarsForStrategy(strategy) > 0 ? 'ReentryCooldownAllows() && ' : ''}EntryFiltersAllow()))
+  if(!(ReentryCooldownAllows() && EntryFiltersAllow()))
   {
     return;
   }

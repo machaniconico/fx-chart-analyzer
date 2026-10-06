@@ -429,21 +429,41 @@ bool SelectCurrentPosition()
   return false;
 }
 
-ENUM_ORDER_TYPE_FILLING FillingModeForSymbol()
+void ApplyFillingMode()
 {
   long modes = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
-  if((modes & SYMBOL_FILLING_FOK) != 0) return ORDER_FILLING_FOK;
-  if((modes & SYMBOL_FILLING_IOC) != 0) return ORDER_FILLING_IOC;
-  return ORDER_FILLING_RETURN;
+  if((modes & SYMBOL_FILLING_FOK) != 0)
+  {
+    trade.SetTypeFilling(ORDER_FILLING_FOK);
+    return;
+  }
+  if((modes & SYMBOL_FILLING_IOC) != 0)
+  {
+    trade.SetTypeFilling(ORDER_FILLING_IOC);
+    return;
+  }
+  if(SymbolInfoInteger(_Symbol, SYMBOL_TRADE_EXEMODE) != SYMBOL_TRADE_EXECUTION_MARKET)
+  {
+    trade.SetTypeFilling(ORDER_FILLING_RETURN);
+    return;
+  }
+  Print("Neither FOK nor IOC filling is advertised on a market-execution symbol; keeping the default filling mode");
 }
 
-// Orders whose SL/TP sit closer than the broker minimum are skipped, not silently widened, so results stay comparable with the backtest.
-bool StopsDistanceAllowed(double referencePrice, double sl, double tp)
+bool TradeRetcodeOk(uint retcode)
 {
-  double minDistance = (double)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * _Point;
-  if(MathAbs(referencePrice - sl) < minDistance || MathAbs(referencePrice - tp) < minDistance)
+  return retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_DONE_PARTIAL || retcode == TRADE_RETCODE_PLACED;
+}
+
+// Orders whose SL/TP sit closer than the broker minimum (or on the wrong side) are skipped, not silently widened, so results stay comparable with the backtest.
+bool StopsDistanceAllowed(bool longSide, double referencePrice, double sl, double tp)
+{
+  long minPoints = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+  long slPoints = (long)MathRound((longSide ? referencePrice - sl : sl - referencePrice) / _Point);
+  long tpPoints = (long)MathRound((longSide ? tp - referencePrice : referencePrice - tp) / _Point);
+  if(slPoints <= 0 || tpPoints <= 0 || slPoints < minPoints || tpPoints < minPoints)
   {
-    Print("Order skipped: SL/TP closer than SYMBOL_TRADE_STOPS_LEVEL (", minDistance, ")");
+    Print("Order skipped: SL/TP must be on the correct side and at least SYMBOL_TRADE_STOPS_LEVEL (", minPoints, ") points away; sl=", slPoints, " tp=", tpPoints);
     return false;
   }
   return true;
@@ -455,15 +475,16 @@ void OpenPosition(bool longSide)
   double lots = LotSizeForEntry();
   trade.SetExpertMagicNumber(InpMagicNumber);
   trade.SetDeviationInPoints(20);
-  trade.SetTypeFilling(FillingModeForSymbol());
+  ApplyFillingMode();
   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
   if(longSide)
   {
     double sl = NormalizeDouble(ask - InpStopLossPips * pip, _Digits);
     double tp = NormalizeDouble(ask + InpTakeProfitPips * pip, _Digits);
-    if(!StopsDistanceAllowed(bid, sl, tp)) return;
-    if(!trade.Buy(lots, _Symbol, ask, sl, tp, "FullTestEA"))
+    if(!StopsDistanceAllowed(true, bid, sl, tp)) return;
+    bool sent = trade.Buy(lots, _Symbol, ask, sl, tp, "FullTestEA");
+    if(!sent || !TradeRetcodeOk(trade.ResultRetcode()))
     {
       Print("Buy failed: retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
     }
@@ -471,8 +492,9 @@ void OpenPosition(bool longSide)
   }
   double sl = NormalizeDouble(bid + InpStopLossPips * pip, _Digits);
   double tp = NormalizeDouble(bid - InpTakeProfitPips * pip, _Digits);
-  if(!StopsDistanceAllowed(ask, sl, tp)) return;
-  if(!trade.Sell(lots, _Symbol, bid, sl, tp, "FullTestEA"))
+  if(!StopsDistanceAllowed(false, ask, sl, tp)) return;
+  bool sent = trade.Sell(lots, _Symbol, bid, sl, tp, "FullTestEA");
+  if(!sent || !TradeRetcodeOk(trade.ResultRetcode()))
   {
     Print("Sell failed: retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
   }

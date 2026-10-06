@@ -1264,10 +1264,24 @@ describe('entry directions parity with runBacktest', () => {
 
   it('adds retcode logging, filling mode selection and stops-level guard', () => {
     const mq5 = generateMql5(withDirections('long', ['long', 'short']));
-    expect(mq5).toContain('trade.SetTypeFilling(FillingModeForSymbol())');
+    expect(mq5).toContain('ApplyFillingMode();');
+    expect(mq5).toContain('SYMBOL_TRADE_EXECUTION_MARKET');
+    expect(mq5).toContain('TradeRetcodeOk(trade.ResultRetcode())');
+    expect(mq5).toContain('TRADE_RETCODE_DONE_PARTIAL');
+    expect(mq5).toContain('(long)MathRound((longSide ? referencePrice - sl : sl - referencePrice) / _Point)');
     expect(mq5).toContain('SYMBOL_FILLING_MODE');
     expect(mq5).toContain('trade.ResultRetcode()');
     expect(mq5).toContain('SYMBOL_TRADE_STOPS_LEVEL');
     expect(generateMql4(withDirections('long', ['long', 'short']))).toContain('MODE_STOPLEVEL');
+  });
+
+  it('always blocks entries on the bar of the last close, even with cooldown 0', () => {
+    for (const [extension, generate] of generators) {
+      const source = generate(withDirections('long', ['long', 'short']));
+      expect(source).toContain('bool ReentryCooldownAllows()');
+      expect(source).toContain('elapsedBars - 1 >= 0');
+      expect(source).toContain('if(!(ReentryCooldownAllows() && EntryFiltersAllow()))');
+      expect(source).toContain(extension === 'mq4' ? 'OrderCloseTime()' : 'DEAL_ENTRY_OUT');
+    }
   });
 });

@@ -335,6 +335,27 @@ bool Condition1(bool longSide)
 }
 
 
+bool ReentryCooldownAllows()
+{
+  datetime lastClose = 0;
+  // Truncated terminal account history can fail open; select "All History" in the terminal.
+  for(int i = OrdersHistoryTotal() - 1; i >= 0; i--)
+  {
+    if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+    if(OrderMagicNumber() == InpMagicNumber && OrderSymbol() == Symbol() &&
+      (OrderType() == OP_BUY || OrderType() == OP_SELL))
+    {
+      datetime closeTime = OrderCloseTime();
+      if(closeTime > lastClose) lastClose = closeTime;
+    }
+  }
+  if(lastClose == 0) return true;
+  int elapsedBars = iBarShift(_Symbol, _Period, lastClose);
+  // TS blocks entry search while index < closeIndex + N. MQL evaluates shift 1,
+  // so index - closeIndex == elapsedBars - 1; allow entry when elapsedBars - 1 >= N.
+  return elapsedBars >= 0 && elapsedBars - 1 >= 0;
+}
+
 bool EntrySignal(bool longSide)
 {
   return Condition1(longSide);
@@ -377,13 +398,15 @@ bool HasPosition()
   return CurrentOrderTicket() >= 0;
 }
 
-// Orders whose SL/TP sit closer than the broker minimum are skipped, not silently widened, so results stay comparable with the backtest.
-bool StopsDistanceAllowed(double referencePrice, double sl, double tp)
+// Orders whose SL/TP sit closer than the broker minimum (or on the wrong side) are skipped, not silently widened, so results stay comparable with the backtest.
+bool StopsDistanceAllowed(bool longSide, double referencePrice, double sl, double tp)
 {
-  double minDistance = MarketInfo(_Symbol, MODE_STOPLEVEL) * Point;
-  if(MathAbs(referencePrice - sl) < minDistance || MathAbs(referencePrice - tp) < minDistance)
+  int minPoints = (int)MarketInfo(_Symbol, MODE_STOPLEVEL);
+  int slPoints = (int)MathRound((longSide ? referencePrice - sl : sl - referencePrice) / Point);
+  int tpPoints = (int)MathRound((longSide ? tp - referencePrice : referencePrice - tp) / Point);
+  if(slPoints <= 0 || tpPoints <= 0 || slPoints < minPoints || tpPoints < minPoints)
   {
-    Print("Order skipped: SL/TP closer than MODE_STOPLEVEL (", minDistance, ")");
+    Print("Order skipped: SL/TP must be on the correct side and at least MODE_STOPLEVEL (", minPoints, ") points away; sl=", slPoints, " tp=", tpPoints);
     return false;
   }
   return true;
@@ -398,7 +421,7 @@ void OpenPosition(bool longSide)
   {
     double sl = NormalizeDouble(Ask - InpStopLossPips * pip, Digits);
     double tp = NormalizeDouble(Ask + InpTakeProfitPips * pip, Digits);
-    if(!StopsDistanceAllowed(Bid, sl, tp)) return;
+    if(!StopsDistanceAllowed(true, Bid, sl, tp)) return;
     int ticket = OrderSend(_Symbol, OP_BUY, lots, Ask, 20, sl, tp, "FullTestEA", InpMagicNumber, 0, clrGreen);
     if(ticket < 0)
     {
@@ -408,7 +431,7 @@ void OpenPosition(bool longSide)
   }
   double sl = NormalizeDouble(Bid + InpStopLossPips * pip, Digits);
   double tp = NormalizeDouble(Bid - InpTakeProfitPips * pip, Digits);
-  if(!StopsDistanceAllowed(Ask, sl, tp)) return;
+  if(!StopsDistanceAllowed(false, Ask, sl, tp)) return;
   int ticket = OrderSend(_Symbol, OP_SELL, lots, Bid, 20, sl, tp, "FullTestEA", InpMagicNumber, 0, clrRed);
   if(ticket < 0)
   {
@@ -488,7 +511,7 @@ void OnTick()
     }
     return;
   }
-  if(!(EntryFiltersAllow()))
+  if(!(ReentryCooldownAllows() && EntryFiltersAllow()))
   {
     return;
   }
