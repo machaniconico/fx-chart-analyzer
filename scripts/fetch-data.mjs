@@ -784,16 +784,15 @@ const buildH1H4FromLowerTimeframes = async (
       const existingH4 = await readExisting(pair, 'h4');
       const h4FirstBucket = Math.floor(incomingH1[0].t / barSecondsByTimeframe.h4) * barSecondsByTimeframe.h4;
       const mergedH1Times = new Set(mergedH1.map((bar) => bar.t));
-      const existingH4Times = new Set((existingH4 ?? []).map((bar) => bar.t));
-      // 材料の h1 が揃っている(市場時間内の欠けが無い)バケットだけ既存 h4 を置換する。
-      // 揃わないバケットは既存 h4 を保持し、既存が無い時だけ部分バケットでも追加する。
+      // 材料の h1 が揃っている(市場時間内の欠けが無い)バケットだけ追加/置換する。
+      // 揃わないバケットは、既存の有無に関わらず触らない(h1 が回復して完全になった時点で反映される)。
       const isBucketComplete = (bucket) =>
         [0, 1, 2, 3].every((i) => {
           const t = bucket + i * barSecondsByTimeframe.h1;
           return mergedH1Times.has(t) || !isFxMarketHour(t);
         });
       const incomingH4 = aggregateH4(mergedH1, { dropIncompleteTail: true }).filter(
-        (bar) => bar.t >= h4FirstBucket && (isBucketComplete(bar.t) || !existingH4Times.has(bar.t)),
+        (bar) => bar.t >= h4FirstBucket && isBucketComplete(bar.t),
       );
       const mergedH4 = overlayBars(existingH4 ?? [], incomingH4);
       const h4 = await buildOverlayResult(pair, 'h4', mergedH4, existingH4 ?? [], incomingH4, source);

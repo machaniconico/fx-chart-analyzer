@@ -791,7 +791,7 @@ describe('h1 fallback from Dukascopy minute bars', () => {
       const h4 = [...older, sentinel, ...aggregateH4(h1.filter((bar) => bar.t >= bucket + 4 * H))];
       expect(h1[0].t).toBe(u(2026, 5, 10, 14));
       const nowS = u(2026, 9, 6, 12, 10);
-      const start = u(2026, 5, 10, 15, 30);
+      const start = u(2026, 5, 10, 14, 30);
       const minute = Array.from({ length: Math.floor((nowS - start) / 1800) }, (_, i) => ({
         t: start + i * 1800, o: 150, h: 151, l: 149, c: 150.5, v: 1,
       }));
@@ -803,7 +803,31 @@ describe('h1 fallback from Dukascopy minute bars', () => {
         lowerTimeframeBars: { m30: minute },
       });
       expect(result.h4.source).toBe('dukascopy-m30');
+      // m30 starts 14:30 -> first aggregated h1 is 15:00, so bucket 12:00 has only h1 14 (existing) and 15
       expect(result.h4.bars.find((bar) => bar.t === bucket)).toEqual(sentinel);
+    });
+
+    it('does not add a partial h4 bucket when no existing h4 covers it (Codex 10/6 08:00 case)', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 7), stepSeconds: H });
+      const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
+      const nowS = u(2026, 9, 6, 12, 10);
+      const gapFrom = u(2026, 9, 6, 8);
+      const lastClosed = u(2026, 9, 6, 11, 30);
+      const minute = makeBars({ count: 4000, endTime: lastClosed, stepSeconds: 1800 })
+        .map((bar, i) => ({ ...bar, t: lastClosed - (3999 - i) * 1800 }))
+        .filter((bar) => !(bar.t >= gapFrom && bar.t < gapFrom + 2 * H));
+      const result = await fetchH1AndH4WithFallback('GBPJPY', {
+        fetchPrimary: failPrimary,
+        fetchYahoo: vi.fn(),
+        readExisting: async (_p, tf) => stored[tf],
+        nowMs: nowS * 1000,
+        lowerTimeframeBars: { m30: minute },
+      });
+      expect(result.h1.source).toBe('dukascopy-m30');
+      expect(result.h1.bars.at(-1).t).toBe(u(2026, 9, 6, 11));
+      expect(result.h4.bars.some((bar) => bar.t === gapFrom)).toBe(false);
+      expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 4));
     });
 
     const dstRun = async ({ now, existingEnd, dropFrom, dropTo }) => {
