@@ -144,7 +144,7 @@ describe('mql generation', () => {
     expect(source).toContain('CalendarValueHistory(values, fromTime, toTime, NULL, currency)');
     expect(source).toContain('return true;');
     expect(source).toContain('eventInfo.importance == CALENDAR_IMPORTANCE_HIGH');
-    expect(source).toContain('EntryFiltersAllow() && EntrySignal(InpTradeLong)');
+    expect(source).toContain('if(InpTradeLong && EntrySignal(true))');
     expect(source).not.toContain('double MAValue(');
     expect(source).not.toContain('double RSIValue(');
     expect(source).not.toContain('double BandUpper(');
@@ -192,7 +192,7 @@ describe('mql generation', () => {
     expect(source).toContain('OrderSend(_Symbol, OP_SELL');
     expect(source).toContain('bool IsInTradingSession()');
     expect(source).toContain('MQL4 has no built-in economic calendar API');
-    expect(source).toContain('EntryFiltersAllow() && EntrySignal(InpTradeLong)');
+    expect(source).toContain('if(InpTradeLong && EntrySignal(true))');
     expect(source).toContain('iMA(_Symbol, _Period');
     expect(source).toContain('iRSI(_Symbol, _Period');
     expect(source).toContain('iBands(_Symbol, _Period');
@@ -1175,8 +1175,8 @@ describe('state entries and reentry cooldown', () => {
       expect(generate({ ...strategy, exit: { ...strategy.exit, reentryCooldownBars: 0 } })).toBe(generate(strategy));
       const source = generate({ ...strategy, exit: { ...strategy.exit, reentryCooldownBars: 3 } });
       expectBalanced(source);
-      expect(source).toContain('if(ReentryCooldownAllows() && EntryFiltersAllow() && EntrySignal(InpTradeLong))');
-      expect(source).toContain('if(InpCloseOnOppositeSignal && EntrySignal(!InpTradeLong))');
+      expect(source).toContain('if(!(ReentryCooldownAllows() && EntryFiltersAllow()))');
+      expect(source).toContain('if(InpCloseOnOppositeSignal && ');
       expect(source).toContain('elapsedBars - 1 >= 3');
       expect(source).toContain(extension === 'mq4' ? 'OrdersHistoryTotal()' : 'HistorySelect(0, TimeCurrent())');
       expect(source).toContain(extension === 'mq4' ? 'OrderMagicNumber() == InpMagicNumber && OrderSymbol() == Symbol()' : 'HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagicNumber');
@@ -1192,5 +1192,82 @@ describe('state entries and reentry cooldown', () => {
       await expect(source).toMatchFileSnapshot(mqlSnapshotPath(`mql-cciBreak-cooldown.${extension}`));
       expect(() => generate({ ...strategy, exit: { ...strategy.exit, reentryCooldownBars: -1 } })).toThrow('reentryCooldownBars');
     }
+  });
+});
+
+describe('entry directions parity with runBacktest', () => {
+  const withDirections = (
+    direction: StrategyDefinition['direction'],
+    entryDirections?: StrategyDefinition['entryDirections'],
+  ): StrategyDefinition => ({
+    ...fullStrategy,
+    direction,
+    entryDirections,
+    entryConditions: [{ type: 'cciBreak', period: 20, level: 100 }],
+  });
+  const generators = [
+    ['mq4', generateMql4],
+    ['mq5', generateMql5],
+  ] as const;
+
+  it('emits both directions for entryDirections [long, short] and opens via OpenPosition(longSide)', () => {
+    for (const [, generate] of generators) {
+      const source = generate(withDirections('long', ['long', 'short']));
+      expect(source).toContain('input bool InpTradeLong = true;');
+      expect(source).toContain('input bool InpTradeShort = true;');
+      expect(source).toContain('if(InpTradeLong && EntrySignal(true))');
+      expect(source).toContain('else if(InpTradeShort && EntrySignal(false))');
+      expect(source.indexOf('OpenPosition(true)')).toBeLessThan(source.indexOf('OpenPosition(false)'));
+      expect(source).toContain('void OpenPosition(bool longSide)');
+      expectBalanced(source);
+    }
+  });
+
+  it('keeps evaluation order of entryDirections like runBacktest (first match wins)', () => {
+    for (const [, generate] of generators) {
+      const source = generate(withDirections('long', ['short', 'long']));
+      expect(source).toContain('if(InpTradeShort && EntrySignal(false))');
+      expect(source).toContain('else if(InpTradeLong && EntrySignal(true))');
+    }
+  });
+
+  it('long-only and short-only emit a single branch', () => {
+    for (const [, generate] of generators) {
+      const longOnly = generate(withDirections('long', ['long']));
+      expect(longOnly).toContain('input bool InpTradeShort = false;');
+      expect(longOnly).not.toContain('EntrySignal(false))\n  {\n    OpenPosition');
+      const shortOnly = generate(withDirections('short', ['short']));
+      expect(shortOnly).toContain('input bool InpTradeLong = false;');
+      expect(shortOnly).toContain('input bool InpTradeShort = true;');
+      expect(shortOnly).toContain('if(InpTradeShort && EntrySignal(false))');
+      expect(shortOnly).not.toContain('InpTradeLong && EntrySignal');
+    }
+  });
+
+  it('falls back to the legacy direction when entryDirections is absent', () => {
+    for (const [, generate] of generators) {
+      const legacyShort = generate(withDirections('short'));
+      expect(legacyShort).toContain('input bool InpTradeLong = false;');
+      expect(legacyShort).toContain('input bool InpTradeShort = true;');
+      const legacyLong = generate(withDirections('long'));
+      expect(legacyLong).toContain('input bool InpTradeLong = true;');
+      expect(legacyLong).toContain('input bool InpTradeShort = false;');
+    }
+  });
+
+  it('closes on the opposite of the open position type, not of an input flag', () => {
+    const mq5 = generateMql5(withDirections('long', ['long', 'short']));
+    expect(mq5).toContain('EntrySignal(PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_BUY)');
+    const mq4 = generateMql4(withDirections('long', ['long', 'short']));
+    expect(mq4).toContain('EntrySignal(OrderType() != OP_BUY)');
+  });
+
+  it('adds retcode logging, filling mode selection and stops-level guard', () => {
+    const mq5 = generateMql5(withDirections('long', ['long', 'short']));
+    expect(mq5).toContain('trade.SetTypeFilling(FillingModeForSymbol())');
+    expect(mq5).toContain('SYMBOL_FILLING_MODE');
+    expect(mq5).toContain('trade.ResultRetcode()');
+    expect(mq5).toContain('SYMBOL_TRADE_STOPS_LEVEL');
+    expect(generateMql4(withDirections('long', ['long', 'short']))).toContain('MODE_STOPLEVEL');
   });
 });

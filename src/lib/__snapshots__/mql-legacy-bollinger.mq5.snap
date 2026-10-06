@@ -15,6 +15,7 @@ input double InpRiskPercent = 1;
 input double InpMaxLots = 100;
 input int InpMagicNumber = 67890;
 input bool InpTradeLong = true;
+input bool InpTradeShort = false;
 input bool InpSessionFilterEnable = true;
 input string InpSessionStart = "08:00";
 input string InpSessionEnd = "17:30";
@@ -340,24 +341,53 @@ bool SelectCurrentPosition()
   return false;
 }
 
-void OpenPosition()
+ENUM_ORDER_TYPE_FILLING FillingModeForSymbol()
+{
+  long modes = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
+  if((modes & SYMBOL_FILLING_FOK) != 0) return ORDER_FILLING_FOK;
+  if((modes & SYMBOL_FILLING_IOC) != 0) return ORDER_FILLING_IOC;
+  return ORDER_FILLING_RETURN;
+}
+
+// Orders whose SL/TP sit closer than the broker minimum are skipped, not silently widened, so results stay comparable with the backtest.
+bool StopsDistanceAllowed(double referencePrice, double sl, double tp)
+{
+  double minDistance = (double)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * _Point;
+  if(MathAbs(referencePrice - sl) < minDistance || MathAbs(referencePrice - tp) < minDistance)
+  {
+    Print("Order skipped: SL/TP closer than SYMBOL_TRADE_STOPS_LEVEL (", minDistance, ")");
+    return false;
+  }
+  return true;
+}
+
+void OpenPosition(bool longSide)
 {
   double pip = PipPoint();
   double lots = LotSizeForEntry();
   trade.SetExpertMagicNumber(InpMagicNumber);
   trade.SetDeviationInPoints(20);
-  if(InpTradeLong)
+  trade.SetTypeFilling(FillingModeForSymbol());
+  double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+  double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+  if(longSide)
   {
-    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double sl = NormalizeDouble(ask - InpStopLossPips * pip, _Digits);
     double tp = NormalizeDouble(ask + InpTakeProfitPips * pip, _Digits);
-    trade.Buy(lots, _Symbol, ask, sl, tp, "FullTestEA");
+    if(!StopsDistanceAllowed(bid, sl, tp)) return;
+    if(!trade.Buy(lots, _Symbol, ask, sl, tp, "FullTestEA"))
+    {
+      Print("Buy failed: retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+    }
     return;
   }
-  double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
   double sl = NormalizeDouble(bid + InpStopLossPips * pip, _Digits);
   double tp = NormalizeDouble(bid - InpTakeProfitPips * pip, _Digits);
-  trade.Sell(lots, _Symbol, bid, sl, tp, "FullTestEA");
+  if(!StopsDistanceAllowed(ask, sl, tp)) return;
+  if(!trade.Sell(lots, _Symbol, bid, sl, tp, "FullTestEA"))
+  {
+    Print("Sell failed: retcode=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+  }
 }
 
 void CloseCurrentPosition()
@@ -412,14 +442,18 @@ void OnTick()
   }
   if(SelectCurrentPosition())
   {
-    if(InpCloseOnOppositeSignal && EntrySignal(!InpTradeLong))
+    if(InpCloseOnOppositeSignal && EntrySignal(PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_BUY))
     {
       CloseCurrentPosition();
     }
     return;
   }
-  if(EntryFiltersAllow() && EntrySignal(InpTradeLong))
+  if(!(EntryFiltersAllow()))
   {
-    OpenPosition();
+    return;
+  }
+  if(InpTradeLong && EntrySignal(true))
+  {
+    OpenPosition(true);
   }
 }

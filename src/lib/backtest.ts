@@ -5,6 +5,7 @@ import {
   pipSize,
   priceToPips,
   pipsToPrice,
+  entryDirectionsForStrategy,
   reentryCooldownBarsForStrategy,
 } from './strategy';
 import type { MoneyManagementSettings, StrategyDefinition, StrategyDirection } from './strategy';
@@ -95,17 +96,6 @@ const DEFAULT_USDJPY_RATE = 150;
 
 const oppositeDirection = (direction: StrategyDirection): StrategyDirection =>
   direction === 'long' ? 'short' : 'long';
-
-const entryDirectionsForStrategy = (strategy: StrategyDefinition): StrategyDirection[] => {
-  const directions = strategy.entryDirections?.length ? strategy.entryDirections : [strategy.direction];
-  const uniqueDirections: StrategyDirection[] = [];
-  for (const direction of directions) {
-    if ((direction === 'long' || direction === 'short') && !uniqueDirections.includes(direction)) {
-      uniqueDirections.push(direction);
-    }
-  }
-  return uniqueDirections.length > 0 ? uniqueDirections : [strategy.direction];
-};
 
 const roundPips = (value: number): number => Math.round(value * 10) / 10;
 

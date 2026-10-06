@@ -1534,3 +1534,15 @@ export const reentryCooldownBarsForStrategy = (strategy: StrategyDefinition): nu
   }
   return bars;
 };
+
+/** Entry directions in evaluation order; falls back to the legacy single `direction`. */
+export const entryDirectionsForStrategy = (strategy: StrategyDefinition): StrategyDirection[] => {
+  const directions = strategy.entryDirections?.length ? strategy.entryDirections : [strategy.direction];
+  const uniqueDirections: StrategyDirection[] = [];
+  for (const direction of directions) {
+    if ((direction === 'long' || direction === 'short') && !uniqueDirections.includes(direction)) {
+      uniqueDirections.push(direction);
+    }
+  }
+  return uniqueDirections.length > 0 ? uniqueDirections : [strategy.direction];
+};

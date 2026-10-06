@@ -10,6 +10,7 @@ input double InpRiskPercent = 1;
 input double InpMaxLots = 100;
 input int InpMagicNumber = 67890;
 input bool InpTradeLong = true;
+input bool InpTradeShort = false;
 input bool InpSessionFilterEnable = true;
 input string InpSessionStart = "08:00";
 input string InpSessionEnd = "17:30";
@@ -358,15 +359,28 @@ bool HasPosition()
   return CurrentOrderTicket() >= 0;
 }
 
-void OpenPosition()
+// Orders whose SL/TP sit closer than the broker minimum are skipped, not silently widened, so results stay comparable with the backtest.
+bool StopsDistanceAllowed(double referencePrice, double sl, double tp)
+{
+  double minDistance = MarketInfo(_Symbol, MODE_STOPLEVEL) * Point;
+  if(MathAbs(referencePrice - sl) < minDistance || MathAbs(referencePrice - tp) < minDistance)
+  {
+    Print("Order skipped: SL/TP closer than MODE_STOPLEVEL (", minDistance, ")");
+    return false;
+  }
+  return true;
+}
+
+void OpenPosition(bool longSide)
 {
   RefreshRates();
   double pip = PipPoint();
   double lots = LotSizeForEntry();
-  if(InpTradeLong)
+  if(longSide)
   {
     double sl = NormalizeDouble(Ask - InpStopLossPips * pip, Digits);
     double tp = NormalizeDouble(Ask + InpTakeProfitPips * pip, Digits);
+    if(!StopsDistanceAllowed(Bid, sl, tp)) return;
     int ticket = OrderSend(_Symbol, OP_BUY, lots, Ask, 20, sl, tp, "FullTestEA", InpMagicNumber, 0, clrGreen);
     if(ticket < 0)
     {
@@ -376,6 +390,7 @@ void OpenPosition()
   }
   double sl = NormalizeDouble(Bid + InpStopLossPips * pip, Digits);
   double tp = NormalizeDouble(Bid - InpTakeProfitPips * pip, Digits);
+  if(!StopsDistanceAllowed(Ask, sl, tp)) return;
   int ticket = OrderSend(_Symbol, OP_SELL, lots, Bid, 20, sl, tp, "FullTestEA", InpMagicNumber, 0, clrRed);
   if(ticket < 0)
   {
@@ -449,14 +464,18 @@ void OnTick()
   }
   if(HasPosition())
   {
-    if(InpCloseOnOppositeSignal && EntrySignal(!InpTradeLong))
+    if(InpCloseOnOppositeSignal && OrderSelect(CurrentOrderTicket(), SELECT_BY_TICKET, MODE_TRADES) && EntrySignal(OrderType() != OP_BUY))
     {
       CloseCurrentPosition();
     }
     return;
   }
-  if(EntryFiltersAllow() && EntrySignal(InpTradeLong))
+  if(!(EntryFiltersAllow()))
   {
-    OpenPosition();
+    return;
+  }
+  if(InpTradeLong && EntrySignal(true))
+  {
+    OpenPosition(true);
   }
 }
