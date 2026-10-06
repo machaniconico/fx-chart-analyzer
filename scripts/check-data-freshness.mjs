@@ -499,6 +499,10 @@ export const runFreshnessGate = async ({
   const { health, healthFileExists, healthReadError } = await readSourceHealthFn();
   const dukascopyCount = Number(health?.sources?.dukascopy) || 0;
   const yahooFallbackCount = Number(health?.sources?.['yahoo-fallback']) || 0;
+  const derivedSummary = ['dukascopy-m30', 'dukascopy-m15']
+    .filter((key) => Number(health?.sources?.[key]) > 0)
+    .map((key) => `, ${key}=${Number(health.sources[key])}`)
+    .join('');
   const lastPrimarySuccessMs = health?.lastPrimarySuccessAt == null
     ? NaN
     : Date.parse(health.lastPrimarySuccessAt);
@@ -506,7 +510,7 @@ export const runFreshnessGate = async ({
     ? `${health.lastPrimarySuccessAt}, ${((nowMs - lastPrimarySuccessMs) / HOUR_MS).toFixed(1)}h ago`
     : 'unknown';
   log(
-    `Source breakdown: dukascopy=${dukascopyCount}, yahoo-fallback=${yahooFallbackCount} ` +
+    `Source breakdown: dukascopy=${dukascopyCount}, yahoo-fallback=${yahooFallbackCount}${derivedSummary} ` +
       `(last primary success ${lastPrimarySummary}).`,
   );
 

@@ -697,12 +697,12 @@ describe('h1 fallback from Dukascopy minute bars', () => {
 
   describe('aggregate adoption rules', () => {
     const E = Date.UTC(2026, 9, 6, 11) / 1000; // incoming tail hour for fnow=12:10
-    const run = async ({ existingEnd, drop = () => false, yahoo }) => {
+    const run = async ({ existingEnd, drop = () => false, yahoo, olderYahoo = false }) => {
       vi.spyOn(console, 'warn').mockImplementation(() => {});
       const h1 = makeBars({ count: 8000, endTime: existingEnd, stepSeconds: H });
       const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
       const minute = freshM30().filter((bar) => !drop(bar.t));
-      const fetchYahoo = vi.fn(async () => yahoo ?? makeBars({ count: 8000, endTime: fnow - H, stepSeconds: H, price: 200 }));
+      const fetchYahoo = vi.fn(async () => yahoo ?? makeBars({ count: 8000, endTime: fnow - (olderYahoo ? 48 : 1) * H, stepSeconds: H, price: 200 }));
       const result = await fetchH1AndH4WithFallback('GBPJPY', {
         fetchPrimary: async () => {
           throw new Error('429');
@@ -746,11 +746,12 @@ describe('h1 fallback from Dukascopy minute bars', () => {
       const friClose = Date.UTC(2026, 9, 2, 22) / 1000;
       const sunOpen = Date.UTC(2026, 9, 4, 21) / 1000;
       const missingHour = Date.UTC(2026, 9, 6, 5) / 1000;
-      const { result, fetchYahoo } = await run({
+      // holes remain (single missing hour) so Yahoo is consulted, but an older Yahoo loses to the aggregate
+      const { result } = await run({
+        olderYahoo: true,
         existingEnd: Date.UTC(2026, 9, 2, 20) / 1000,
         drop: (t) => (t >= friClose && t < sunOpen) || (t >= missingHour && t < missingHour + H),
       });
-      expect(fetchYahoo).not.toHaveBeenCalled();
       expect(result.h1.source).toBe('dukascopy-m30');
     });
   });
@@ -941,7 +942,51 @@ describe('h1 fallback from Dukascopy minute bars', () => {
       });
     });
 
-    const dstRun = async ({ now, existingEnd, dropFrom, dropTo }) => {
+    it('uses the fetch time, not processing time, to decide which minute bars are closed (Codex 11:59 m15 case)', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 7), stepSeconds: H });
+      const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
+      const end = u(2026, 9, 6, 11, 45);
+      const m15 = makeBars({ count: 8000, endTime: end, stepSeconds: 900 }).map((bar, i) => ({ ...bar, t: end - (7999 - i) * 900 }));
+      const fetchYahoo = vi.fn();
+      const result = await fetchH1AndH4WithFallback('GBPJPY', {
+        fetchPrimary: failPrimary,
+        fetchYahoo,
+        readExisting: async (_p, tf) => stored[tf],
+        nowMs: u(2026, 9, 6, 12, 1) * 1000,
+        lowerTimeframeBars: { m15: { bars: m15, fetchedAtMs: u(2026, 9, 6, 11, 59) * 1000 } },
+      });
+      expect(fetchYahoo).not.toHaveBeenCalled();
+      expect(result.h1.source).toBe('dukascopy-m15');
+      expect(result.h1.bars.at(-1).t).toBe(u(2026, 9, 6, 10));
+      expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 4));
+    });
+
+    it('does not freeze a partial existing h4 / missing h1: Yahoo fills it (Codex 20:00 bucket case)', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 21), stepSeconds: H });
+      const h4 = aggregateH4(h1); // keeps the partial 20:00 bucket saved by the 21:00 run
+      expect(h4.at(-1).t).toBe(u(2026, 9, 6, 20));
+      const stored = { h1, h4 };
+      const lastClosed = u(2026, 9, 7, 0, 30);
+      const m30 = makeBars({ count: 4000, endTime: lastClosed, stepSeconds: 1800 })
+        .map((bar, i) => ({ ...bar, t: lastClosed - (3999 - i) * 1800 }))
+        .filter((bar) => bar.t < u(2026, 9, 6, 22) || bar.t >= u(2026, 9, 6, 23));
+      const yahooH1 = makeBars({ count: 8000, endTime: u(2026, 9, 7, 0), stepSeconds: H, price: 200 });
+      const fetchYahoo = vi.fn(async () => yahooH1);
+      const result = await fetchH1AndH4WithFallback('GBPJPY', {
+        fetchPrimary: failPrimary,
+        fetchYahoo,
+        readExisting: async (_p, tf) => stored[tf],
+        nowMs: u(2026, 9, 7, 1, 10) * 1000,
+        lowerTimeframeBars: { m30 },
+      });
+      expect(fetchYahoo).toHaveBeenCalledOnce();
+      expect(result.h1.source).toBe('yahoo-fallback');
+      expect(result.h1.bars.find((bar) => bar.t === u(2026, 9, 6, 22))).toBeDefined();
+    });
+
+    const dstRun = async ({ now, existingEnd, dropFrom, dropTo, yahooAgeHours = 1 }) => {
       vi.spyOn(console, 'warn').mockImplementation(() => {});
       const nowS = Math.floor(now / 1800) * 1800 + 600;
       const h1 = makeBars({ count: 8000, endTime: existingEnd, stepSeconds: H });
@@ -950,7 +995,7 @@ describe('h1 fallback from Dukascopy minute bars', () => {
       const minute = makeBars({ count: 4000, endTime: lastClosed, stepSeconds: 1800 })
         .map((bar, i) => ({ ...bar, t: lastClosed - (3999 - i) * 1800 }))
         .filter((bar) => !(bar.t >= dropFrom && bar.t < dropTo));
-      const fetchYahoo = vi.fn(async () => makeBars({ count: 8000, endTime: nowS - H, stepSeconds: H, price: 200 }));
+      const fetchYahoo = vi.fn(async () => makeBars({ count: 8000, endTime: nowS - yahooAgeHours * H, stepSeconds: H, price: 200 }));
       const result = await fetchH1AndH4WithFallback('GBPJPY', {
         fetchPrimary: failPrimary,
         fetchYahoo,
@@ -964,14 +1009,14 @@ describe('h1 fallback from Dukascopy minute bars', () => {
     it('summer: 3 missing market hours before the Friday 17:00 NY close are tolerated, 4 are rejected', async () => {
       const now = u(2026, 6, 14, 12);
       const sunOpen = u(2026, 6, 12, 21);
-      expect(await dstRun({ now, existingEnd: u(2026, 6, 10, 17), dropFrom: u(2026, 6, 10, 18), dropTo: sunOpen })).toBe('dukascopy-m30');
+      expect(await dstRun({ now, existingEnd: u(2026, 6, 10, 17), dropFrom: u(2026, 6, 10, 18), dropTo: sunOpen, yahooAgeHours: 60 })).toBe('dukascopy-m30');
       expect(await dstRun({ now, existingEnd: u(2026, 6, 10, 16), dropFrom: u(2026, 6, 10, 17), dropTo: sunOpen })).toBe('yahoo-fallback');
     });
 
     it('winter: 3 missing market hours after the Sunday 17:00 NY reopen are tolerated, 4 are rejected', async () => {
       const now = u(2026, 0, 13, 12);
       const dropFrom = u(2026, 0, 9, 22);
-      expect(await dstRun({ now, existingEnd: u(2026, 0, 9, 21), dropFrom, dropTo: u(2026, 0, 12, 1) })).toBe('dukascopy-m30');
+      expect(await dstRun({ now, existingEnd: u(2026, 0, 9, 21), dropFrom, dropTo: u(2026, 0, 12, 1), yahooAgeHours: 60 })).toBe('dukascopy-m30');
       expect(await dstRun({ now, existingEnd: u(2026, 0, 9, 21), dropFrom, dropTo: u(2026, 0, 12, 2) })).toBe('yahoo-fallback');
     });
   });

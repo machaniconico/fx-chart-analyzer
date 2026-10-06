@@ -596,7 +596,7 @@ export const fetchH1AndH4WithFallback = async (
     fetchYahoo = fetchYahooTimeframe,
     readExisting = readExistingBars,
     nowMs = Date.now(),
-    // 同じ実行で Dukascopy から取得済みの m30 / m15 (Yahoo など他ソースのものは渡さない)。
+    // 同じ実行で Dukascopy から取得済みの m30 / m15: 配列、または { bars, fetchedAtMs } (Yahoo 由来は渡さない)。
     lowerTimeframeBars = {},
   } = {},
 ) => {
@@ -637,7 +637,15 @@ export const fetchH1AndH4WithFallback = async (
       );
       // 最良の集約候補が最新 h4 に届かなかった場合のみここに来る。Yahoo が厳密に新しければ Yahoo、他は候補。
       const yahooResult = { h1, h4 };
-      return derived && !isNewerResult(yahooResult, derived.result) ? derived.result : yahooResult;
+      if (!derived) {
+        return yahooResult;
+      }
+      // 穴(欠損 h1 / 部分 h4)が残る候補は Yahoo の追記で埋まるので、Yahoo が古くなければ Yahoo を使う。
+      // 穴が無く末尾だけ遅れる候補は、Yahoo が厳密に新しい時だけ Yahoo に譲る。
+      const yahooWins = derived.hasHoles
+        ? !isNewerResult(derived.result, yahooResult)
+        : isNewerResult(yahooResult, derived.result);
+      return yahooWins ? yahooResult : derived.result;
     } catch (yahooError) {
       if (derived) {
         return derived.result;
@@ -769,17 +777,21 @@ const buildH1H4FromLowerTimeframes = async (
   { readExisting, lowerTimeframeBars, nowMs },
 ) => {
   let best = null;
+  let latestFetchedAtSeconds = 0;
   for (const tf of ['m30', 'm15']) {
-    const minuteBars = lowerTimeframeBars[tf];
+    // 分足は取得時点のスナップショット。確定判定は処理時点ではなく取得時刻(fetchedAtMs)で行う。
+    const entry = lowerTimeframeBars[tf];
+    const minuteBars = Array.isArray(entry) ? entry : entry?.bars;
     if (!Array.isArray(minuteBars) || minuteBars.length === 0) {
       continue;
     }
+    const fetchedAtSeconds = Math.floor((Array.isArray(entry) ? nowMs : entry.fetchedAtMs ?? nowMs) / 1000);
     try {
       const existingH1 = await readExisting(pair, 'h1');
       if (!Array.isArray(existingH1)) {
         throw new Error('no existing h1 to extend');
       }
-      const incomingH1 = aggregateH1FromMinuteBars(minuteBars, tf, { nowSeconds: Math.floor(nowMs / 1000) });
+      const incomingH1 = aggregateH1FromMinuteBars(minuteBars, tf, { nowSeconds: fetchedAtSeconds });
       if (incomingH1.length === 0) {
         throw new Error('no complete hours');
       }
@@ -804,7 +816,21 @@ const buildH1H4FromLowerTimeframes = async (
       const h4 = await buildOverlayResult(pair, 'h4', mergedH4, existingH4 ?? [], incomingH4, source);
       // m30/m15 は両方とも同じ実行で取得済みなので全候補を計算し、(h4 末尾, h1 末尾) が最も新しいものを選ぶ。
       // 同点は先に評価した m30 を優先する。
-      const candidate = { h1, h4 };
+      // 既存末尾のバケットから取得時点で確定済みの最後の時間までに、市場時間内の h1 欠損や
+      // 欠けた h4 バケットが残っていれば、Yahoo(追記で埋まる)の方が良い可能性があるので hasHoles とする。
+      const windowStart = Math.floor(existingH1[existingH1.length - 1].t / barSecondsByTimeframe.h4) * barSecondsByTimeframe.h4;
+      const lastClosedHour = Math.floor(fetchedAtSeconds / barSecondsByTimeframe.h1) * barSecondsByTimeframe.h1 - barSecondsByTimeframe.h1;
+      let hasHoles = false;
+      for (let t = windowStart; t <= lastClosedHour; t += barSecondsByTimeframe.h1) {
+        if (isFxMarketHour(t) && !mergedH1Times.has(t)) hasHoles = true;
+      }
+      const h4Times = new Set(h4.bars.map((bar) => bar.t));
+      const ownExpectedBucket = expectedLatestH4Bucket(fetchedAtSeconds);
+      for (let t = windowStart; t <= ownExpectedBucket; t += barSecondsByTimeframe.h4) {
+        if (!h4Times.has(t) && [0, 1, 2, 3].some((i) => isFxMarketHour(t + i * barSecondsByTimeframe.h1))) hasHoles = true;
+      }
+      latestFetchedAtSeconds = Math.max(latestFetchedAtSeconds, fetchedAtSeconds);
+      const candidate = { h1, h4, hasHoles };
       if (!best || isNewerResult(candidate, best)) {
         best = candidate;
       }
@@ -815,8 +841,8 @@ const buildH1H4FromLowerTimeframes = async (
   if (!best) {
     return null;
   }
-  const expectedBucket = expectedLatestH4Bucket(Math.floor(nowMs / 1000));
-  const complete = best.h4.bars.at(-1).t >= expectedBucket;
+  const expectedBucket = expectedLatestH4Bucket(latestFetchedAtSeconds);
+  const complete = !best.hasHoles && best.h4.bars.at(-1).t >= expectedBucket;
   if (complete) {
     console.warn(
       `  Dukascopy h1 failed for ${pair}: ${formatError(dukascopyError)}; built h1/h4 from ${best.h1.source}`,
@@ -826,7 +852,7 @@ const buildH1H4FromLowerTimeframes = async (
       `  ${best.h1.source} h4 for ${pair} lacks the latest closed bucket ${new Date(expectedBucket * 1000).toISOString()}`,
     );
   }
-  return { result: best, complete };
+  return { result: { h1: best.h1, h4: best.h4 }, complete, hasHoles: best.hasHoles };
 };
 
 const isNewerResult = (a, b) => {
@@ -899,8 +925,9 @@ export const main = async () => {
     const lowerTimeframeBars = {};
     console.log(`Fetching ${pair} m15...`);
     await tryUpdate(pair, 'm15', async () => {
+      const fetchedAtMs = Date.now();
       const m15 = await fetchTimeframeWithFallback(pair, 'm15', M15_LOOKBACK_DAYS);
-      if (m15.source === 'dukascopy') lowerTimeframeBars.m15 = m15.bars;
+      if (m15.source === 'dukascopy') lowerTimeframeBars.m15 = { bars: m15.bars, fetchedAtMs };
       const message = await persistBars(pair, 'm15', m15);
       processedSources.push({ timeframe: 'm15', source: m15.source });
       console.log(`  ${message}`);
@@ -908,8 +935,9 @@ export const main = async () => {
 
     console.log(`Fetching ${pair} m30...`);
     await tryUpdate(pair, 'm30', async () => {
+      const fetchedAtMs = Date.now();
       const m30 = await fetchTimeframeWithFallback(pair, 'm30', M30_LOOKBACK_DAYS);
-      if (m30.source === 'dukascopy') lowerTimeframeBars.m30 = m30.bars;
+      if (m30.source === 'dukascopy') lowerTimeframeBars.m30 = { bars: m30.bars, fetchedAtMs };
       const message = await persistBars(pair, 'm30', m30);
       processedSources.push({ timeframe: 'm30', source: m30.source });
       console.log(`  ${message}`);
