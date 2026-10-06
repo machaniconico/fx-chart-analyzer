@@ -876,6 +876,71 @@ describe('h1 fallback from Dukascopy minute bars', () => {
       expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 4));
     });
 
+    describe('candidate selection', () => {
+      const series = (step, end, drop = () => false) =>
+        makeBars({ count: 8000, endTime: end, stepSeconds: step })
+          .map((bar, i) => ({ ...bar, t: end - (7999 - i) * step }))
+          .filter((bar) => !drop(bar.t));
+      const select = async ({ nowS, m30, m15, yahooEnd }) => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const h1 = makeBars({ count: 8000, endTime: u(2026, 9, 6, 7), stepSeconds: H });
+        const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
+        const fetchYahoo = vi.fn(async () => {
+          if (yahooEnd === undefined) throw new Error('yahoo down');
+          return makeBars({ count: 8000, endTime: yahooEnd, stepSeconds: H, price: 200 });
+        });
+        const result = await fetchH1AndH4WithFallback('GBPJPY', {
+          fetchPrimary: failPrimary,
+          fetchYahoo,
+          readExisting: async (_p, tf) => stored[tf],
+          nowMs: nowS * 1000,
+          lowerTimeframeBars: { m30, m15 },
+        });
+        return { result, fetchYahoo };
+      };
+      const now16 = u(2026, 9, 6, 16, 10);
+      const hole13 = (t) => t >= u(2026, 9, 6, 13) && t < u(2026, 9, 6, 14);
+      const lagging = () => ({
+        m30: series(1800, u(2026, 9, 6, 15, 30), hole13),
+        m15: series(900, u(2026, 9, 6, 7, 45)),
+      });
+
+      it('prefers the newer m30 over a stale m15 (Codex 16:10 case); neither reaches 12:00 -> Yahoo older -> m30', async () => {
+        const { result, fetchYahoo } = await select({ nowS: now16, ...lagging(), yahooEnd: u(2026, 9, 6, 10) });
+        expect(fetchYahoo).toHaveBeenCalledOnce();
+        expect(result.h1.source).toBe('dukascopy-m30');
+        expect(result.h1.bars.at(-1).t).toBe(u(2026, 9, 6, 15));
+        expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 8));
+      });
+
+      it('uses Yahoo when neither candidate reaches the expected bucket and Yahoo is newer', async () => {
+        const { result } = await select({ nowS: now16, ...lagging(), yahooEnd: u(2026, 9, 6, 15) });
+        expect(result.h1.source).toBe('yahoo-fallback');
+        expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 12));
+      });
+
+      it('prefers the newer m15 over a stale m30 and does not call Yahoo when expectation is met', async () => {
+        const { result, fetchYahoo } = await select({
+          nowS: u(2026, 9, 6, 12, 10),
+          m30: series(1800, u(2026, 9, 6, 7, 30)),
+          m15: series(900, u(2026, 9, 6, 11, 45)),
+        });
+        expect(fetchYahoo).not.toHaveBeenCalled();
+        expect(result.h1.source).toBe('dukascopy-m15');
+        expect(result.h4.bars.at(-1).t).toBe(u(2026, 9, 6, 8));
+      });
+
+      it('breaks ties in favour of m30 and skips Yahoo when the expected bucket is reached', async () => {
+        const { result, fetchYahoo } = await select({
+          nowS: u(2026, 9, 6, 12, 10),
+          m30: series(1800, u(2026, 9, 6, 11, 30)),
+          m15: series(900, u(2026, 9, 6, 11, 45)),
+        });
+        expect(fetchYahoo).not.toHaveBeenCalled();
+        expect(result.h1.source).toBe('dukascopy-m30');
+      });
+    });
+
     const dstRun = async ({ now, existingEnd, dropFrom, dropTo }) => {
       vi.spyOn(console, 'warn').mockImplementation(() => {});
       const nowS = Math.floor(now / 1800) * 1800 + 600;

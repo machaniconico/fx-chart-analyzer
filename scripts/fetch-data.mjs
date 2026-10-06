@@ -635,11 +635,9 @@ export const fetchH1AndH4WithFallback = async (
         aggregateH4(yahooH1, { dropIncompleteTail: true }),
         { readExisting },
       );
-      // 集約候補が最新 h4 を作れなかった場合は、h4 がより新しい方(同点は Dukascopy 側)を使う。
-      if (derived && derived.result.h4.bars.at(-1).t >= h4.bars.at(-1).t) {
-        return derived.result;
-      }
-      return { h1, h4 };
+      // 最良の集約候補が最新 h4 に届かなかった場合のみここに来る。Yahoo が厳密に新しければ Yahoo、他は候補。
+      const yahooResult = { h1, h4 };
+      return derived && !isNewerResult(yahooResult, derived.result) ? derived.result : yahooResult;
     } catch (yahooError) {
       if (derived) {
         return derived.result;
@@ -804,31 +802,47 @@ const buildH1H4FromLowerTimeframes = async (
       );
       const mergedH4 = overlayBars(existingH4 ?? [], incomingH4);
       const h4 = await buildOverlayResult(pair, 'h4', mergedH4, existingH4 ?? [], incomingH4, source);
-      // 確定しているはずの最新 h4 バケット(最後の確定 h1 の終端までで閉じる最後のバケット)を
-      // 作れない候補は不採用にして次の候補へ。全滅時は h4 が最も新しい候補を返す。
-      const incomingTail = incomingH1[incomingH1.length - 1].t;
-      const h4Seconds = barSecondsByTimeframe.h4;
-      const expectedBucket =
-        Math.floor((incomingTail + barSecondsByTimeframe.h1) / h4Seconds) * h4Seconds - h4Seconds;
-      const hasLatestH4 = [...incomingH4, ...(existingH4 ?? [])].some((bar) => bar.t === expectedBucket);
+      // m30/m15 は両方とも同じ実行で取得済みなので全候補を計算し、(h4 末尾, h1 末尾) が最も新しいものを選ぶ。
+      // 同点は先に評価した m30 を優先する。
       const candidate = { h1, h4 };
-      if (hasLatestH4) {
-        console.warn(
-          `  Dukascopy h1 failed for ${pair}: ${formatError(dukascopyError)}; built h1/h4 from Dukascopy ${tf}`,
-        );
-        return { result: candidate, complete: true };
-      }
-      console.warn(
-        `  Dukascopy ${tf} -> h4 for ${pair} lacks the latest closed bucket ${new Date(expectedBucket * 1000).toISOString()}`,
-      );
-      if (!best || candidate.h4.bars.at(-1).t > best.h4.bars.at(-1).t) {
+      if (!best || isNewerResult(candidate, best)) {
         best = candidate;
       }
     } catch (error) {
       console.warn(`  Dukascopy ${tf} -> h1 aggregation unusable for ${pair}: ${formatError(error)}`);
     }
   }
-  return best ? { result: best, complete: false } : null;
+  if (!best) {
+    return null;
+  }
+  const expectedBucket = expectedLatestH4Bucket(Math.floor(nowMs / 1000));
+  const complete = best.h4.bars.at(-1).t >= expectedBucket;
+  if (complete) {
+    console.warn(
+      `  Dukascopy h1 failed for ${pair}: ${formatError(dukascopyError)}; built h1/h4 from ${best.h1.source}`,
+    );
+  } else {
+    console.warn(
+      `  ${best.h1.source} h4 for ${pair} lacks the latest closed bucket ${new Date(expectedBucket * 1000).toISOString()}`,
+    );
+  }
+  return { result: best, complete };
+};
+
+const isNewerResult = (a, b) => {
+  const h4Diff = a.h4.bars.at(-1).t - b.h4.bars.at(-1).t;
+  return h4Diff !== 0 ? h4Diff > 0 : a.h1.bars.at(-1).t > b.h1.bars.at(-1).t;
+};
+
+// 現在時刻までに確定している最新の h4 バケット。市場時間が全く無い(週末)バケットは遡って飛ばす。
+const expectedLatestH4Bucket = (nowSeconds) => {
+  const h4Seconds = barSecondsByTimeframe.h4;
+  const hour = barSecondsByTimeframe.h1;
+  let bucket = Math.floor(nowSeconds / h4Seconds) * h4Seconds - h4Seconds;
+  while ([0, 1, 2, 3].every((i) => !isFxMarketHour(bucket + i * hour))) {
+    bucket -= h4Seconds;
+  }
+  return bucket;
 };
 
 export const aggregateH4 = (h1Bars, { dropIncompleteTail = false } = {}) => {
