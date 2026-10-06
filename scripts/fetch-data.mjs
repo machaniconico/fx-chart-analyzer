@@ -671,6 +671,11 @@ export const aggregateH1FromMinuteBars = (bars, tf, { nowSeconds = Math.floor(Da
     group.v += bar.v;
   }
   const result = [...grouped.values()].sort((a, b) => a.t - b.t);
+  // 取得範囲の途中から始まる最初の時間は、先頭のサブ足が時間境界ちょうどでなければ一部の足しか
+  // 含まない(完全な既存足を壊す)ので除外する。
+  if (result.length > 0 && closed[0].t % hour !== 0) {
+    result.shift();
+  }
   const lastSource = closed[closed.length - 1];
   if (result.length > 0 && lastSource.t + barSeconds < result[result.length - 1].t + hour) {
     result.pop();
@@ -683,14 +688,21 @@ export const aggregateH1FromMinuteBars = (bars, tf, { nowSeconds = Math.floor(Da
 const AGGREGATE_MAX_LAG_HOURS = 6;
 const AGGREGATE_MAX_MARKET_GAP_HOURS = 3;
 
-// FX の週末クローズ: 金 22:00 UTC 頃 〜 日 21:00 UTC 頃。
-const isFxMarketHour = (seconds) => {
-  const date = new Date(seconds * 1000);
-  const day = date.getUTCDay();
-  const hour = date.getUTCHours();
-  if (day === 6) return false;
-  if (day === 5 && hour >= 22) return false;
-  if (day === 0 && hour < 21) return false;
+// FX の週末クローズ: America/New_York の金 17:00 〜 日 17:00 (夏冬で UTC 境界が 1 時間動く)。
+const nyHourFormat = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  weekday: 'short',
+  hour: 'numeric',
+  hourCycle: 'h23',
+});
+export const isFxMarketHour = (seconds) => {
+  const parts = Object.fromEntries(
+    nyHourFormat.formatToParts(new Date(seconds * 1000)).map((part) => [part.type, part.value]),
+  );
+  const hour = Number(parts.hour);
+  if (parts.weekday === 'Sat') return false;
+  if (parts.weekday === 'Fri' && hour >= 17) return false;
+  if (parts.weekday === 'Sun' && hour < 17) return false;
   return true;
 };
 
@@ -771,7 +783,18 @@ const buildH1H4FromLowerTimeframes = async (
       const h1 = await buildOverlayResult(pair, 'h1', mergedH1, existingH1, incomingH1, source);
       const existingH4 = await readExisting(pair, 'h4');
       const h4FirstBucket = Math.floor(incomingH1[0].t / barSecondsByTimeframe.h4) * barSecondsByTimeframe.h4;
-      const incomingH4 = aggregateH4(mergedH1, { dropIncompleteTail: true }).filter((bar) => bar.t >= h4FirstBucket);
+      const mergedH1Times = new Set(mergedH1.map((bar) => bar.t));
+      const existingH4Times = new Set((existingH4 ?? []).map((bar) => bar.t));
+      // 材料の h1 が揃っている(市場時間内の欠けが無い)バケットだけ既存 h4 を置換する。
+      // 揃わないバケットは既存 h4 を保持し、既存が無い時だけ部分バケットでも追加する。
+      const isBucketComplete = (bucket) =>
+        [0, 1, 2, 3].every((i) => {
+          const t = bucket + i * barSecondsByTimeframe.h1;
+          return mergedH1Times.has(t) || !isFxMarketHour(t);
+        });
+      const incomingH4 = aggregateH4(mergedH1, { dropIncompleteTail: true }).filter(
+        (bar) => bar.t >= h4FirstBucket && (isBucketComplete(bar.t) || !existingH4Times.has(bar.t)),
+      );
       const mergedH4 = overlayBars(existingH4 ?? [], incomingH4);
       const h4 = await buildOverlayResult(pair, 'h4', mergedH4, existingH4 ?? [], incomingH4, source);
       console.warn(

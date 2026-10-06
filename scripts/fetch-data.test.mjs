@@ -4,6 +4,7 @@ import {
   aggregateDailyFromH1,
   aggregateH1FromMinuteBars,
   aggregateH4,
+  isFxMarketHour,
   buildSourceHealth,
   fetchDailyWithFallback,
   fetchH1AndH4WithFallback,
@@ -751,6 +752,92 @@ describe('h1 fallback from Dukascopy minute bars', () => {
       });
       expect(fetchYahoo).not.toHaveBeenCalled();
       expect(result.h1.source).toBe('dukascopy-m30');
+    });
+  });
+
+  it('excludes a first hour that starts mid-hour (m15 starting 09:45)', () => {
+    const t0 = Date.UTC(2026, 9, 6, 9, 45) / 1000;
+    const bars = Array.from({ length: 12 }, (_, i) => m30(t0 + i * 900, 1, 1, 1, 1));
+    const out = aggregateH1FromMinuteBars(bars, 'm15', { nowSeconds: fnow });
+    expect(out[0].t).toBe(Date.UTC(2026, 9, 6, 10) / 1000);
+  });
+
+  it('classifies FX market hours by New York time across DST', () => {
+    const u = (...a) => Date.UTC(...a) / 1000;
+    // summer (EDT): closed Fri 21:00 UTC - Sun 21:00 UTC
+    expect(isFxMarketHour(u(2026, 6, 10, 20))).toBe(true);
+    expect(isFxMarketHour(u(2026, 6, 10, 21))).toBe(false);
+    expect(isFxMarketHour(u(2026, 6, 12, 20))).toBe(false);
+    expect(isFxMarketHour(u(2026, 6, 12, 21))).toBe(true);
+    // winter (EST): closed Fri 22:00 UTC - Sun 22:00 UTC
+    expect(isFxMarketHour(u(2026, 0, 9, 21))).toBe(true);
+    expect(isFxMarketHour(u(2026, 0, 9, 22))).toBe(false);
+    expect(isFxMarketHour(u(2026, 0, 11, 21))).toBe(false);
+    expect(isFxMarketHour(u(2026, 0, 11, 22))).toBe(true);
+  });
+
+  describe('h4 replacement and DST gap rules', () => {
+    const u = (...a) => Date.UTC(...a) / 1000;
+    const failPrimary = async () => {
+      throw new Error('429');
+    };
+
+    it('keeps an existing complete h4 when its leading bucket lacks source h1 (Codex GBPJPY case)', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const h1 = makeBars({ count: (u(2026, 9, 3, 20) - u(2026, 5, 10, 14)) / H + 1, endTime: u(2026, 9, 3, 20), stepSeconds: H });
+      const bucket = u(2026, 5, 10, 12);
+      const sentinel = { t: bucket, o: 999, h: 1000, l: 998, c: 999.5, v: 1 };
+      const older = makeBars({ count: 1000, endTime: bucket - 4 * H, stepSeconds: 4 * H });
+      const h4 = [...older, sentinel, ...aggregateH4(h1.filter((bar) => bar.t >= bucket + 4 * H))];
+      expect(h1[0].t).toBe(u(2026, 5, 10, 14));
+      const nowS = u(2026, 9, 6, 12, 10);
+      const start = u(2026, 5, 10, 15, 30);
+      const minute = Array.from({ length: Math.floor((nowS - start) / 1800) }, (_, i) => ({
+        t: start + i * 1800, o: 150, h: 151, l: 149, c: 150.5, v: 1,
+      }));
+      const result = await fetchH1AndH4WithFallback('GBPJPY', {
+        fetchPrimary: failPrimary,
+        fetchYahoo: vi.fn(),
+        readExisting: async (_p, tf) => (tf === 'h1' ? h1 : h4),
+        nowMs: nowS * 1000,
+        lowerTimeframeBars: { m30: minute },
+      });
+      expect(result.h4.source).toBe('dukascopy-m30');
+      expect(result.h4.bars.find((bar) => bar.t === bucket)).toEqual(sentinel);
+    });
+
+    const dstRun = async ({ now, existingEnd, dropFrom, dropTo }) => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const nowS = Math.floor(now / 1800) * 1800 + 600;
+      const h1 = makeBars({ count: 8000, endTime: existingEnd, stepSeconds: H });
+      const stored = { h1, h4: aggregateH4(h1, { dropIncompleteTail: true }) };
+      const lastClosed = Math.floor((nowS - 1800) / 1800) * 1800;
+      const minute = makeBars({ count: 4000, endTime: lastClosed, stepSeconds: 1800 })
+        .map((bar, i) => ({ ...bar, t: lastClosed - (3999 - i) * 1800 }))
+        .filter((bar) => !(bar.t >= dropFrom && bar.t < dropTo));
+      const fetchYahoo = vi.fn(async () => makeBars({ count: 8000, endTime: nowS - H, stepSeconds: H, price: 200 }));
+      const result = await fetchH1AndH4WithFallback('GBPJPY', {
+        fetchPrimary: failPrimary,
+        fetchYahoo,
+        readExisting: async (_p, tf) => stored[tf],
+        nowMs: nowS * 1000,
+        lowerTimeframeBars: { m30: minute },
+      });
+      return result.h1.source;
+    };
+
+    it('summer: 3 missing market hours before the Friday 17:00 NY close are tolerated, 4 are rejected', async () => {
+      const now = u(2026, 6, 14, 12);
+      const sunOpen = u(2026, 6, 12, 21);
+      expect(await dstRun({ now, existingEnd: u(2026, 6, 10, 17), dropFrom: u(2026, 6, 10, 18), dropTo: sunOpen })).toBe('dukascopy-m30');
+      expect(await dstRun({ now, existingEnd: u(2026, 6, 10, 16), dropFrom: u(2026, 6, 10, 17), dropTo: sunOpen })).toBe('yahoo-fallback');
+    });
+
+    it('winter: 3 missing market hours after the Sunday 17:00 NY reopen are tolerated, 4 are rejected', async () => {
+      const now = u(2026, 0, 13, 12);
+      const dropFrom = u(2026, 0, 9, 22);
+      expect(await dstRun({ now, existingEnd: u(2026, 0, 9, 21), dropFrom, dropTo: u(2026, 0, 12, 1) })).toBe('dukascopy-m30');
+      expect(await dstRun({ now, existingEnd: u(2026, 0, 9, 21), dropFrom, dropTo: u(2026, 0, 12, 2) })).toBe('yahoo-fallback');
     });
   });
 });
