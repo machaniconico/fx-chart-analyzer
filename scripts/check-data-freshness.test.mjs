@@ -639,11 +639,35 @@ describe('freshness gate stages', () => {
     expect(checks.readSourceHealthFn).toHaveBeenCalledOnce();
     expect(checks.evaluateSourceHealthFn).toHaveBeenCalledOnce();
     expect(checks.collectDatasetLatestFn).toHaveBeenCalledWith({
-      timeframes: ['h1', 'h4', 'd1'],
+      timeframes: ['m15', 'm30', 'h1', 'h4', 'd1'],
     });
     expect(checks.evaluateDatasetFreshnessFn).toHaveBeenCalledOnce();
     expect(checks.collectDerivedArtifactsFn).not.toHaveBeenCalled();
     expect(checks.evaluateDerivedFreshnessFn).not.toHaveBeenCalled();
+    expect(checks.checkDataPrFn).not.toHaveBeenCalled();
+  });
+
+  it.each(['m15', 'm30'])('blocks stale %s before commit with the unchanged 96h limit', async (tf) => {
+    const checks = makeChecks();
+    const datasets = [
+      baseDataset({ name: 'EURUSD/h1.json', tf: 'h1' }),
+      baseDataset({ name: `EURUSD/${tf}.json`, tf, latestMs: NOW - 96.1 * HOUR_MS }),
+    ];
+    checks.collectDatasetLatestFn.mockImplementation(async ({ timeframes }) => ({
+      datasets: datasets.filter((dataset) => timeframes.includes(dataset.tf)),
+      pairCount: 1,
+    }));
+    const exitCode = await runFreshnessGate({
+      args: ['--stage=pre-commit'],
+      nowMs: NOW,
+      ...checks,
+      evaluateDatasetFreshnessFn: evaluateDatasetFreshness,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(checks.error).toHaveBeenCalledWith(expect.stringContaining(`Stale dataset EURUSD/${tf}.json`));
+    expect(checks.error).toHaveBeenCalledWith(expect.stringContaining('96h freshness limit'));
+    expect(checks.collectDerivedArtifactsFn).not.toHaveBeenCalled();
     expect(checks.checkDataPrFn).not.toHaveBeenCalled();
   });
 

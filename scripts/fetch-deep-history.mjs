@@ -306,6 +306,7 @@ export const main = async ({
         batchSize: profile.batchSize,
         pauseBetweenBatchesMs: profile.pauseBetweenBatchesMs,
         useCache: true,
+        wafTokenCache: false,
         cacheFolderPath: dukascopyCacheDirectory,
         retryCount: 0,
         retryOnEmpty: false,

@@ -51,6 +51,8 @@ const YAHOO_STANDALONE_MIN_EXPECTED_BARS_BY_TIMEFRAME = {
   m30: 1800,
 };
 export const PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME = Object.freeze({
+  m15: 120,
+  m30: 120,
   h1: 120,
   h4: 120,
   d1: 120,
@@ -283,12 +285,13 @@ const fetchRange = (pair, timeframe, { from, to, retry }, profile, fetchRates) =
       pauseBetweenBatchesMs: profile.pauseBetweenBatchesMs,
       useCache: true,
       cacheFolderPath: cacheDir,
-      // dukascopy-node 1.50.0 のリトライ経路は分足を 429 後に空データ扱いにしてしまう。
-      // 上位層には Yahoo fallback、90秒 timeout、鮮度ゲート、日次再実行があるため、
-      // 一時障害の即時再試行より Dukascopy の分足を取得できることを優先する。
+      // 1.51.x handles AWS WAF challenges and rate limits separately. Keep ordinary
+      // retries bounded and propagate terminal failures to the existing Yahoo fallback.
+      // Challenge tokens stay in memory rather than creating credentials on disk.
+      wafTokenCache: false,
       retryCount: 0,
-      // retryOnEmpty=true は 429 を "empty dataset" に変えて真因を隠すため、素の失敗を残す。
       retryOnEmpty: false,
+      failAfterRetryCount: true,
       pauseBetweenRetriesMs: 1500,
       ...retry,
     }),
@@ -533,16 +536,28 @@ export const repairDailyClosesFromNextOpen = (dailyBars) => {
   return repaired;
 };
 
-const fetchTimeframeWithFallback = async (pair, tf, lookbackDays) => {
+export const fetchTimeframeWithFallback = async (
+  pair,
+  tf,
+  lookbackDays,
+  {
+    fetchPrimary = fetchTimeframe,
+    fetchYahoo = fetchYahooTimeframe,
+    readExisting = readExistingBars,
+    nowMs = Date.now(),
+  } = {},
+) => {
   try {
-    const bars = latest(await fetchTimeframe(pair, tf, lookbackDays), tf);
+    const bars = latest(await fetchPrimary(pair, tf, lookbackDays), tf);
     validateBars(pair, tf, bars);
+    const existingBars = await readExisting(pair, tf);
+    assertPrimaryResponseUsable(pair, tf, bars, existingBars, { nowMs });
     return { bars, source: 'dukascopy', validateOptions: {}, shouldWrite: true };
   } catch (dukascopyError) {
     console.warn(`  Dukascopy failed for ${pair} ${tf}: ${formatError(dukascopyError)}; trying Yahoo fallback`);
     try {
-      const yahooBars = await fetchYahooTimeframe(pair, tf);
-      return await buildYahooFallbackBars(pair, tf, yahooBars);
+      const yahooBars = await fetchYahoo(pair, tf);
+      return await buildYahooFallbackBars(pair, tf, yahooBars, { readExisting });
     } catch (yahooError) {
       throw new Error(
         `Dukascopy failed: ${formatError(dukascopyError)}; Yahoo fallback failed: ${formatError(yahooError)}`,

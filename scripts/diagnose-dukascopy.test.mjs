@@ -140,6 +140,24 @@ describe('latestRowFreshness', () => {
 });
 
 describe('main', () => {
+  it('supports m30 diagnosis with its production profile and one-hour freshness limit', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const fetchRates = vi.fn(async (options) => [
+      { timestamp: options.dates.to.getTime() - 30 * 60 * 1000 },
+    ]);
+    await main({ fetchRates, now: new Date('2026-07-27T09:00:00Z'), timeframes: ['m30'] });
+
+    expect(fetchRates).toHaveBeenCalledOnce();
+    expect(fetchRates.mock.calls[0][0]).toMatchObject({
+      timeframe: 'm30', batchSize: 4, pauseBetweenBatchesMs: 400,
+      useCache: false, wafTokenCache: false, failAfterRetryCount: true,
+    });
+    const end = new Date('2026-07-24T18:00:00Z');
+    expect(latestRowFreshness([{ timestamp: end.getTime() - 60 * 60 * 1000 }], 'm30', end).ok).toBe(true);
+    expect(latestRowFreshness([{ timestamp: end.getTime() - 61 * 60 * 1000 }], 'm30', end).ok).toBe(false);
+    expect(process.exitCode).not.toBe(1);
+  });
+
   it('probes the requested pair/timeframes and reports count, latest bar, and elapsed time', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const fetchRates = vi.fn(async (options) => [
@@ -259,8 +277,10 @@ describe('main', () => {
         ignoreFlats: true,
         format: 'json',
         useCache: false,
+        wafTokenCache: false,
         retryCount: 0,
-        retryOnEmpty: true,
+        retryOnEmpty: false,
+        failAfterRetryCount: true,
         pauseBetweenRetriesMs: 1500,
       });
       expect(options.cacheFolderPath).toMatch(/\.dukascopy-cache$/);
