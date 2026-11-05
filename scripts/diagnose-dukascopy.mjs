@@ -25,11 +25,13 @@ const TIMEFRAMES = ['m15', 'h1', 'd1'];
 const DUKASCOPY_TIMEOUT_MS = 90_000;
 const REQUEST_PROFILE_BY_TIMEFRAME = {
   m15: { batchSize: 3, pauseBetweenBatchesMs: 600 },
-  h1: { batchSize: 8, pauseBetweenBatchesMs: 150 },
+  m30: { batchSize: 4, pauseBetweenBatchesMs: 400 },
+  h1: { batchSize: 3, pauseBetweenBatchesMs: 600 },
   d1: { batchSize: 8, pauseBetweenBatchesMs: 150 },
 };
 const MAX_LAG_MS_BY_TIMEFRAME = {
   m15: 30 * 60 * 1000,
+  m30: 60 * 60 * 1000,
   h1: 2 * 60 * 60 * 1000,
   d1: 36 * 60 * 60 * 1000,
 };
@@ -143,9 +145,11 @@ const requestOptions = (pair, timeframe, now) => ({
   format: 'json',
   ...REQUEST_PROFILE_BY_TIMEFRAME[timeframe],
   useCache: false,
+  wafTokenCache: false,
   cacheFolderPath,
   retryCount: 0,
-  retryOnEmpty: true,
+  retryOnEmpty: false,
+  failAfterRetryCount: true,
   pauseBetweenRetriesMs: 1500,
 });
 

@@ -197,6 +197,7 @@ describe('fetch-deep-history orchestration', () => {
           retryCount: 0,
           retryOnEmpty: false,
           useCache: true,
+          wafTokenCache: false,
           format: 'json',
         });
         expect(options.batchSize).toBeLessThanOrEqual(4);

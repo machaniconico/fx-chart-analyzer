@@ -24,7 +24,14 @@ npm run build      # 本番ビルド (dist/)
 npm run fetch:data           # Dukascopyから6ペア×h1/h4/d1 (各2000本) を取得し public/data/ に保存
 npm run diagnose:dukascopy   # Dukascopy一次ソースのm15/h1/d1を、保存・Yahooフォールバックなしで診断
 npm run diagnose:dukascopy -- --pair=AUDJPY --tf=d1,h1  # ペア・時間足を指定して診断
+npm run diagnose:dukascopy -- --tf=m15,m30,h1,d1       # 分足を含めて診断
 ```
+
+データ取得は `dukascopy-node` 1.51.1 に固定しています。Node.js 20 以上が必要で、
+一次ソースが AWS WAF challenge を返す環境では Chrome/Chromium も必要です。
+通常の HTTP 403 は回避せず取得失敗として扱い、WAF トークンはディスクに保存しません。
+取得失敗時は既存の Yahoo フォールバックを使いますが、本数・鮮度チェックは維持します。
+M15/M30 も一次ソースの古い応答・時刻の後退を拒否し、コミット前に全5時間足を検査します。
 
 GitHub Actions (`.github/workflows/update-data.yml`) が毎日 06:00 JST に自動実行し、差分があればコミット→デプロイします。
 

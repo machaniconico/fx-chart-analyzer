@@ -7,6 +7,7 @@ import {
   fetchDailyWithFallback,
   fetchH1AndH4WithFallback,
   fetchTimeframe,
+  fetchTimeframeWithFallback,
   mergeAppendOnlyBars,
   normalizeYahooChartResponse,
   repairDailyClosesFromNextOpen,
@@ -435,6 +436,78 @@ describe('Dukascopy primary response gates', () => {
   });
 });
 
+describe.each([['m15', 15 * 60, 60], ['m30', 30 * 60, 120]])(
+  '%s primary freshness and regression gates',
+  (tf, stepSeconds, lookbackDays) => {
+    const nowMs = Date.UTC(2026, 8, 1, 12);
+    const hour = 60 * 60;
+    const freshEnd = nowMs / 1000 - stepSeconds;
+    const barsEndingAt = (endTime) => makeBars({ count: 4000, endTime, stepSeconds });
+
+    it('rejects a full-length but stale response and preserves existing history via fallback', async () => {
+      const primary = barsEndingAt(nowMs / 1000 - 121 * hour);
+      const existing = barsEndingAt(freshEnd - stepSeconds);
+      const incoming = barsEndingAt(freshEnd).slice(-1);
+      const fetchYahoo = vi.fn(async () => incoming);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const result = await fetchTimeframeWithFallback('USDJPY', tf, lookbackDays, {
+        fetchPrimary: async () => primary,
+        fetchYahoo,
+        readExisting: async () => existing,
+        nowMs,
+      });
+
+      expect(fetchYahoo).toHaveBeenCalledWith('USDJPY', tf);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(`stale primary response: USDJPY ${tf}`));
+      expect(result.source).toBe('yahoo-fallback');
+      expect(result.bars).toEqual([...existing.slice(1), ...incoming]);
+      expect(result.shouldWrite).toBe(true);
+      const health = buildSourceHealth({ sources: [{ timeframe: tf, source: result.source }], nowMs });
+      expect(health.lastPrimarySuccessByTimeframe[tf]).toBeNull();
+    });
+
+    it('rejects a recent response that would move the saved timestamp backwards', async () => {
+      const existing = barsEndingAt(freshEnd);
+      const fetchYahoo = vi.fn(async () => []);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const result = await fetchTimeframeWithFallback('EURUSD', tf, lookbackDays, {
+        fetchPrimary: async () => barsEndingAt(freshEnd - stepSeconds),
+        fetchYahoo,
+        readExisting: async () => existing,
+        nowMs,
+      });
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(`regressed primary response: EURUSD ${tf}`));
+      expect(result).toMatchObject({ source: 'yahoo-fallback', bars: existing, shouldWrite: false });
+    });
+
+    it.each([1, 80, 120])('accepts non-regressing primary data at %sh age, including weekends and the boundary', async (ageHours) => {
+      const primary = barsEndingAt(nowMs / 1000 - ageHours * hour);
+      const fetchYahoo = vi.fn();
+      const result = await fetchTimeframeWithFallback('GBPUSD', tf, lookbackDays, {
+        fetchPrimary: async () => primary,
+        fetchYahoo,
+        readExisting: async () => primary,
+        nowMs,
+      });
+
+      expect(PRIMARY_STALE_LIMIT_HOURS_BY_TIMEFRAME[tf]).toBe(120);
+      expect(fetchYahoo).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ source: 'dukascopy', bars: primary, shouldWrite: true });
+    });
+
+    it('fails without returning stale data if both sources fail', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await expect(fetchTimeframeWithFallback('AUDJPY', tf, lookbackDays, {
+        fetchPrimary: async () => barsEndingAt(nowMs / 1000 - 121 * hour),
+        fetchYahoo: async () => { throw new Error('Yahoo unavailable'); },
+        readExisting: async () => null,
+        nowMs,
+      })).rejects.toThrow(/stale primary response:.*Yahoo fallback failed: Yahoo unavailable/);
+    });
+  },
+);
+
 describe('Yahoo d1 fallback never reads Yahoo daily close directly', () => {
   const hour = 60 * 60;
   const h1Bar = (t, o, h, l, c) => ({ t, o, h, l, c, v: 0 });
@@ -509,6 +582,8 @@ describe('Dukascopy request options', () => {
     expect(fetchRates.mock.calls[0][0]).toMatchObject({
       retryCount: 0,
       retryOnEmpty: false,
+      failAfterRetryCount: true,
+      wafTokenCache: false,
     });
   });
 

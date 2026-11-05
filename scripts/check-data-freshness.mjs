@@ -39,7 +39,8 @@ const OPEN_PR_MAX_AGE_HOURS = 26;
 const DERIVED_STALE_LIMIT_HOURS = 6;
 const DEFAULT_STAGE = 'post-deploy';
 const PRE_COMMIT_STAGE = 'pre-commit';
-const PRE_COMMIT_TIMEFRAMES = ['h1', 'h4', 'd1'];
+// Short timeframes must also pass before committing or deploying a partial refresh.
+const PRE_COMMIT_TIMEFRAMES = ['m15', 'm30', 'h1', 'h4', 'd1'];
 const VALID_STAGES = new Set([PRE_COMMIT_STAGE, DEFAULT_STAGE]);
 export const DERIVED_ARTIFACTS = [
   { name: 'forward/results.json', timestampKey: 'computedAt' },
