@@ -573,19 +573,23 @@ describe('Dukascopy timeout guard', () => {
 });
 
 describe('Dukascopy request options', () => {
-  it('disables the dukascopy-node retry path', async () => {
-    const fetchRates = vi.fn(async () => []);
+  it.each([['m15', 1], ['m30', 0], ['d1', 0]])(
+    'uses a bounded ordinary retry budget for %s',
+    async (timeframe, retryCount) => {
+      const fetchRates = vi.fn(async () => []);
 
-    await fetchTimeframe('USDJPY', 'm15', 60, { fetchRates });
+      await fetchTimeframe('USDJPY', timeframe, 60, { fetchRates });
 
-    expect(fetchRates).toHaveBeenCalledOnce();
-    expect(fetchRates.mock.calls[0][0]).toMatchObject({
-      retryCount: 0,
-      retryOnEmpty: false,
-      failAfterRetryCount: true,
-      wafTokenCache: false,
-    });
-  });
+      expect(fetchRates).toHaveBeenCalledOnce();
+      expect(fetchRates.mock.calls[0][0]).toMatchObject({
+        retryCount,
+        pauseBetweenRetriesMs: 1500,
+        retryOnEmpty: false,
+        failAfterRetryCount: true,
+        wafTokenCache: false,
+      });
+    },
+  );
 
   it('fetches the current h1 month separately with failing retries and merges bars', async () => {
     const bar = (t) => ({ timestamp: t * 1000, open: 1, high: 2, low: 0.5, close: 1.5, volume: 1 });

@@ -289,7 +289,10 @@ const fetchRange = (pair, timeframe, { from, to, retry }, profile, fetchRates) =
       // retries bounded and propagate terminal failures to the existing Yahoo fallback.
       // Challenge tokens stay in memory rather than creating credentials on disk.
       wafTokenCache: false,
-      retryCount: 0,
+      // M15 spans many daily files. Retry a transient per-file HTTP timeout once;
+      // 1.51.1 still stops immediately on access denial or exhausted WAF/429 recovery.
+      // Keep the existing 90s outer bound and all downstream data/source-health gates.
+      retryCount: timeframe === 'm15' ? 1 : 0,
       retryOnEmpty: false,
       failAfterRetryCount: true,
       pauseBetweenRetriesMs: 1500,
