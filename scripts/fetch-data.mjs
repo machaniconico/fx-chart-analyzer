@@ -29,6 +29,10 @@ const M30_LOOKBACK_DAYS = 120;
 const H1_LOOKBACK_DAYS = 730;
 const D1_LOOKBACK_DAYS = 3400;
 const DUKASCOPY_TIMEOUT_MS = 90_000;
+const INTRADAY_RANGE_DAYS = 7;
+const INTRADAY_RANGE_TIMEOUT_MS = 120_000;
+const INTRADAY_TOTAL_TIMEOUT_MS = 300_000;
+const INTRADAY_TIMEFRAMES = new Set(['m15', 'm30']);
 const YAHOO_FETCH_TIMEOUT_MS = 30_000;
 
 const dayMs = 24 * 60 * 60 * 1000;
@@ -243,22 +247,40 @@ export const fetchTimeframe = async (
   pair,
   timeframe,
   lookbackDays,
-  { fetchRates = getHistoricalRates } = {},
+  { fetchRates = getHistoricalRates, nowMs = Date.now() } = {},
 ) => {
-  const to = new Date();
+  const to = new Date(nowMs);
   const from = new Date(to.getTime() - lookbackDays * dayMs);
   const profile = REQUEST_PROFILE_BY_TIMEFRAME[timeframe] ?? { batchSize: 8, pauseBetweenBatchesMs: 150 };
   const monthStart = startOfUtcMonth(to);
-  const ranges =
+  let ranges =
     CURRENT_MONTH_RETRY_TIMEFRAMES.has(timeframe) && from < monthStart
       ? [
           { from, to: monthStart },
           { from: monthStart, to, retry: CURRENT_MONTH_RETRY },
         ]
       : [{ from, to }];
+  const intraday = INTRADAY_TIMEFRAMES.has(timeframe);
+  // Persist successful daily-file batches to dukascopy-node's cache before moving
+  // on. One slow file must not discard a whole 60/120-day uncached download.
+  // The library caches only immutable files; current-day data is still fetched.
+  if (intraday) {
+    ranges = [];
+    for (let start = from.getTime(); start < to.getTime(); start += INTRADAY_RANGE_DAYS * dayMs) {
+      ranges.push({
+        from: new Date(start),
+        to: new Date(Math.min(start + INTRADAY_RANGE_DAYS * dayMs, to.getTime())),
+      });
+    }
+  }
+  const deadline = Date.now() + INTRADAY_TOTAL_TIMEOUT_MS;
   const rows = [];
   for (const range of ranges) {
-    rows.push(...(await fetchRange(pair, timeframe, range, profile, fetchRates)));
+    const timeoutMs = intraday
+      ? Math.min(INTRADAY_RANGE_TIMEOUT_MS, deadline - Date.now())
+      : timeoutMsFor(range.retry);
+    if (timeoutMs <= 0) throw new Error(`${pair} ${timeframe}: Dukascopy total fetch budget exhausted`);
+    rows.push(...(await fetchRange(pair, timeframe, range, profile, fetchRates, timeoutMs)));
   }
 
   const byTime = new Map();
@@ -270,7 +292,7 @@ export const fetchTimeframe = async (
     .sort((a, b) => a.t - b.t);
 };
 
-const fetchRange = (pair, timeframe, { from, to, retry }, profile, fetchRates) =>
+const fetchRange = (pair, timeframe, { from, to, retry }, profile, fetchRates, timeoutMs) =>
   withTimeout(
     fetchRates({
       instrument: pair.toLowerCase(),
@@ -289,17 +311,18 @@ const fetchRange = (pair, timeframe, { from, to, retry }, profile, fetchRates) =
       // retries bounded and propagate terminal failures to the existing Yahoo fallback.
       // Challenge tokens stay in memory rather than creating credentials on disk.
       wafTokenCache: false,
-      // M15 spans many daily files. Retry a transient per-file HTTP timeout once;
-      // 1.51.1 still stops immediately on access denial or exhausted WAF/429 recovery.
-      // Keep the existing 90s outer bound and all downstream data/source-health gates.
-      retryCount: timeframe === 'm15' ? 1 : 0,
+      // Both minute timeframes use daily files. Allow two ordinary retries within
+      // each bounded chunk (three 30s HTTP attempts plus short backoffs fit 120s).
+      // Access denial, WAF failure and exhausted rate-limit recovery remain terminal
+      // in 1.51.1; do not retry them at the application layer.
+      retryCount: INTRADAY_TIMEFRAMES.has(timeframe) ? 2 : 0,
       retryOnEmpty: false,
       failAfterRetryCount: true,
       pauseBetweenRetriesMs: 1500,
       ...retry,
     }),
-    timeoutMsFor(retry),
-    `${pair} ${timeframe}: Dukascopy timed out after ${timeoutMsFor(retry) / 1000}s`,
+    timeoutMs,
+    `${pair} ${timeframe}: Dukascopy timed out after ${timeoutMs / 1000}s`,
   );
 
 // 再試行の待ち時間ぶん期限を延ばし、再試行途中で timeout に切られないようにする。
