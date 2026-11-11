@@ -13,10 +13,11 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AUTONOMY_POLICY, fingerprint, canonicalJson, appendAudit, verifyAudit } from './virtual-autonomy.mjs';
 import { replayVirtualPortfolio } from './virtual-portfolio.mjs';
+import { readReservations, reserveHoldout, completeReservation } from './research-reservations.mjs';
 const assert = (ok, message) => { if (!ok) throw new Error(`virtual-research: ${message}`); };
 const names = ['train', 'selection', 'test'];
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
-const codeFiles = [fileURLToPath(import.meta.url), fileURLToPath(new URL('./virtual-autonomy.mjs', import.meta.url)), fileURLToPath(new URL('./virtual-portfolio.mjs', import.meta.url))];
+const codeFiles = [fileURLToPath(new URL('./research-reservations.mjs', import.meta.url)), fileURLToPath(import.meta.url), fileURLToPath(new URL('./virtual-autonomy.mjs', import.meta.url)), fileURLToPath(new URL('./virtual-portfolio.mjs', import.meta.url))];
 const engineSources = codeFiles.map(path => ({ name: path.split('/').at(-1), source: readFileSync(path, 'utf8') }));
 const loadedEngineHash = fingerprint(engineSources.map(x => ({ name: x.name, hash: digest(x.source) })));
 export const researchEngineHash = () => {
@@ -111,13 +112,15 @@ function validateRequest(request) {
   return { candidates, partitions };
 }
 
-/** Uses one exclusive directory lock; never automatically breaks stale locks.
- * Individual file writes are fsynced; directory durability on power loss is NOT guaranteed.
- * Reservation is fsynced BEFORE any fitting. A crash permanently burns its test
- * interval. A completed identical request is read back; interrupted runs block.
- * New datasets must advance beyond every reserved test interval, even if renamed.
+/** The shared store is the authority across working directories and hosts.
+ * Local locking only protects artifacts. Shared reservation is confirmed before
+ * fitting; interrupted attempts stay consumed. Success requires shared completion.
+ * Local writes are fsynced, but shared backend durability/access must be separately
+ * verified before activation. No production store is initialized automatically.
  */
-export function runResearchCycle({ request, stateDir }) {
+export async function runResearchCycle({ request, stateDir, reservationStore }) {
+  // Async persistence must never allow caller mutation under the reserved hash.
+  request = JSON.parse(canonicalJson(request));
   const { candidates, partitions } = validateRequest(request);
   const root = resolve(stateDir); mkdirSync(root, { recursive: true });
   const lockPath = join(root, 'research.lock'); const lock = openSync(lockPath, 'wx', 0o600);
@@ -131,14 +134,27 @@ export function runResearchCycle({ request, stateDir }) {
       assert(digest(readFileSync(join(root, event.artifact))) === event.artifactHash, 'artifact modified');
     }
     const engineHash = researchEngineHash(), requestHash = fingerprint(request), cycleId = fingerprint({ requestHash, engineHash, policy: AUTONOMY_POLICY });
-    const done = audit.find(e => e.cycleId === cycleId && e.type === 'cycle-completed');
-    if (done) return JSON.parse(readFileSync(join(root, done.artifact), 'utf8'));
+    assert(reservationStore, 'shared reservation store required; local-only observed research is disabled');
+    assert(!reservationStore.syntheticOnly || request.dataset.provenance.kind === 'synthetic', 'synthetic-only store cannot accept observed data');
+    const shared = await readReservations(reservationStore);
+    // A changed authority or unimported legacy history must not reset local evidence.
+    for (const e of audit.filter(e => e.type === 'holdout-reserved')) {
+      assert(!e.ledgerId || e.ledgerId === reservationStore.ledgerId, 'local state belongs to a different shared ledger');
+      assert(shared.document.reservations.some(r => r.cycleId === e.cycleId && r.requestHash === e.requestHash
+        && r.engineHash === e.engineHash && r.testHash === e.testHash && r.start === e.start && r.end === e.end
+        && (!e.attemptId || r.attemptId === e.attemptId)), 'local reservation absent from shared ledger; reconcile legacy history');
+    }
+    const completed = shared.document.reservations.find(r => r.cycleId === cycleId && r.status === 'completed');
+    if (completed) {
+      const local = audit.find(e => e.cycleId === cycleId && e.type === 'holdout-reserved');
+      const prepared = audit.find(e => e.cycleId === cycleId && ['result-prepared', 'cycle-completed'].includes(e.type));
+      assert(local && prepared && completed.requestHash === requestHash && completed.engineHash === engineHash
+        && completed.attemptId === local.attemptId && completed.resultHash === prepared.artifactHash, 'shared completion lacks matching local receipt/result; do not recompute');
+      return JSON.parse(readFileSync(join(root, prepared.artifact), 'utf8'));
+    }
     assert(!audit.some(e => e.cycleId === cycleId), 'interrupted cycle: holdout is consumed; do not rerun or remove reservation');
     const testHash = fingerprint(partitions.test), range = request.windows.test;
-    const consumed = audit.filter(e => e.type === 'holdout-reserved');
-    assert(!consumed.some(e => e.testHash === testHash || (range.start < e.end && range.end > e.start)), 'holdout reused or overlapping, including renamed datasets');
-    // Time must move forward: older unreserved data is not a fresh future holdout.
-    assert(!consumed.some(e => range.start < e.end), 'new cycles require a later untouched holdout');
+    const receipt = await reserveHoldout(reservationStore, { cycleId, requestHash, engineHash, testHash, start: range.start, end: range.end }, shared);
     const dir = join(root, cycleId); mkdirSync(dir);
     const append = record => {
       const at = Math.max(Date.now(), audit.at(-1)?.at ?? 0);
@@ -151,9 +167,12 @@ export function runResearchCycle({ request, stateDir }) {
       const relative = `${cycleId}/${name}.json`, bytes = canonicalJson(value) + '\n';
       const fd = openSync(join(root, relative), 'wx', 0o444);
       try { writeSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
-      append({ type, artifact: relative, artifactHash: digest(bytes) });
+      const record = { type, artifact: relative, artifactHash: digest(bytes) };
+      append(record);
+      return record;
     };
-    append({ type: 'holdout-reserved', testHash, start: range.start, end: range.end, engineHash, requestHash });
+    append({ type: 'holdout-reserved', testHash, start: range.start, end: range.end, engineHash, requestHash,
+      ledgerId: reservationStore.ledgerId, attemptId: receipt.reservation.attemptId });
     artifact('request', request, 'request-snapshotted');
     artifact('engine', { engineHash, sources: engineSources }, 'engine-snapshotted');
     const reasons = ['quote_count_holding_and_boundary_censoring_exploratory', 'nested_outer_pipeline_folds_not_implemented', 'provenance_not_independently_verified', 'financing_liquidity_and_margin_not_modeled', 'router_and_allocator_not_validated'];
@@ -189,7 +208,9 @@ export function runResearchCycle({ request, stateDir }) {
     const result = { cycleId, mode: 'virtual-only', action: 'hold', eligible: false, reasons,
       trialCount: trials.length, rejectedTrialCount: trials.filter(t => !t.passed).length,
       frozen, finalTest, nextStep: 'Supply a later untouched quote tape and rerun. Do not tune on consumed holdout scores. Promotion remains blocked until independent pipeline validation is implemented.' };
-    artifact('result', result, 'cycle-completed');
+    const resultRecord = artifact('result', result, 'result-prepared');
+    await completeReservation(reservationStore, receipt, resultRecord.artifactHash);
+    append({ ...resultRecord, type: 'cycle-completed' });
     return result;
   } finally { closeSync(lock); unlinkSync(lockPath); }
 }
