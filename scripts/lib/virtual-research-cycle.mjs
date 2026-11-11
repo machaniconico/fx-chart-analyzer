@@ -17,7 +17,7 @@ import { readReservations, reserveHoldout, completeReservation } from './researc
 const assert = (ok, message) => { if (!ok) throw new Error(`virtual-research: ${message}`); };
 const names = ['train', 'selection', 'test'];
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
-const codeFiles = [fileURLToPath(new URL('./research-reservations.mjs', import.meta.url)), fileURLToPath(import.meta.url), fileURLToPath(new URL('./virtual-autonomy.mjs', import.meta.url)), fileURLToPath(new URL('./virtual-portfolio.mjs', import.meta.url))];
+const codeFiles = [fileURLToPath(new URL('./research-reservations.mjs', import.meta.url)), fileURLToPath(new URL('./research-blob-store.mjs', import.meta.url)), fileURLToPath(import.meta.url), fileURLToPath(new URL('./virtual-autonomy.mjs', import.meta.url)), fileURLToPath(new URL('./virtual-portfolio.mjs', import.meta.url))];
 const engineSources = codeFiles.map(path => ({ name: path.split('/').at(-1), source: readFileSync(path, 'utf8') }));
 const loadedEngineHash = fingerprint(engineSources.map(x => ({ name: x.name, hash: digest(x.source) })));
 export const researchEngineHash = () => {
