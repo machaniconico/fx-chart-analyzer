@@ -573,12 +573,12 @@ describe('Dukascopy timeout guard', () => {
 });
 
 describe('Dukascopy request options', () => {
-  it.each([['m15', 1], ['m30', 0], ['d1', 0]])(
+  it.each([['m15', 2], ['m30', 2], ['d1', 0]])(
     'uses a bounded ordinary retry budget for %s',
     async (timeframe, retryCount) => {
       const fetchRates = vi.fn(async () => []);
 
-      await fetchTimeframe('USDJPY', timeframe, 60, { fetchRates });
+      await fetchTimeframe('USDJPY', timeframe, 7, { fetchRates });
 
       expect(fetchRates).toHaveBeenCalledOnce();
       expect(fetchRates.mock.calls[0][0]).toMatchObject({
@@ -590,6 +590,46 @@ describe('Dukascopy request options', () => {
       });
     },
   );
+
+  it.each(['m15', 'm30'])('chunks %s into contiguous weekly ranges and deduplicates boundaries', async (timeframe) => {
+    const nowMs = Date.UTC(2026, 10, 7, 1);
+    const row = (timestamp, close) => ({ timestamp, open: 1, high: 3, low: 0.5, close, volume: 1 });
+    const boundary = nowMs - 7 * 86400000;
+    const fetchRates = vi.fn()
+      .mockResolvedValueOnce([row(boundary - 900000, 1), row(boundary, 1)])
+      .mockResolvedValueOnce([row(boundary, 2), row(boundary + 900000, 2)]);
+    const bars = await fetchTimeframe('USDJPY', timeframe, 14, { fetchRates, nowMs });
+    expect(fetchRates).toHaveBeenCalledTimes(2);
+    const [a, b] = fetchRates.mock.calls.map(([options]) => options.dates);
+    expect(a.from.getTime()).toBe(nowMs - 14 * 86400000);
+    expect(a.to).toEqual(b.from);
+    expect(b.to.getTime()).toBe(nowMs);
+    expect(bars).toHaveLength(3);
+    expect(bars[1].c).toBe(2);
+  });
+
+  it('does not return partial rows or start another chunk after an access denial', async () => {
+    const error = new Error('Dukascopy access denied (403)');
+    const fetchRates = vi.fn().mockResolvedValueOnce([]).mockRejectedValueOnce(error);
+    await expect(fetchTimeframe('USDJPY', 'm30', 120, { fetchRates })).rejects.toBe(error);
+    expect(fetchRates).toHaveBeenCalledTimes(2);
+  });
+
+  it('caps cumulative intraday work and starts no more chunks after the budget expires', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchRates = vi.fn(() => new Promise((resolve) => setTimeout(() => resolve([]), 110000)));
+      const result = fetchTimeframe('USDJPY', 'm15', 60, { fetchRates });
+      const rejected = expect(result).rejects.toThrow('timed out after 80s');
+      await vi.advanceTimersByTimeAsync(300000);
+      await rejected;
+      expect(fetchRates).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(120000);
+      expect(fetchRates).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('fetches the current h1 month separately with failing retries and merges bars', async () => {
     const bar = (t) => ({ timestamp: t * 1000, open: 1, high: 2, low: 0.5, close: 1.5, volume: 1 });
