@@ -53,6 +53,23 @@ export function createSyntheticOuterPlan(options = {}) {
 const developmentPass = score => score.censoredOpenPositions === 0 && score.trades > 0
   && score.netProfitAfterCosts > 0 && score.maxDrawdownPct <= AUTONOMY_POLICY.maxDrawdownPct;
 
+const syntheticQuotes = (end, scenario) => Array.from({ length: end / 1000 }, (_, i) => {
+  const bid = 100 * Math.exp((i * 0.01 + Math.max(0, i - scenario.fromIndex + 1) * scenario.slopeChange) / 100);
+  return { type: 'quote', symbol: 'USDJPY', t: i * 1000, observedAt: i * 1000,
+    conversionObservedAt: i * 1000, bid, ask: bid + 0.001, quoteToAccount: 1 };
+});
+
+/** Exact default-fixture test identities, prepared without evaluating candidates.
+ * This accepts no observed data or scenario overrides. Hashing is not fitting.
+ */
+export function syntheticOuterHoldouts(plan) {
+  const expected = createSyntheticOuterPlan(plan.config);
+  assert(canonicalJson(plan) === canonicalJson(expected), 'plan changed or engine mismatch');
+  const quotes = syntheticQuotes(expected.folds.at(-1).windows.test.end, { fromIndex: 0, slopeChange: 0 });
+  return freeze(expected.folds.map(fold => ({ foldIndex: fold.index, ...fold.windows.test,
+    testHash: fingerprint(quotes.filter(q => q.t >= fold.windows.test.start && q.t < fold.windows.test.end)) })));
+}
+
 /** Only a bounded invented price-slope change is accepted as a test scenario.
  * No quotes, paths, callbacks, source labels, or portfolio inputs can be supplied.
  * Scenarios are test fixtures, never independent performance evidence.
@@ -72,12 +89,7 @@ export function replaySyntheticOuterPlan(plan, options = {}) {
   assert(Number.isFinite(scenario.slopeChange) && Math.abs(scenario.slopeChange) <= 0.02, 'invalid scenario.slopeChange');
   // A prefix replay generates only its available history, never future rows.
   const end = plan.folds[completedFoldCount - 1].windows.test.end;
-  const quotes = Array.from({ length: end / 1000 }, (_, i) => {
-    // Exponential prices remain positive, including declining stress fixtures.
-    const bid = 100 * Math.exp((i * 0.01 + Math.max(0, i - scenario.fromIndex + 1) * scenario.slopeChange) / 100);
-    return { type: 'quote', symbol: 'USDJPY', t: i * 1000, observedAt: i * 1000,
-      conversionObservedAt: i * 1000, bid, ask: bid + 0.001, quoteToAccount: 1 };
-  });
+  const quotes = syntheticQuotes(end, scenario);
   const results = [];
   for (const fold of plan.folds.slice(0, completedFoldCount)) {
     const partition = name => quotes.filter(q => q.t >= fold.windows[name].start && q.t < fold.windows[name].end);

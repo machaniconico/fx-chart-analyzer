@@ -33,7 +33,7 @@ function validateLedger(document, ledgerId) {
   canonicalJson(document);
   assert(id(ledgerId) && document?.ledgerId === ledgerId, 'ledger identity mismatch');
   assert(document.schemaVersion === 1 && time(document.revision) && time(document.consumedBefore) && Array.isArray(document.reservations), 'invalid ledger');
-  const cycles = new Set(), attempts = new Set(), tests = new Set();
+  const cycles = new Set(), attempts = new Set(), tests = new Set(), batches = new Map();
   let end = -1;
   for (const r of document.reservations) {
     assert(hash(r.cycleId) && hash(r.requestHash) && hash(r.engineHash) && hash(r.testHash) && id(r.attemptId), 'invalid reservation identity');
@@ -42,7 +42,19 @@ function validateLedger(document, ledgerId) {
     assert(r.status === 'reserved' || r.status === 'completed', 'invalid reservation status');
     assert(r.status === 'completed' ? hash(r.resultHash) && time(r.completedAt) && r.completedAt >= r.reservedAt
       : r.resultHash === undefined && r.completedAt === undefined, 'invalid completion');
+    if (r.batchId !== undefined || r.batchSize !== undefined || r.batchIndex !== undefined) {
+      assert(hash(r.batchId) && Number.isSafeInteger(r.batchSize) && r.batchSize >= 1 && r.batchSize <= 6
+        && Number.isSafeInteger(r.batchIndex) && r.batchIndex >= 0 && r.batchIndex < r.batchSize, 'invalid batch membership');
+      const group = batches.get(r.batchId) ?? [];
+      group.push(r); batches.set(r.batchId, group);
+    }
     cycles.add(r.cycleId); attempts.add(r.attemptId); tests.add(r.testHash); end = r.end;
+  }
+  for (const group of batches.values()) {
+    const first = group[0];
+    assert(group.length === first.batchSize && group.every((r, index) => r.batchIndex === index && r.batchSize === first.batchSize
+      && r.requestHash === first.requestHash && r.engineHash === first.engineHash && r.status === first.status
+      && r.resultHash === first.resultHash), 'incomplete or inconsistent batch');
   }
 }
 
@@ -91,6 +103,7 @@ async function change(store, initial, propose, findCommitted) {
 }
 
 export async function reserveHoldout(store, identity, initial = null) {
+  identity = copy(identity);
   const snapshot = initial ?? await readReservations(store);
   const reservation = { ...copy(identity), attemptId: randomUUID(), reservedAt: Date.now(), status: 'reserved' };
   // The random attempt identifier is never reused by a new process. Even an
@@ -105,8 +118,63 @@ export async function reserveHoldout(store, identity, initial = null) {
   return change(store, snapshot, propose, document => document.reservations.find(r => equal(r, reservation)));
 }
 
+/** Atomically consume every planned outer interval before any fitting. There is
+ * no partial success, release, takeover, or automatic rollback. Each fold keeps
+ * its own ordinary reservation so old readers still protect all consumed data.
+ * This primitive does not certify provenance or authorize observed research.
+ */
+export async function reserveHoldoutBatch(store, identities, initial = null) {
+  identities = copy(identities);
+  assert(Array.isArray(identities) && identities.length > 0 && identities.length <= 6, 'batch must contain 1..6 holdouts');
+  const batchId = fingerprint({ identities, nonce: randomUUID() });
+  const reservations = identities.map((identity, batchIndex) => ({ ...identity, attemptId: randomUUID(), reservedAt: Date.now(), status: 'reserved',
+    batchId, batchIndex, batchSize: identities.length }));
+  const first = reservations[0];
+  assert(reservations.every(r => r.requestHash === first.requestHash && r.engineHash === first.engineHash), 'batch must share request and engine identities');
+  // Validate the whole ordered batch before the first external await or write.
+  validateLedger(reservationGenesis(store.ledgerId, reservations), store.ledgerId);
+  const snapshot = initial ? copy(initial) : await readReservations(store);
+  const receipt = await change(store, snapshot, document => {
+    assert(first.start >= document.consumedBefore, 'legacy consumed-through cutoff; use later untouched holdouts');
+    for (const reservation of reservations) {
+      assert(!document.reservations.some(r => r.cycleId === reservation.cycleId), 'interrupted or completed batch: holdout is consumed');
+      assert(!document.reservations.some(r => r.testHash === reservation.testHash || (reservation.start < r.end && reservation.end > r.start)), 'batch holdout reused or overlapping');
+    }
+    assert(!document.reservations.some(r => first.start < r.end), 'new batches require later untouched holdouts');
+    return { ...copy(document), reservations: [...copy(document.reservations), ...copy(reservations)] };
+  }, document => reservations.every(expected => document.reservations.some(r => equal(r, expected))) ? reservations : null);
+  return { snapshot: receipt.snapshot, reservations: receipt.reservation };
+}
+
+/** Complete the exact batch in one conditional update, binding every fold to the
+ * same full result artifact. An unconfirmed completion never returns success.
+ */
+export async function completeReservationBatch(store, receipt, resultHash) {
+  receipt = copy(receipt);
+  const expected = receipt.reservations;
+  assert(hash(resultHash) && Array.isArray(expected) && expected.length > 0 && expected.length <= 6
+    && expected.every(r => r.status === 'reserved' && r.batchId === expected[0].batchId && hash(r.batchId)), 'invalid batch completion receipt');
+  validateLedger(reservationGenesis(store.ledgerId, expected), store.ledgerId);
+  assert(expected.every(r => r.requestHash === expected[0].requestHash && r.engineHash === expected[0].engineHash), 'batch receipt identity mismatch');
+  assert(receipt.snapshot?.document?.ledgerId === store.ledgerId
+    && expected.every(r => receipt.snapshot.document.reservations.some(saved => equal(saved, r))), 'batch receipt snapshot mismatch');
+  const completed = expected.map(r => ({ ...r, status: 'completed', resultHash, completedAt: Math.max(Date.now(), r.reservedAt) }));
+  const current = await readReservations(store, receipt.snapshot);
+  const result = await change(store, current, document => {
+    const next = copy(document);
+    expected.forEach((reservation, index) => {
+      const i = next.reservations.findIndex(r => r.cycleId === reservation.cycleId);
+      assert(i >= 0 && equal(next.reservations[i], reservation), 'batch completion ownership/status mismatch');
+      next.reservations[i] = completed[index];
+    });
+    return next;
+  }, document => completed.every(expected => document.reservations.some(r => equal(r, expected))) ? completed : null);
+  return { snapshot: result.snapshot, reservations: result.reservation };
+}
+
 export async function completeReservation(store, receipt, resultHash) {
   assert(hash(resultHash) && receipt.reservation.status === 'reserved', 'invalid completion receipt');
+  assert(receipt.reservation.batchId === undefined, 'grouped reservation requires whole-batch completion');
   const expected = receipt.reservation;
   const completed = { ...expected, status: 'completed', resultHash, completedAt: Math.max(Date.now(), expected.reservedAt) };
   const current = await readReservations(store, receipt.snapshot);

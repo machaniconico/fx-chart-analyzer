@@ -98,3 +98,8 @@ currency-market interpretation. Its three default folds merely exercise the
 control flow and do not satisfy the real minimum-history/fold evidence gates.
 The next safe implementation step is reservation-aware observed outer planning
 and replay, not deployment or promotion of its synthetic winners.
+
+The [whole-plan reservation demonstration](reserved-synthetic-outer-replay.md)
+now exercises atomic reservation and completion of every planned outer interval
+with this same built-in fixture. It remains synthetic-only and does not implement
+observed orchestration or remove the blockers above.
