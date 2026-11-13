@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-12T02:06:16.013Z",
+  "generatedAt": "2026-11-13T01:39:45.032Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-08-15T08:00:00.000Z",
-    "dataEnd": "2026-11-12T02:00:00.000Z",
+    "dataStart": "2025-08-18T04:00:00.000Z",
+    "dataEnd": "2026-11-13T01:30:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
     "adaptiveStatsMode": "rolling-from-cutoff",
@@ -26,9 +26,9 @@
     "initialBalanceYen": 1000000,
     "riskPercent": 1,
     "simulationWindowMonths": 12,
-    "evaluatedDecisionPoints": 2952,
-    "recommendationsFound": 41,
-    "judgedRecommendations": 41,
+    "evaluatedDecisionPoints": 2940,
+    "recommendationsFound": 40,
+    "judgedRecommendations": 40,
     "skippedNoFutureBars": 0,
     "skippedIncompleteOutcome": 0,
     "skippedUnfilledPullbacks": 0
@@ -156,17 +156,17 @@
     },
     "AUDJPY": {
       "daytrade": {
-        "recommendations": 3,
-        "wins": 2,
+        "recommendations": 2,
+        "wins": 1,
         "losses": 1,
         "draws": 0,
-        "winRate": 0.6667,
-        "averageRealizedR": 0.6708,
+        "winRate": 0.5,
+        "averageRealizedR": 0.3446,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 2.93,
-          "winRate": 0.6589,
-          "averageRealizedR": 0.6528
+          "decayedSampleCount": 1.98,
+          "winRate": 0.4942,
+          "averageRealizedR": 0.3291
         }
       },
       "swing": {
@@ -246,17 +246,17 @@
         }
       },
       "low": {
-        "recommendations": 6,
-        "wins": 2,
+        "recommendations": 5,
+        "wins": 1,
         "losses": 4,
         "draws": 0,
-        "winRate": 0.3333,
-        "averageRealizedR": -0.3052,
+        "winRate": 0.2,
+        "averageRealizedR": -0.6308,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 5.67,
-          "winRate": 0.3181,
-          "averageRealizedR": -0.3379
+          "decayedSampleCount": 4.78,
+          "winRate": 0.1909,
+          "averageRealizedR": -0.6477
         }
       }
     },
