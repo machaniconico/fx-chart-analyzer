@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync, readdirSync, rmSync, chmodSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, readdirSync, rmSync, chmodSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -64,11 +64,30 @@ describe('bounded quote research cycle', () => {
     await expect(run(dir, syntheticResearchRequest(300000))).rejects.toThrow('reused or overlapping');
     const next = await run(dir, syntheticResearchRequest(1200000)); expect(next.action).toBe('hold');
   }));
-  it('holds observed-data claims too; no provenance boolean can certify', async () => temp(async dir => {
-    const r = syntheticResearchRequest(); r.dataset.provenance.kind = 'observed';
-    const store = createSyntheticFileStore(join(dir, 'authority')); delete store.syntheticOnly;
-    const result = await runResearchCycle({ stateDir: dir, request: r, reservationStore: store }); expect(result.eligible).toBe(false);
-    expect(result.reasons).toContain('provenance_not_independently_verified');
+  it('blocks observed data before fitting, state creation or any authority call', async () => temp(async root => {
+    for (const syntheticOnly of [true, false, undefined]) {
+      const request = syntheticResearchRequest(); request.dataset.provenance.kind = 'observed';
+      let reads = 0, writes = 0;
+      const store = { syntheticOnly, ledgerId: 'blocked-observed-ledger', read: async () => { reads++; throw new Error('must not read'); },
+        compareAndSwap: async () => { writes++; throw new Error('must not write'); } };
+      const stateDir = join(root, `never-created-${String(syntheticOnly)}`);
+      await expect(runResearchCycle({ request, stateDir, reservationStore: store })).rejects.toThrow('observed research disabled');
+      expect(reads).toBe(0); expect(writes).toBe(0); expect(existsSync(stateDir)).toBe(false);
+    }
+  }));
+  it('does not accept caller readiness assertions to enable observed fitting', async () => temp(async root => {
+    const request = syntheticResearchRequest();
+    request.dataset.provenance.kind = 'observed';
+    request.readiness = { historicalCompletenessProven: true, independentWitness: true, activationReady: true };
+    await expect(runResearchCycle({ request, stateDir: join(root, 'absent'), reservationStore: {
+      syntheticOnly: true, readiness: request.readiness, read: async () => { throw new Error('must not read'); } } })).rejects.toThrow('observed research disabled');
+    expect(readdirSync(root)).toEqual([]);
+  }));
+  it('blocks the legacy observed CLI before request/config reads or credential access', async () => temp(async root => {
+    const stateDir = join(root, 'absent');
+    const result = spawnSync(process.execPath, ['scripts/run-virtual-research.mjs', join(root, 'missing-request.json'), stateDir, join(root, 'missing-config.json')], { encoding: 'utf8', env: { ...process.env, GITHUB_TOKEN: '' } });
+    expect(result.status).toBe(2); expect(result.stderr).toContain('Observed research disabled');
+    expect(result.stderr).not.toContain('ENOENT'); expect(result.stdout).toBe(''); expect(existsSync(stateDir)).toBe(false);
   }));
   it('never uses final holdout outcomes to change the selected parameters', async () => temp(async a => temp(async b => {
     const good = syntheticResearchRequest(), bad = syntheticResearchRequest();

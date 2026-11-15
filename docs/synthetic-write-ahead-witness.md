@@ -10,7 +10,7 @@
 2. 計画全体の全holdout区間、request/engine/test hash、一意な実行attempt、開始時の台帳version/本文hashをwitnessへCASで追記する。正確なreceiptを再読取する。このintentが記録された時点から全区間を消費済みとする。
 3. 共有台帳で全foldを一括予約する。確認できた全予約と台帳snapshotをwitnessへ追記し、再読取する。
 4. 両方をもう一度読み、同じ予約状態とwitness checkpointを確認した後だけ内蔵synthetic評価を行う。ロード済みソースの不変性と評価結果のtest hashも確認する。
-5. 全成果物hashで共有台帳を完了し、その正確な全foldの完了receiptをwitnessに追記する。両方を再読取して一致した時だけ結果を返す。
+5. 任意のsynthetic artifact storeがある場合は全成果物を不変保存し、正確な再読取を確認する。その後、全成果物hashで共有台帳を完了し、その正確な全foldの完了receiptをwitnessに追記する。両方を再読取して一致した時だけ結果を返す。
 
 witnessは既存台帳のbaseline全体を保持し、その後の予約・完了snapshotを鎖として追加する。既存予約、使用済みcutoff、各batchの全メンバーを削除・短縮・別所有者に変更できない。未記録の台帳更新、同じversionでの内容変更、不明phase、巻戻し、hash不一致は停止する。
 
@@ -25,9 +25,9 @@ witnessのCASは再送しない。応答が失われても、期待した**正�
 | 台帳予約後、witnessへのbinding前 | intentと台帳が不一致 | 復旧が必要として停止 |
 | 両予約の確認後 | 未解決intentと全予約が残る | 自動引継ぎ・再評価をしない |
 | 台帳完了後、witness完了前 | 片側のみ完了 | 復旧が必要として停止 |
-| 両方完了後 | 全区間・結果hashが確定 | 同じ/重複する区間の再評価を拒否 |
+| 両方完了後 | 全区間・結果hashが確定 | 再評価を拒否。明示cache利用時の同一requestは検証済み保存結果のみ回収可能 |
 
-自動復旧、leaseの期限切れ、予約解除、未解決intentの飛越しは実装しない。失敗は評価データを浪費し得るが、使用済みの区間を再利用する方向へは回復しない。成果物をdurableに保存して再読取する仕組みも未実装なので、完了後に返答を失った場合の結果回復は別途必要。
+自動復旧、leaseの期限切れ、予約解除、未解決intentの飛越しは実装しない。失敗は評価データを浪費し得るが、使用済みの区間を再利用する方向へは回復しない。明示cacheを渡した場合だけ、下記の限定的な完了結果回復を利用できる。cacheなしでは完了後の結果回復も拒否する。
 
 `inspectSyntheticWitness` は読取専用。整合している場合も有効化可能とは返さない。台帳にまだ書かれていない未解決intentの全区間も返す。台帳との不一致は例外で停止し、その不一致を新baselineへ吸収しない。
 
@@ -54,3 +54,17 @@ witnessのCASは再送しない。応答が失われても、期待した**正�
 4. 観測nested outer評価、代表的な長期データ、資金調達・流動性・証拠金、router/allocatorの検証。
 
 この変更は上記の有効化条件を解除しない。既存draft PRはdraftのままにする。
+
+## 追加: synthetic成果物の限定的cache回復
+
+`runWitnessedSyntheticOuterReplay` に `syntheticOnly: true`、`put(resultHash, artifact)`、`read(resultHash)` を持つ明示的なstoreを任意で渡せる。観測価格、評価callback、新しい評価器は追加しない。
+
+cache利用時は、全成果物をhashで不変保存し、**完全一致した再読取を確認してから**台帳を完了する。書込応答が失われても再送せず、正確なreadbackだけで照合する。ただしlocal helperが明示的な書込・file/directory fsync失敗を返した場合は専用のfatal errorで停止する。読めるcache bytesがあっても永続化成功とは扱わず、台帳を完了しない。storeの方法、計画、checkpointは最初のawait前にsnapshotする。storeにはコピーを渡すので、そのコピーの変更で元の成果物は変化しない。成果物にはledger scope、attempt、予約全体、witness予約checkpoint、計画とengine sourceを保持する。artifact helper自身もengine source hashの対象となる。
+
+同一requestの再実行は、未解決intentが一切なく、両authorityが全履歴と完了状態で正確に一致し、該当する一つのattemptの保存成果物が完了receiptのhash・計画・code・全識別子と一致した場合だけ、その成果物を返せる。再fit、再評価、台帳やwitnessの更新は行わない。最後にもauthorityを再照合する。cache欠損、破損、別attempt、変わった計画/code、片側完了、未解決intent、保存後かつ完了前の中断はすべて停止する。欠損結果の再計算、未解決attemptの引継ぎや完了再送はしない。古い完了にcacheが無い場合も停止する。
+
+`createLocalSyntheticArtifactStore({ directory })` はLinux専用のローカルhelper。明示された既存の絶対directoryだけを利用し、自動作成しない。全祖先をdirectory descriptorと`O_NOFOLLOW`で辿り、各操作は固定descriptorからの相対アクセスを使う。directory差替え、symlink、hardlink、非regular file、経路脱出、上書きは拒否する。ファイル名は64桁のresult hashから生成する。8 MiB上限、canonical JSON、内容hashを照合し、読取も上限を超えて消費しない。作成はexclusiveで、fileとdirectoryをfsyncする。失敗した部分ファイルも削除・修復しない。
+
+これは信頼されたlocal filesystem上の限定的なprocess再起動cacheであり、OS/power-loss、独立保管、remote provider retention、悪意のある同一ユーザーによる同時ファイル変更、権限境界の証明ではない。ローカル書込の不変性はこのhelperのAPIで強制するもので、管理者や別processの直接変更を防ぐものではない。既存の両authorityと独立pinの信頼条件はそのまま残る。
+
+追加テストでは不変保存、cache再読取、欠損・破損・別attempt、入力methodの変更、非synthetic store、symlink/hardlink/unsafe path、directory差替え、過大ファイル、legacy完了にcacheがない場合を検査する。別processのSIGKILLをcache保存前後および両完了前後に注入し、両方完了後だけ保存結果を回収でき、それ以外は台帳/witnessを書き換えず停止することを確認する。観測評価への有効化条件は解除しない。

@@ -1,5 +1,5 @@
-/** Bounded offline research, not a trading/promotion service. UTC times are milliseconds.
- * Request: {dataset:{provenance:{source,kind:'observed'|'synthetic'},quotes:[quote]},
+/** Bounded SYNTHETIC-ONLY offline fixture, not a trading/promotion service. UTC times are milliseconds.
+ * Request: {dataset:{provenance:{source,kind:'synthetic'},quotes:[quote]},
  * portfolio:{config,instruments}, windows:{train:{start,end},selection:{start,end},test:{start,end}},
  * embargoMs, seed:{family:'trend'|'range',lookback,holdSteps,stopFraction,riskFraction},maxTrials}.
  * Quotes must be executable single-symbol observations in portfolio event format.
@@ -121,6 +121,11 @@ function validateRequest(request) {
 export async function runResearchCycle({ request, stateDir, reservationStore }) {
   // Async persistence must never allow caller mutation under the reserved hash.
   request = JSON.parse(canonicalJson(request));
+  // A shared ledger alone cannot establish complete historical consumption or
+  // independent write-ahead custody. Until the protected observed runner exists,
+  // reject BEFORE validation, fitting, directory creation, or any authority call.
+  assert(request.dataset?.provenance?.kind !== 'observed', 'observed research disabled: historical reconciliation, independent witness and protected runner are not verified');
+  assert(reservationStore?.syntheticOnly === true, 'explicit synthetic-only store required; observed authority disabled');
   const { candidates, partitions } = validateRequest(request);
   const root = resolve(stateDir); mkdirSync(root, { recursive: true });
   const lockPath = join(root, 'research.lock'); const lock = openSync(lockPath, 'wx', 0o600);

@@ -75,7 +75,7 @@ describe('inactive synthetic Git commit/ref transport', () => {
     const f = fixture(), dir = mkdtempSync(join(tmpdir(), 'synthetic-git-'));
     const request = syntheticResearchRequest(); request.dataset.provenance.kind = 'observed';
     try {
-      await expect(runResearchCycle({ stateDir: dir, request, reservationStore: f.make() })).rejects.toThrow('synthetic-only');
+      await expect(runResearchCycle({ stateDir: dir, request, reservationStore: f.make() })).rejects.toThrow('observed research disabled');
       expect(f.connector.createBlob).not.toHaveBeenCalled();
       expect(f.connector.updateRef).not.toHaveBeenCalled();
     } finally { rmSync(dir, { recursive: true, force: true }); }

@@ -1,8 +1,9 @@
 /** Inactive write-ahead protocol model. Built-in synthetic prices only. Injected
  * stores model independent authorities; flags/hashes do not prove independence,
- * fresh reads, retention or provider durability. No bootstrap, recovery, trading,
+ * fresh reads, retention or provider durability. No bootstrap, incomplete-attempt recovery, trading,
  * scheduling, credentials, observed tapes or evaluator callbacks in the runner.
  */
+import { SYNTHETIC_ARTIFACT_MAX_BYTES, SyntheticArtifactPersistenceError } from './synthetic-artifact-store.mjs';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { canonicalJson, fingerprint } from './virtual-autonomy.mjs';
@@ -11,6 +12,11 @@ import { readReservations, reserveHoldoutBatch, completeReservationBatch } from 
 
 const assert = (ok, message) => { if (!ok) throw new Error(`synthetic-witness: ${message}`); };
 const copy = value => JSON.parse(canonicalJson(value));
+const artifactSnapshot = value => {
+  const bytes = canonicalJson(value);
+  assert(Buffer.byteLength(bytes) <= SYNTHETIC_ARTIFACT_MAX_BYTES, 'artifact size limit');
+  return JSON.parse(bytes);
+};
 const same = (a, b) => canonicalJson(a) === canonicalJson(b);
 const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{16,128}$/.test(value);
@@ -22,7 +28,7 @@ const identityKeys = ['cycleId', 'requestHash', 'engineHash', 'testHash', 'start
 const identityOf = reservation => Object.fromEntries(identityKeys.map(key => [key, reservation[key]]));
 const freeze = value => { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } return value; };
 const sourceNames = ['witnessed-synthetic-outer-replay.mjs', 'synthetic-outer-replay.mjs', 'virtual-research-cycle.mjs',
-  'virtual-autonomy.mjs', 'virtual-portfolio.mjs', 'research-reservations.mjs', 'research-git-store.mjs', 'research-blob-store.mjs'];
+  'virtual-autonomy.mjs', 'virtual-portfolio.mjs', 'research-reservations.mjs', 'research-git-store.mjs', 'research-blob-store.mjs', 'synthetic-artifact-store.mjs'];
 const sources = () => sourceNames.map(name => ({ name, source: readFileSync(new URL(name, import.meta.url), 'utf8') }));
 const loadedSourcesHash = fingerprint(sources());
 const sourceSnapshot = () => {
@@ -142,7 +148,8 @@ function storesFor(options) {
   // a destination. This cannot defend against a malicious store implementation.
   return { ledger: Object.freeze({ ledgerId: r.ledgerId, syntheticOnly: true, read: r.read.bind(r), compareAndSwap: r.compareAndSwap.bind(r) }),
     witness: Object.freeze({ read: w.read.bind(w), compareAndSwap: w.compareAndSwap.bind(w) }),
-    binding: { ledgerId: r.ledgerId, witnessId: w.witnessId, ledgerScopeHash: r.scopeHash } };
+    binding: { ledgerId: r.ledgerId, witnessId: w.witnessId, ledgerScopeHash: r.scopeHash,
+      ledgerAuthorityId: r.authorityId, witnessAuthorityId: w.authorityId } };
 }
 
 /** This audit performs no write, fitting or recovery and always reports inactive.
@@ -187,10 +194,14 @@ async function append(stores, current, phase, attemptId, payload) {
 
 /** The fixed plan is evaluated only after exact write-ahead intent + ledger
  * reservation + witness binding receipts. Every interruption is fail-closed.
- * There is no automatic takeover, completion retry, artifact recovery or release.
+ * There is no automatic takeover, completion retry or release. Optional cache recovery requires both authorities completed.
  */
 export async function runWitnessedSyntheticOuterReplay(options) {
-  keys(options, ['plan', 'reservationStore', 'witnessStore', 'trustedCheckpoint']);
+  keys(options, ['plan', 'reservationStore', 'witnessStore', 'trustedCheckpoint', ...(Object.hasOwn(options, 'artifactStore') ? ['artifactStore'] : [])]);
+  const cache = options.artifactStore;
+  if (cache !== undefined) assert(cache?.syntheticOnly === true && typeof cache.read === 'function'
+    && typeof cache.put === 'function', 'synthetic-only immutable artifact store required');
+  const artifactStore = cache === undefined ? null : Object.freeze({ read: cache.read.bind(cache), put: cache.put.bind(cache) });
   const stores = storesFor(options), pin = copy(options.trustedCheckpoint), plan = copy(options.plan);
   assert(same(plan, createSyntheticOuterPlan(plan.config)), 'plan changed or engine mismatch');
   const engineSources = sourceSnapshot(), engineHash = fingerprint({ outer: plan.engineHash, orchestrationSources: loadedSourcesHash });
@@ -199,6 +210,33 @@ export async function runWitnessedSyntheticOuterReplay(options) {
     requestHash, engineHash, cycleId: fingerprint({ requestHash, foldIndex }) }));
   const initial = await inspect(stores, pin);
   assert(initial.state === 'consistent', 'unresolved intent; all its intervals remain consumed');
+  // Completed cache hits are read-only. Any pending work anywhere blocks this
+  // path. No callback or replay/fitting is used to reconstruct missing results.
+  const events = initial.snapshot.document.events;
+  const matches = events.filter(event => event.phase === 'intent' && same(event.payload.identities, identities));
+  if (artifactStore && matches.length) {
+    assert(matches.length === 1, 'ambiguous cached attempt');
+    const intent = matches[0], reserved = events[intent.sequence], completed = events[intent.sequence + 1];
+    assert(reserved?.phase === 'reserved' && completed?.phase === 'completed'
+      && reserved.attemptId === intent.attemptId && completed.attemptId === intent.attemptId, 'incomplete cached attempt');
+    const resultHash = completed.payload.resultHash;
+    const artifact = artifactSnapshot(await artifactStore.read(resultHash));
+    assert(fingerprint(artifact) === resultHash && artifact.requestHash === requestHash && artifact.engineHash === engineHash
+      && same(artifact.plan, plan) && same(artifact.engineSources, engineSources)
+      && artifact.attemptId === intent.attemptId && artifact.ledgerId === stores.binding.ledgerId
+      && artifact.witnessId === stores.binding.witnessId && artifact.ledgerScopeHash === stores.binding.ledgerScopeHash
+      && artifact.ledgerAuthorityId === stores.binding.ledgerAuthorityId && artifact.witnessAuthorityId === stores.binding.witnessAuthorityId
+      && artifact.mode === 'write-ahead-synthetic-only' && artifact.schemaVersion === 1
+      && artifact.action === 'hold' && artifact.eligible === false && artifact.activationReady === false
+      && same(artifact.reservations, reserved.payload.reservations)
+      && same(artifact.witnessCheckpoint, { ...initial.checkpoint, sequence: reserved.sequence, hash: reserved.hash }), 'cached artifact identity/result mismatch');
+    sourceSnapshot();
+    const barrier = await inspect(stores, initial.checkpoint);
+    assert(same(barrier.snapshot, initial.snapshot) && same(barrier.ledger, initial.ledger), 'cache recovery barrier changed');
+    sourceSnapshot();
+    const { resultHash: ignored, ...completion } = completed.payload;
+    return { artifact, resultHash, completion, checkpoint: initial.checkpoint };
+  }
   const attemptId = randomUUID();
   let witness = await append(stores, initial.snapshot, 'intent', attemptId, { identities,
     ledgerCheckpoint: { version: initial.ledger.version, documentHash: fingerprint(initial.ledger.document) } });
@@ -214,14 +252,31 @@ export async function runWitnessedSyntheticOuterReplay(options) {
   sourceSnapshot();
   const artifact = { schemaVersion: 1, mode: 'write-ahead-synthetic-only', action: 'hold', eligible: false, activationReady: false,
     requestHash, engineHash, plan, engineSources, attemptId, ledgerId: stores.binding.ledgerId,
-    witnessId: stores.binding.witnessId, witnessCheckpoint: checkpoint(witness.document), reservations: receipt.reservations, replay,
+    ledgerAuthorityId: stores.binding.ledgerAuthorityId, witnessAuthorityId: stores.binding.witnessAuthorityId,
+    witnessId: stores.binding.witnessId, ledgerScopeHash: stores.binding.ledgerScopeHash, witnessCheckpoint: checkpoint(witness.document), reservations: receipt.reservations, replay,
     limits: ['synthetic_data_not_evidence', 'independent_authority_and_retention_not_verified', 'fresh_reads_require_provider_contract',
       'conservative_cutover_not_implemented', 'historical_inventory_incomplete', 'observed_runner_not_implemented',
-      'durable_artifact_and_recovery_not_implemented', 'real_backend_acceptance_not_established'] };
+      ...(artifactStore ? ['local_cache_not_independent_custody_or_power_loss_proof'] : ['durable_artifact_and_recovery_not_implemented']), 'real_backend_acceptance_not_established'] };
   const resultHash = fingerprint(artifact);
+  if (artifactStore) {
+    // Lost acknowledgement permits exact readback, never another write. Pass a
+    // copy so a provider cannot mutate the original artifact or its result hash.
+    try { await artifactStore.put(resultHash, artifactSnapshot(artifact)); } catch (error) {
+      // An explicit local persistence failure (including fsync) is fatal even
+      // when its bytes happen to be readable. Only uncertain acknowledgements
+      // may reconcile via exact readback. Never retry either category.
+      if (error instanceof SyntheticArtifactPersistenceError) throw error;
+    }
+    assert(same(artifactSnapshot(await artifactStore.read(resultHash)), artifact), 'artifact write unconfirmed');
+    sourceSnapshot();
+    const savedBarrier = await inspect(stores, checkpoint(witness.document));
+    assert(same(savedBarrier.snapshot, witness) && same(savedBarrier.ledger, receipt.snapshot), 'saved artifact barrier changed');
+    sourceSnapshot();
+  }
   const completion = await completeReservationBatch(stores.ledger, receipt, resultHash);
   witness = await append(stores, witness, 'completed', attemptId, { ...completion, resultHash });
   const final = await inspect(stores, checkpoint(witness.document));
   assert(final.state === 'consistent' && same(final.snapshot, witness), 'completion barrier changed');
+  sourceSnapshot();
   return { artifact, resultHash, completion, checkpoint: checkpoint(witness.document) };
 }

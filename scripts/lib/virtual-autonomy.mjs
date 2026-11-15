@@ -1,8 +1,14 @@
-/** Offline research governance only. This module cannot place or transmit orders. */
+/** Offline research governance only. Every clock and duration is UTC milliseconds.
+ * Unit declarations are mandatory at public time boundaries; old untagged
+ * generations/evidence are not silently upgraded. No order transmission. */
 import { createHash } from 'node:crypto';
 
+export const AUTONOMY_TIME_UNIT = 'UTC epoch milliseconds';
+const DAY_MS = 86400000;
+
 export const AUTONOMY_POLICY = Object.freeze({
-  version: 1,
+  version: 2,
+  timeUnit: AUTONOMY_TIME_UNIT,
   mode: 'virtual-only',
   maxTrialsPerCycle: 20,
   minimumHistoryDays: 730,
@@ -12,17 +18,29 @@ export const AUTONOMY_POLICY = Object.freeze({
   minimumPaperTrades: 50,
   maxDrawdownPct: 10,
   maxRelativeSpread: 0.15,
-  maxFeedAgeSeconds: 10800,
+  maxFeedAgeMs: 10800000,
   switchMargin: 0.1,
-  minDwellSeconds: 86400,
+  minDwellMs: DAY_MS,
 });
 
 const requireValue = (condition, message) => { if (!condition) throw new Error(message); };
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
-const timestamp = (v) => finite(v) && v >= 0;
+const timestamp = (v) => Number.isSafeInteger(v) && v >= 0;
+// Historical generic audit chains retain their original numeric-time contract.
+// Domain-specific importers separately validate reservation milliseconds.
+const auditTimestamp = (v) => finite(v) && v >= 0;
+const unitMatches = (value) => value === AUTONOMY_TIME_UNIT;
+const requireUnit = (value) => requireValue(unitMatches(value), 'Explicit UTC millisecond timeUnit required');
+const validPolicy = (policy) => policy?.version === 2 && policy.mode === 'virtual-only' && unitMatches(policy.timeUnit)
+  && timestamp(policy.minDwellMs) && timestamp(policy.maxFeedAgeMs)
+  && Number.isSafeInteger(policy.minimumHistoryDays) && policy.minimumHistoryDays > 0
+  && !Object.hasOwn(policy, 'minDwellSeconds') && !Object.hasOwn(policy, 'maxFeedAgeSeconds');
 const nonempty = (v) => typeof v === 'string' && v.length > 0;
 const hash = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const clone = (v) => JSON.parse(JSON.stringify(v));
+const denseArray = value => Array.isArray(value) && value.length <= 100000
+  && Object.keys(value).length === value.length && Object.keys(value).every((key, i) => key === String(i));
+const plainObject = value => value && Object.getPrototypeOf(value) === Object.prototype;
 
 export const canonicalJson = (value) => {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') return JSON.stringify(value);
@@ -37,15 +55,16 @@ export const fingerprint = (value) => createHash('sha256').update(canonicalJson(
 
 /** A changed configuration always has a new identity. No in-place replacement. */
 export const freezeCandidate = ({ strategy, family, version, parentId = null, createdAt,
-  selectionEnd, dataHash, engineHash, policy = AUTONOMY_POLICY }) => {
+  selectionEnd, dataHash, engineHash, timeUnit, policy = AUTONOMY_POLICY }) => {
+  requireUnit(timeUnit);
   requireValue(nonempty(family) && Number.isInteger(version) && version > 0, 'Invalid candidate version');
   requireValue(timestamp(createdAt) && timestamp(selectionEnd) && selectionEnd <= createdAt, 'Invalid candidate times');
   requireValue(hash(dataHash) && hash(engineHash), 'Data and engine hashes are required');
   requireValue(parentId === null || nonempty(parentId), 'Invalid parentId');
   requireValue(strategy && typeof strategy === 'object' && !Array.isArray(strategy), 'Strategy is required');
-  requireValue(policy.mode === 'virtual-only', 'Only virtual-only policy is supported');
+  requireValue(validPolicy(policy), 'Explicit millisecond virtual-only policy required');
   const manifest = {
-    schemaVersion: 1, family, version, parentId, createdAt, selectionEnd,
+    schemaVersion: 2, timeUnit: AUTONOMY_TIME_UNIT, family, version, parentId, createdAt, selectionEnd,
     mode: 'virtual-only', strategy: clone(strategy), strategyHash: fingerprint(strategy),
     dataHash, engineHash, policyHash: fingerprint(policy),
   };
@@ -55,6 +74,8 @@ export const freezeCandidate = ({ strategy, family, version, parentId = null, cr
 /** The same family/version cannot be redefined or silently backdated. */
 export const registerCandidate = (registry, candidate) => {
   requireValue(Array.isArray(registry), 'Registry must be an array');
+  requireValue(candidate?.schemaVersion === 2 && unitMatches(candidate.timeUnit)
+    && registry.every(entry => entry.schemaVersion === 2 && unitMatches(entry.timeUnit)), 'Legacy or ambiguous generation time unit');
   const { candidateId, ...manifest } = candidate;
   requireValue(candidateId === `${candidate.family}@${candidate.version}:${fingerprint(manifest).slice(0, 16)}`
     && candidate.strategyHash === fingerprint(candidate.strategy), 'Candidate manifest changed');
@@ -76,7 +97,7 @@ export const registerCandidate = (registry, candidate) => {
 /** Hash-chain links detect accidental edits; they are not signatures or access control. */
 export const appendAudit = (events, record) => {
   verifyAudit(events);
-  requireValue(record && timestamp(record.at) && nonempty(record.type), 'Invalid audit record');
+  requireValue(record && auditTimestamp(record.at) && nonempty(record.type), 'Invalid audit record');
   requireValue(events.length === 0 || record.at >= events.at(-1).at, 'Audit time must not regress');
   const body = { ...clone(record), sequence: events.length, previousHash: events.at(-1)?.hash ?? null };
   delete body.hash;
@@ -87,20 +108,21 @@ export const verifyAudit = (events) => {
   events.forEach((event, i) => {
     const { hash: actual, ...body } = event;
     requireValue(event.sequence === i && event.previousHash === (events[i - 1]?.hash ?? null)
-      && actual === fingerprint(body) && timestamp(event.at) && nonempty(event.type)
+      && actual === fingerprint(body) && auditTimestamp(event.at) && nonempty(event.type)
       && (i === 0 || event.at >= events[i - 1].at), `Invalid audit event ${i}`);
   });
   return true;
 };
 
 /** Windows are [start,end). Purge using when each trade/label actually ends. */
-export const splitPurgedSamples = (samples, windows, embargoSeconds) => {
-  requireValue(finite(embargoSeconds) && embargoSeconds >= 0, 'Invalid embargo');
+export const splitPurgedSamples = (samples, windows, embargoMs, timeUnit) => {
+  requireUnit(timeUnit);
+  requireValue(timestamp(embargoMs), 'Invalid embargo');
   const names = ['train', 'selection', 'test'];
   names.forEach((name, i) => {
     const window = windows[name];
-    requireValue(window && timestamp(window.start) && finite(window.end) && window.start < window.end, `Invalid ${name} window`);
-    if (i) requireValue(windows[names[i - 1]].end + embargoSeconds <= window.start, 'Windows overlap or embargo is missing');
+    requireValue(window && timestamp(window.start) && timestamp(window.end) && window.start < window.end, `Invalid ${name} window`);
+    if (i) requireValue(windows[names[i - 1]].end + embargoMs <= window.start, 'Windows overlap or embargo is missing');
   });
   const result = { train: [], selection: [], test: [], purged: [] };
   let previous = -Infinity;
@@ -115,37 +137,40 @@ export const splitPurgedSamples = (samples, windows, embargoSeconds) => {
 };
 
 /** Information available at bar-open time excludes the close of that same bar. */
-export const closedBarsAsOf = (bars, asOf, timeframeSeconds) => {
-  requireValue(timestamp(asOf) && finite(timeframeSeconds) && timeframeSeconds > 0, 'Invalid bar clock');
+export const closedBarsAsOf = (bars, asOf, timeframeMs, timeUnit) => {
+  requireUnit(timeUnit);
+  requireValue(timestamp(asOf) && timestamp(timeframeMs) && timeframeMs > 0, 'Invalid bar clock');
   let previous = -Infinity;
   return bars.filter((bar) => {
     requireValue(timestamp(bar.t) && bar.t > previous, 'Bars must be strictly ordered');
     previous = bar.t;
     // Values of future/incomplete bars must never influence past decisions.
-    if (bar.t + timeframeSeconds > asOf) return false;
+    if (bar.t + timeframeMs > asOf) return false;
     requireValue([bar.o, bar.h, bar.l, bar.c].every((v) => finite(v) && v > 0)
       && bar.l <= Math.min(bar.o, bar.c) && bar.h >= Math.max(bar.o, bar.c) && bar.l <= bar.h, 'Invalid closed OHLC');
     return true;
   });
 };
-export const conversionAsOf = (bars, asOf, timeframeSeconds, maxAgeSeconds) => {
-  requireValue(finite(maxAgeSeconds) && maxAgeSeconds >= 0, 'Invalid conversion freshness');
-  const bar = closedBarsAsOf(bars, asOf, timeframeSeconds).at(-1);
-  if (!bar || asOf - (bar.t + timeframeSeconds) > maxAgeSeconds) return null;
-  return { rate: bar.c, knownAt: bar.t + timeframeSeconds };
+export const conversionAsOf = (bars, asOf, timeframeMs, maxAgeMs, timeUnit) => {
+  requireUnit(timeUnit);
+  requireValue(timestamp(maxAgeMs), 'Invalid conversion freshness');
+  const bar = closedBarsAsOf(bars, asOf, timeframeMs, timeUnit).at(-1);
+  if (!bar || asOf - (bar.t + timeframeMs) > maxAgeMs) return null;
+  return { rate: bar.c, knownAt: bar.t + timeframeMs };
 };
 
 /** Conservative initial router features, not a fitted/proven regime classifier. */
-export const classifyRegime = (bars, { asOf, timeframeSeconds, source,
+export const classifyRegime = (bars, { asOf, timeframeMs, timeUnit, source,
   spreadPrice = null, eventBlocked = true, policy = AUTONOMY_POLICY }) => {
-  const unavailable = (reason) => ({ regime: 'unknown', reason, asOf, eligible: false });
+  const unavailable = (reason) => ({ regime: 'unknown', reason, asOf, timeUnit: AUTONOMY_TIME_UNIT, eligible: false });
+  if (!unitMatches(timeUnit) || !validPolicy(policy)) return unavailable('time_unit_or_policy_mismatch');
   if (source !== 'dukascopy') return unavailable('unverified_or_fallback_source');
   if (eventBlocked !== false) return unavailable('event_risk_or_missing_calendar');
   if (!finite(spreadPrice) || spreadPrice < 0) return unavailable('missing_spread');
-  const closed = closedBarsAsOf(bars, asOf, timeframeSeconds);
+  const closed = closedBarsAsOf(bars, asOf, timeframeMs, timeUnit);
   if (closed.length < 61) return unavailable('insufficient_closed_bars');
   const latest = closed.at(-1);
-  if (asOf - (latest.t + timeframeSeconds) > policy.maxFeedAgeSeconds) return unavailable('stale_feed');
+  if (asOf - (latest.t + timeframeMs) > policy.maxFeedAgeMs) return unavailable('stale_feed');
   const recent = closed.slice(-61);
   const ranges = recent.slice(1).map((bar, i) => Math.max(bar.h - bar.l,
     Math.abs(bar.h - recent[i].c), Math.abs(bar.l - recent[i].c)));
@@ -159,17 +184,26 @@ export const classifyRegime = (bars, { asOf, timeframeSeconds, source,
   const efficiency = path > 0 ? Math.abs(latest.c - recent.at(-20).c) / path : 0;
   const regime = efficiency >= 0.4 ? (latest.c > recent.at(-20).c ? 'trend_up' : 'trend_down')
     : efficiency <= 0.2 ? 'range' : 'transition';
-  return { regime, reason: regime === 'transition' ? 'ambiguous_regime' : 'classified', asOf,
-    eligible: regime !== 'transition', atr, efficiency, barClosedAt: latest.t + timeframeSeconds };
+  return { regime, reason: regime === 'transition' ? 'ambiguous_regime' : 'classified', asOf, timeUnit: AUTONOMY_TIME_UNIT,
+    eligible: regime !== 'transition', atr, efficiency, barClosedAt: latest.t + timeframeMs };
 };
 
 /** Evidence must be from an untouched chronological outer replay, not legacy validation. */
-export const evaluatePromotion = (candidate, evidence, { asOf, usedHoldoutIds = [], consumedHoldouts = [], policy = AUTONOMY_POLICY } = {}) => {
+export const evaluatePromotion = (candidate, evidence, { asOf, timeUnit, usedHoldoutIds = [], consumedHoldouts = [], policy = AUTONOMY_POLICY } = {}) => {
   const reasons = [];
+  if (!unitMatches(timeUnit) || !unitMatches(candidate?.timeUnit)
+    || (evidence && !unitMatches(evidence.timeUnit)) || !validPolicy(policy)) {
+    return { action: 'hold', eligible: false, reasons: ['time_unit_or_policy_mismatch'] };
+  }
   const fail = (condition, reason) => { if (!condition) reasons.push(reason); };
   fail(timestamp(asOf), 'invalid_evaluation_time');
+  if (!denseArray(consumedHoldouts) || !consumedHoldouts.every(used => unitMatches(used?.timeUnit) && hash(used?.dataHash)
+    && timestamp(used.start) && timestamp(used.end) && used.end > used.start)
+    || !denseArray(usedHoldoutIds) || !usedHoldoutIds.every(nonempty)) {
+    return { action: 'hold', eligible: false, reasons: [...reasons, 'invalid_consumed_holdout_inventory'] };
+  }
   if (!candidate || typeof candidate !== 'object') return { action: 'hold', eligible: false, reasons: ['missing_candidate'] };
-  fail(candidate?.mode === 'virtual-only' && candidate.policyHash === fingerprint(policy), 'candidate_policy_mismatch');
+  fail(candidate?.schemaVersion === 2 && candidate.mode === 'virtual-only' && candidate.policyHash === fingerprint(policy), 'candidate_policy_mismatch');
   const { candidateId, ...manifest } = candidate ?? {};
   fail(candidate?.strategyHash === fingerprint(candidate?.strategy ?? null)
     && candidateId === `${candidate?.family}@${candidate?.version}:${fingerprint(manifest).slice(0, 16)}`, 'candidate_changed');
@@ -193,13 +227,23 @@ export const evaluatePromotion = (candidate, evidence, { asOf, usedHoldoutIds = 
   fail(timestamp(evidence.historyStart) && timestamp(evidence.historyEnd)
     && evidence.historyStart < evidence.historyEnd && evidence.historyEnd <= evidence.evaluatedAt
     && evidence.historyEnd >= evidence.finalTestEnd
-    && evidence.historyEnd - evidence.historyStart >= policy.minimumHistoryDays * 86400,
+    && evidence.historyEnd - evidence.historyStart >= policy.minimumHistoryDays * DAY_MS,
   'insufficient_or_invalid_research_history');
   const folds = evidence.folds ?? [];
+  if (!denseArray(folds) || !folds.every(plainObject)) {
+    return { action: 'hold', eligible: false, reasons: [...new Set([...reasons, 'invalid_outer_folds'])] };
+  }
   fail(Array.isArray(folds) && folds.length >= policy.minimumOuterFolds, 'insufficient_outer_folds');
   let previousEnd = -Infinity;
   let totalTrades = 0;
+  const foldIds = new Set(), foldHashes = new Set();
   if (Array.isArray(folds)) folds.forEach((fold) => {
+    fail(nonempty(fold.holdoutId) && !usedHoldoutIds.includes(fold.holdoutId)
+      && fold.holdoutId !== evidence.holdoutId && !foldIds.has(fold.holdoutId), 'outer_holdout_id_reused_or_missing');
+    fail(hash(fold.holdoutDataHash) && fold.holdoutDataHash !== evidence.holdoutDataHash
+      && !foldHashes.has(fold.holdoutDataHash) && !consumedHoldouts.some(used => used.dataHash === fold.holdoutDataHash
+        || (fold.testStart < used.end && fold.testEnd > used.start)), 'outer_holdout_content_reused_or_missing');
+    foldIds.add(fold.holdoutId); foldHashes.add(fold.holdoutDataHash);
     fail(timestamp(fold.trainEnd) && timestamp(fold.selectionEnd) && fold.trainEnd < fold.selectionEnd
       && fold.trainEnd >= evidence.historyStart
       && timestamp(fold.testStart) && timestamp(fold.testEnd) && fold.selectionEnd < fold.testStart
@@ -226,23 +270,24 @@ export const evaluatePromotion = (candidate, evidence, { asOf, usedHoldoutIds = 
 };
 
 /** Frozen, as-of-known scores only. All EAs can be rejected; never force a trade. */
-export const selectVirtualCandidate = ({ regime, candidates, asOf, currentId = null, lastSwitchAt = null,
+export const selectVirtualCandidate = ({ regime, candidates, asOf, timeUnit, currentId = null, lastSwitchAt = null,
   policy = AUTONOMY_POLICY }) => {
   requireValue(timestamp(asOf), 'Invalid selection time');
   const flat = (reason) => ({ candidateId: null, action: 'flat_new_entries', reason });
+  if (!unitMatches(timeUnit) || !unitMatches(regime?.timeUnit) || !validPolicy(policy)) return flat('time_unit_or_policy_mismatch');
   if (!regime?.eligible || regime.asOf !== asOf) return flat('regime_unavailable');
-  const eligible = candidates.filter((candidate) => candidate.status === 'paper_approved'
+  const eligible = candidates.filter((candidate) => unitMatches(candidate.timeUnit) && candidate.status === 'paper_approved'
     && candidate.regimes?.includes(regime.regime) && finite(candidate.score) && candidate.score > 0
     && timestamp(candidate.scoreKnownAt) && candidate.scoreKnownAt <= asOf
     && timestamp(candidate.availableAt) && candidate.availableAt <= asOf
-    && finite(candidate.expiresAt) && candidate.expiresAt > asOf);
+    && timestamp(candidate.expiresAt) && candidate.expiresAt > asOf);
   const ranked = eligible.sort((a, b) => b.score - a.score || a.candidateId.localeCompare(b.candidateId));
   if (!ranked.length) return flat('no_eligible_candidate');
   const current = ranked.find((candidate) => candidate.candidateId === currentId);
   const best = ranked[0];
   if (current && best.candidateId !== current.candidateId) {
     if (!timestamp(lastSwitchAt) || lastSwitchAt > asOf) return flat('invalid_switch_clock');
-    if (asOf - lastSwitchAt < policy.minDwellSeconds || best.score - current.score < policy.switchMargin) {
+    if (asOf - lastSwitchAt < policy.minDwellMs || best.score - current.score < policy.switchMargin) {
       return { candidateId: current.candidateId, action: 'monitor', reason: 'switch_hysteresis' };
     }
   }

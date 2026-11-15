@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as outer from './synthetic-outer-replay.mjs';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, cpSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
@@ -276,11 +276,18 @@ async function diskSetup(root) {
     witness: { witnessId: config.witnessStore.witnessId, ledgerScopeHash: config.witnessStore.ledgerScopeHash,
       authorityId: config.witnessStore.authorityId } };
 }
-function child(root, binding, crash = 'none') {
+function child(root, binding, crash = 'none', cache = false, cwd = globalThis.process.cwd()) {
   return new Promise((resolve, reject) => {
     const code = `${fileStoreModule}
 import { createSyntheticOuterPlan } from './scripts/lib/synthetic-outer-replay.mjs';
 import { runWitnessedSyntheticOuterReplay } from './scripts/lib/witnessed-synthetic-outer-replay.mjs';
+import { createLocalSyntheticArtifactStore } from './scripts/lib/synthetic-artifact-store.mjs';
+const originalCache = createLocalSyntheticArtifactStore({ directory: ${JSON.stringify(root)} });
+const artifactStore = { syntheticOnly: true, read: originalCache.read, async put(hash, artifact) {
+  if (${JSON.stringify(crash)} === 'before-cache') process.kill(process.pid, 'SIGKILL');
+  await originalCache.put(hash, artifact);
+  if (${JSON.stringify(crash)} === 'after-cache') process.kill(process.pid, 'SIGKILL');
+} };
 const reservationStore = fileStore(${JSON.stringify(join(root, 'ledger.json'))}, ${JSON.stringify(binding.ledger)});
 const witnessStore = fileStore(${JSON.stringify(join(root, 'witness.json'))}, ${JSON.stringify(binding.witness)});
 for (const [name, store] of Object.entries({ ledger: reservationStore, witness: witnessStore })) {
@@ -294,11 +301,12 @@ for (const [name, store] of Object.entries({ ledger: reservationStore, witness: 
 }
 try {
   await runWitnessedSyntheticOuterReplay({ reservationStore, witnessStore,
+    ...(${JSON.stringify(cache)} ? { artifactStore } : {}),
     trustedCheckpoint: JSON.parse(readFileSync(${JSON.stringify(join(root, 'pin.json'))}, 'utf8')),
     plan: createSyntheticOuterPlan({ foldCount: 2, trainQuotes: 25, selectionQuotes: 25, testQuotes: 26, maxTrials: 4 }) });
 } catch (error) { console.error(error.message); process.exitCode = 2; }
 `;
-    const process = spawn(globalThis.process.execPath, ['--input-type=module', '-e', code], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const process = spawn(globalThis.process.execPath, ['--input-type=module', '-e', code], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     let stderr = ''; process.stderr.on('data', chunk => { stderr += chunk; });
     process.on('error', reject); process.on('close', (code, signal) => resolve({ code, signal, stderr }));
   });
@@ -338,4 +346,108 @@ describe('two-authority process interruption', () => {
     expect(witness.events.map(e => e.phase)).toEqual(['intent', 'reserved', 'completed']);
     expect(witness.events[0].payload.identities).toHaveLength(2);
   }));
+});
+
+function artifactMemory() {
+  const saved = new Map();
+  return { syntheticOnly: true, saved,
+    async put(hash, artifact) { if (saved.has(hash)) throw new Error('exists'); saved.set(hash, copy(artifact)); },
+    async read(hash) { if (!saved.has(hash)) throw new Error('missing artifact'); return copy(saved.get(hash)); },
+  };
+}
+describe('bounded completed synthetic artifact recovery', () => {
+  it('saves and verifies before completion, then recovers exact bytes without replay or writes', async () => {
+    const options = { ...await setup(), artifactStore: artifactMemory() }, replay = vi.spyOn(outer, 'replaySyntheticOuterPlan');
+    const write = options.reservationStore.compareAndSwap.bind(options.reservationStore);
+    options.reservationStore.compareAndSwap = async (version, next) => {
+      if (next.reservations[0].status === 'completed') expect(options.artifactStore.saved.has(next.reservations[0].resultHash)).toBe(true);
+      await write(version, next);
+    };
+    const first = await run(options), recovered = await run(options);
+    expect(recovered).toEqual(first); expect(replay).toHaveBeenCalledTimes(1);
+    expect(options.reservationStore.writes).toBe(2); expect(options.witnessStore.writes).toBe(3);
+    expect(first.artifact.engineSources.map(s => s.name)).toContain('synthetic-artifact-store.mjs');
+  });
+  it.each(['missing', 'corrupt', 'cross-attempt', 'wrong-result'])('fails closed on completed %s cache', async mode => {
+    const options = { ...await setup(), artifactStore: artifactMemory() }, result = await run(options);
+    if (mode === 'missing') options.artifactStore.saved.clear();
+    else {
+      const artifact = options.artifactStore.saved.get(result.resultHash);
+      if (mode === 'corrupt') artifact.plan.folds.pop();
+      if (mode === 'cross-attempt') artifact.attemptId = 'different-attempt';
+      if (mode === 'wrong-result') artifact.replay = {};
+    }
+    const replay = vi.spyOn(outer, 'replaySyntheticOuterPlan');
+    await expect(run(options)).rejects.toThrow(); expect(replay).not.toHaveBeenCalled();
+    expect(options.reservationStore.writes).toBe(2); expect(options.witnessStore.writes).toBe(3);
+  });
+  it('rejects a completed legacy attempt without a saved artifact', async () => {
+    const options = await setup(); await run(options);
+    await expect(run({ ...options, artifactStore: artifactMemory() })).rejects.toThrow('missing artifact');
+  });
+  it.each(['missing', 'mutated', 'lost-ack'])('requires exact cache readback on %s write', async mode => {
+    const options = { ...await setup(), artifactStore: artifactMemory() }, put = options.artifactStore.put;
+    options.artifactStore.put = async (hash, artifact) => {
+      if (mode === 'missing') throw new Error('offline');
+      if (mode === 'mutated') artifact.replay = {};
+      await put(hash, artifact); if (mode === 'lost-ack') throw new Error('lost ack');
+    };
+    if (mode === 'lost-ack') expect((await run(options)).checkpoint.sequence).toBe(3);
+    else {
+      await expect(run(options)).rejects.toThrow();
+      expect(options.reservationStore.writes).toBe(1); expect(options.witnessStore.writes).toBe(2);
+      await expect(run(options)).rejects.toThrow('unresolved intent');
+    }
+  });
+  it('snapshots artifact store methods before awaiting and rejects non-synthetic stores', async () => {
+    const options = { ...await setup(), artifactStore: artifactMemory() }, read = options.witnessStore.read;
+    options.witnessStore.read = async () => { options.artifactStore.read = async () => { throw new Error('mutated'); }; return read(); };
+    expect((await run(options)).checkpoint.sequence).toBe(3);
+    await expect(run({ ...await setup(), artifactStore: { ...artifactMemory(), syntheticOnly: false } })).rejects.toThrow('synthetic-only');
+  });
+});
+
+
+describe('durable cache process interruption', () => {
+  it.each(['before-cache', 'after-cache', 'before-ledger-completed', 'after-ledger-completed', 'before-witness-completed', 'after-witness-completed'])(
+    'recovers only dual completion across SIGKILL %s', async crash => temporary(async root => {
+      const binding = await diskSetup(root), killed = await child(root, binding, crash, true);
+      expect(killed.signal, killed.stderr).toBe('SIGKILL');
+      const before = ['ledger.json', 'witness.json'].map(name => readFileSync(join(root, name), 'utf8'));
+      const retry = await child(root, binding, 'none', true);
+      expect(retry.code, retry.stderr).toBe(crash === 'after-witness-completed' ? 0 : 2);
+      expect(['ledger.json', 'witness.json'].map(name => readFileSync(join(root, name), 'utf8'))).toEqual(before);
+    }));
+});
+
+it('rejects changed helper source after restart without changing either authority', async () => temporary(async root => {
+  cpSync(new URL('.', import.meta.url), join(root, 'scripts/lib'), { recursive: true });
+  const binding = await diskSetup(root);
+  const first = await child(root, binding, 'none', true, root);
+  expect(first.code, first.stderr).toBe(0);
+  const before = ['ledger.json', 'witness.json'].map(name => readFileSync(join(root, name), 'utf8'));
+  const helper = join(root, 'scripts/lib/synthetic-artifact-store.mjs');
+  writeFileSync(helper, readFileSync(helper, 'utf8') + '\n// changed helper implementation identity\n');
+  const retry = await child(root, binding, 'none', true, root);
+  expect(retry.code, retry.stderr).toBe(2); expect(retry.stderr).toMatch(/consumed/);
+  expect(['ledger.json', 'witness.json'].map(name => readFileSync(join(root, name), 'utf8'))).toEqual(before);
+}));
+it('rejects overlapping changed plans without replaying or reading cache', async () => {
+  const options = { ...await setup(), artifactStore: artifactMemory() }; await run(options);
+  const replay = vi.spyOn(outer, 'replaySyntheticOuterPlan'), read = vi.spyOn(options.artifactStore, 'read');
+  await expect(run(options, createSyntheticOuterPlan({ ...plan().config, maxTrials: 3 }))).rejects.toThrow('consumed');
+  expect(replay).not.toHaveBeenCalled(); expect(read).not.toHaveBeenCalled();
+});
+it('bounds injected cache responses', async () => {
+  const options = { ...await setup(), artifactStore: artifactMemory() }; await run(options);
+  options.artifactStore.read = async () => ({ padding: 'x'.repeat(8 * 1024 * 1024 + 1) });
+  await expect(run(options)).rejects.toThrow('artifact size limit');
+});
+
+it.each(['reservationStore', 'witnessStore'])('rejects changed %s authority identity on cache recovery', async name => {
+  const options = { ...await setup(), artifactStore: artifactMemory() }; await run(options);
+  options[name].authorityId = 'different-synthetic-authority';
+  const replay = vi.spyOn(outer, 'replaySyntheticOuterPlan');
+  await expect(run(options)).rejects.toThrow('cached artifact identity');
+  expect(replay).not.toHaveBeenCalled();
 });

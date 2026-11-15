@@ -15,7 +15,7 @@ const temp = async fn => { const path = mkdtempSync(join(tmpdir(), 'shared-resea
 const memory = (document = reservationGenesis(ledgerId)) => {
   let value = clone(document), writes = 0;
   return {
-    ledgerId, get writes() { return writes; },
+    ledgerId, syntheticOnly: true, get writes() { return writes; },
     read: async () => ({ version: `v${value.revision}`, document: clone(value) }),
     compareAndSwap: async (version, next) => {
       if (version !== `v${value.revision}`) throw new ReservationConflict('stale');
@@ -31,9 +31,9 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 
 describe('shared holdout authority', () => {
   it('requires an authority and forbids observed inputs on the synthetic backend', async () => temp(async dir => {
-    await expect(run(dir)).rejects.toThrow('shared reservation store required');
+    await expect(run(dir)).rejects.toThrow('synthetic-only');
     const request = syntheticResearchRequest(); request.dataset.provenance.kind = 'observed';
-    await expect(run(dir, createSyntheticFileStore(join(dir, 'demo')), request)).rejects.toThrow('synthetic-only');
+    await expect(run(dir, createSyntheticFileStore(join(dir, 'demo')), request)).rejects.toThrow('observed research disabled');
   }));
   it('races independent working directories: only one can fit the same holdout', async () => temp(async root => {
     const store = memory(), a = join(root, 'a'), b = join(root, 'b');

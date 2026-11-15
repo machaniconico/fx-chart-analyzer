@@ -77,7 +77,7 @@ describe('private Blob transport, mocked SDK only', () => {
   });
   it('refuses observed research even with a usable injected transport', async () => temp(async dir => {
     const f = fixture(), request = syntheticResearchRequest(); request.dataset.provenance.kind = 'observed';
-    await expect(runResearchCycle({ stateDir: dir, request, reservationStore: f.makeStore() })).rejects.toThrow('synthetic-only');
+    await expect(runResearchCycle({ stateDir: dir, request, reservationStore: f.makeStore() })).rejects.toThrow('observed research disabled');
     expect(f.sdk.put).not.toHaveBeenCalled();
   }));
   it.each(['', 'http://example.com/x', '../ledger.json', '/ledger.json', 'a/../ledger.json', 'a//ledger.json', 'a/./ledger.json', 'ledger.txt'])('rejects ambiguous path %s before I/O', path => {
