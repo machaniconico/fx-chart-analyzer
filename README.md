@@ -33,7 +33,7 @@ npm run diagnose:dukascopy -- --tf=m15,m30,h1,d1       # 分足を含めて診�
 取得失敗時は既存の Yahoo フォールバックを使いますが、本数・鮮度チェックは維持します。
 M15/M30 も一次ソースの古い応答・時刻の後退を拒否し、コミット前に全5時間足を検査します。
 
-GitHub Actions (`.github/workflows/update-data.yml`) が毎日 06:00 JST に自動実行し、差分があればコミット→デプロイします。
+GitHub Actions (`.github/workflows/update-data.yml`) は毎日 06:17 JST の起動予定で、差分があればコミット→デプロイします。GitHub側の混雑などによる遅延・欠落があり、定刻の完了は保証されません。
 
 ## デプロイ
 
