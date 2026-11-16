@@ -2,12 +2,14 @@ name: Update FX data (daily)
 
 on:
   schedule:
-    # 06:00 JST = 21:00 UTC (前日)
-    - cron: "0 21 * * *"
+    # 06:17 JST = 21:17 UTC (前日). Avoid the busy start of the hour.
+    # GitHub schedules are best-effort; this is not a guaranteed completion time.
+    - cron: "17 21 * * *"
   workflow_dispatch:
 
 # Do not cancel after a force-push: the run could stop before opening its PR,
-# leaving pushed data without the PR required by the persistence gate. Queue runs instead.
+# leaving pushed data without the PR required by the persistence gate. Serialize runs.
+# GitHub may replace pending runs; this is not a durable FIFO or an exactly-once guarantee.
 concurrency:
   group: update-data
   cancel-in-progress: false
@@ -22,17 +24,32 @@ permissions:
 
 jobs:
   update-data:
+    # A manual run on another branch must not publish data or deploy that branch.
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     # A stalled fetch must not hold the runner for GitHub's 6h default, which would skip
     # the build/deploy and the final freshness gate (hiding the failure for a whole day).
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Resolve main after acquiring concurrency, not the event snapshot from
+          # before a delayed/queued run. Preserve already-committed data history.
+          ref: main
 
       - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
+
+      # A delayed/missing scheduler must not be confused with a slow data fetch.
+      # Telemetry failure stays soft; existing data-health gates remain hard.
+      - name: Report scheduled start delay
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: node scripts/report-schedule-timing.mjs
 
       - run: npm ci
 
