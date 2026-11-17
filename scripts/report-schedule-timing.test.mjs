@@ -62,7 +62,7 @@ describe('daily workflow safety contract',()=>{
   it('keeps a single off-hour cron, main-only dispatch and noncancelling serialization',()=>{
     expect([...source.matchAll(/- cron:/g)]).toHaveLength(1);expect(source).toContain('cron: "17 21 * * *"');
     expect(source).toContain("if: ${{ github.ref == 'refs/heads/main' }}");
-    expect(source).toMatch(/concurrency:\n  group: update-data\n  cancel-in-progress: false/);
+    expect(source).toMatch(/concurrency:\n  group: fx-production-publish\n  cancel-in-progress: false/);
     expect(source).toMatch(/actions\/checkout@v5\n        with:[\s\S]*?ref: main/);
   });
   it('makes telemetry soft without softening the precommit/final gates',()=>{
