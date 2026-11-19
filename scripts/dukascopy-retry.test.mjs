@@ -16,16 +16,16 @@ const successfulResponse = () => new Response(emptyCandles, {
   headers: { 'content-type': 'application/json' },
 });
 
-const productionM15Fetcher = async () => {
+const productionIntradayFetcher = async (timeframe) => {
   let requestOptions;
-  await fetchTimeframe('EURJPY', 'm15', 60, {
+  await fetchTimeframe('EURJPY', timeframe, 7, {
     fetchRates: async (options) => {
       requestOptions = options;
       return [];
     },
   });
   expect(requestOptions).toMatchObject({
-    retryCount: 1,
+    retryCount: 2,
     pauseBetweenRetriesMs: 1500,
     retryOnEmpty: false,
     failAfterRetryCount: true,
@@ -41,36 +41,37 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('M15 bounded transport retry', () => {
-  it('recovers one timed-out URL on the second attempt', async () => {
+describe.each(['m15', 'm30'])('%s bounded transport retry', (timeframe) => {
+  it('recovers two timed-out requests on the third attempt', async () => {
     const fetch = vi.fn()
+      .mockRejectedValueOnce(timeoutError())
       .mockRejectedValueOnce(timeoutError())
       .mockImplementationOnce(async () => successfulResponse());
     vi.stubGlobal('fetch', fetch);
-    const transport = await productionM15Fetcher();
+    const transport = await productionIntradayFetcher(timeframe);
 
     const result = await transport.fetch([url]);
 
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(fetch.mock.calls.map(([requestUrl]) => requestUrl)).toEqual([url, url]);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch.mock.calls.map(([requestUrl]) => requestUrl)).toEqual([url, url, url]);
     expect(result).toHaveLength(1);
     expect(result[0].buffer.toString('utf8')).toBe(emptyCandles);
   });
 
-  it('stops after two timeouts instead of retrying indefinitely', async () => {
+  it('stops after three timeouts instead of retrying indefinitely', async () => {
     const error = timeoutError();
     const fetch = vi.fn().mockRejectedValue(error);
     vi.stubGlobal('fetch', fetch);
-    const transport = await productionM15Fetcher();
+    const transport = await productionIntradayFetcher(timeframe);
 
     await expect(transport.fetch([url])).rejects.toBe(error);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 
   it('does not retry a plain HTTP 403 access denial', async () => {
     const fetch = vi.fn(async () => new Response('Forbidden', { status: 403 }));
     vi.stubGlobal('fetch', fetch);
-    const transport = await productionM15Fetcher();
+    const transport = await productionIntradayFetcher(timeframe);
 
     await expect(transport.fetch([url])).rejects.toBeInstanceOf(DukascopyAccessDeniedError);
     expect(fetch).toHaveBeenCalledOnce();
@@ -80,16 +81,16 @@ describe('M15 bounded transport retry', () => {
     const fetch = vi.fn().mockRejectedValue(timeoutError());
     vi.stubGlobal('fetch', fetch);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const transport = await productionM15Fetcher();
+    const transport = await productionIntradayFetcher(timeframe);
     const nowMs = Date.UTC(2026, 10, 6, 1, 30);
     const lastPrimarySuccess = '2026-10-07T00:23:39.977Z';
     const yahooBars = Array.from({ length: 4000 }, (_, index) => ({
-      t: nowMs / 1000 - (4000 - index) * 900,
+      t: nowMs / 1000 - (4000 - index) * (timeframe === 'm15' ? 900 : 1800),
       o: 160, h: 161, l: 159, c: 160.5, v: 0,
     }));
     const fetchYahoo = vi.fn(async () => yahooBars);
 
-    const result = await fetchTimeframeWithFallback('EURJPY', 'm15', 60, {
+    const result = await fetchTimeframeWithFallback('EURJPY', timeframe, 60, {
       fetchPrimary: async () => {
         await transport.fetch([url]);
         return [];
@@ -99,24 +100,24 @@ describe('M15 bounded transport retry', () => {
       nowMs,
     });
 
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(fetchYahoo).toHaveBeenCalledWith('EURJPY', 'm15');
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetchYahoo).toHaveBeenCalledWith('EURJPY', timeframe);
     expect(result).toMatchObject({ source: 'yahoo-fallback', bars: yahooBars });
     const health = buildSourceHealth({
       sources: [
-        { timeframe: 'm15', source: 'dukascopy' },
-        { timeframe: 'm15', source: result.source },
+        { timeframe, source: 'dukascopy' },
+        { timeframe, source: result.source },
       ],
       previousHealth: {
         lastPrimarySuccessAt: lastPrimarySuccess,
-        lastPrimarySuccessByTimeframe: { m15: lastPrimarySuccess },
+        lastPrimarySuccessByTimeframe: { [timeframe]: lastPrimarySuccess },
       },
       nowMs,
     });
-    expect(health.lastPrimarySuccessByTimeframe.m15).toBe(lastPrimarySuccess);
+    expect(health.lastPrimarySuccessByTimeframe[timeframe]).toBe(lastPrimarySuccess);
     const gate = evaluateSourceHealth({ health, nowMs });
     expect(gate.level).toBe('fail');
-    expect(gate.message).toContain('m15');
+    expect(gate.message).toContain(timeframe);
     expect(gate.message).toContain('120h');
   });
 });
