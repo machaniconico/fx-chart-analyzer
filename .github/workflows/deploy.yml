@@ -5,11 +5,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Pages deployment is last-write-wins, so only the newest run matters;
-# cancel older runs to prevent stale content from finishing last.
+# Serialize with the daily data publisher. Never cancel a daily run after it pushes
+# data but before its persistence gate. Preserve pending runs in the bounded queue.
 concurrency:
-  group: deploy-pages
-  cancel-in-progress: true
+  group: fx-production-publish
+  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
@@ -17,9 +18,14 @@ permissions:
 
 jobs:
   deploy:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Resolve after acquiring the shared lock, not the queued push snapshot.
+          ref: main
 
       - uses: actions/setup-node@v5
         with:
