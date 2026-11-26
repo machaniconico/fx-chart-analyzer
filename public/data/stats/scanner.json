@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "generatedAt": "2026-11-25T04:11:45.413Z",
+  "generatedAt": "2026-11-26T03:34:19.752Z",
   "meta": {
     "source": "scanner walk-forward simulation",
-    "dataStart": "2025-08-28T08:00:00.000Z",
-    "dataEnd": "2026-11-25T03:30:00.000Z",
+    "dataStart": "2025-08-29T04:00:00.000Z",
+    "dataEnd": "2026-11-26T03:00:00.000Z",
     "sampleStepDays": 1,
     "sampled": false,
     "adaptiveStatsMode": "rolling-from-cutoff",
@@ -26,7 +26,7 @@
     "initialBalanceYen": 1000000,
     "riskPercent": 1,
     "simulationWindowMonths": 12,
-    "evaluatedDecisionPoints": 2952,
+    "evaluatedDecisionPoints": 2946,
     "recommendationsFound": 42,
     "judgedRecommendations": 41,
     "skippedNoFutureBars": 0,
@@ -262,31 +262,31 @@
     },
     "swing": {
       "high": {
-        "recommendations": 0,
+        "recommendations": 1,
         "wins": 0,
-        "losses": 0,
+        "losses": 1,
         "draws": 0,
-        "winRate": null,
-        "averageRealizedR": null,
+        "winRate": 0,
+        "averageRealizedR": -1,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 0,
-          "winRate": null,
-          "averageRealizedR": null
+          "decayedSampleCount": 1,
+          "winRate": 0,
+          "averageRealizedR": -1
         }
       },
       "medium": {
-        "recommendations": 23,
+        "recommendations": 22,
         "wins": 7,
-        "losses": 16,
+        "losses": 15,
         "draws": 0,
-        "winRate": 0.3043,
-        "averageRealizedR": -0.2717,
+        "winRate": 0.3182,
+        "averageRealizedR": -0.2386,
         "ewa": {
           "halfLifeSamples": 30,
-          "decayedSampleCount": 18.05,
-          "winRate": 0.3234,
-          "averageRealizedR": -0.229
+          "decayedSampleCount": 17.45,
+          "winRate": 0.3345,
+          "averageRealizedR": -0.2024
         }
       },
       "low": {
