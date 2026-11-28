@@ -9,10 +9,12 @@ on:
 
 # Do not cancel after a force-push: the run could stop before opening its PR,
 # leaving pushed data without the PR required by the persistence gate. Serialize runs.
-# GitHub may replace pending runs; this is not a durable FIFO or an exactly-once guarantee.
+# Shared with deploy.yml: both workflows write the same Pages production target.
+# Keep pending daily runs when another deploy arrives (bounded to 100 waiters).
 concurrency:
-  group: update-data
+  group: fx-production-publish
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: write
